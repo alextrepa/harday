@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Local environment and machine state
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Tooling caches and reports
+.turbo/
+.convex/
+convex/.generated/
+coverage/
+playwright-report/
+test-results/
+.playwright-cli/
+.playwright-mcp/
+.superpowers/
+output/playwright/
+*.log
+*.tsbuildinfo
+
+# Web and extension build outputs
+apps/web/dist/
+apps/web/dist-desktop/
+apps/extension/dist/
+apps/extension/dist-firefox/
+
+# Desktop packaging outputs
+apps/desktop/out/
+apps/desktop/out-embedded/
+apps/desktop/build/internal-app-runtime/
+apps/desktop/build/embedded-agent/
+
+# Native agent build output
+apps/macos-agent/.build/

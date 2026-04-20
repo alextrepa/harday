@@ -1,0 +1,48 @@
+name: Desktop Manual Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-desktop:
+    name: Package desktop (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos
+            os: macos-latest
+            command: corepack pnpm make:desktop
+            artifact_name: harday-macos
+          - label: windows
+            os: windows-latest
+            command: corepack pnpm make:desktop:win
+            artifact_name: harday-windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Package desktop app
+        run: ${{ matrix.command }}
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: apps/desktop/out/make/**
+          if-no-files-found: error

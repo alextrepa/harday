@@ -1,0 +1,53 @@
+{
+  "name": "timetracker",
+  "private": true,
+  "packageManager": "pnpm@10.7.0",
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "build:agent": "cd apps/macos-agent && swift build",
+    "build:desktop": "corepack pnpm --filter @timetracker/desktop build",
+    "build:desktop:embedded": "corepack pnpm --filter @timetracker/desktop build:embedded",
+    "package:desktop": "corepack pnpm --filter @timetracker/desktop package",
+    "package:desktop:embedded": "corepack pnpm --filter @timetracker/desktop package:embedded",
+    "package:desktop:win": "corepack pnpm --filter @timetracker/desktop package:win",
+    "package:desktop:win:embedded": "corepack pnpm --filter @timetracker/desktop package:win:embedded",
+    "make:desktop": "corepack pnpm --filter @timetracker/desktop make",
+    "make:desktop:embedded": "corepack pnpm --filter @timetracker/desktop make:embedded",
+    "make:desktop:win": "corepack pnpm --filter @timetracker/desktop make:win",
+    "make:desktop:win:embedded": "corepack pnpm --filter @timetracker/desktop make:win:embedded",
+    "dev:web": "corepack pnpm --filter @timetracker/web dev",
+    "dev:desktop": "corepack pnpm --filter @timetracker/desktop dev",
+    "dev:desktop:embedded": "corepack pnpm --filter @timetracker/desktop dev:embedded",
+    "dev:extension": "corepack pnpm --filter @timetracker/extension dev",
+    "dev:agent": "cd apps/macos-agent && swift run timetracker-agent",
+    "build:extension:firefox": "corepack pnpm --filter @timetracker/extension build:firefox",
+    "dev:convex": "convex dev",
+    "start:desktop": "corepack pnpm --filter @timetracker/desktop start",
+    "start:desktop:embedded": "corepack pnpm --filter @timetracker/desktop start:embedded",
+    "test": "corepack pnpm --filter @timetracker/shared test",
+    "typecheck": "corepack pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.30",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@types/node": "^22.13.10",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.8"
+  },
+  "dependencies": {
+    "@auth/core": "^0.37.4",
+    "@convex-dev/auth": "^0.0.80",
+    "convex": "^1.20.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  }
+}

@@ -45,11 +45,11 @@ function withoutElectronRunAsNode(baseEnv) {
 
 function runPnpmCommand(args, options) {
   if (process.platform === "win32") {
-    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "corepack", "pnpm", ...args], options);
+    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "pnpm", ...args], options);
     return;
   }
 
-  run("corepack", ["pnpm", ...args], options);
+  run("pnpm", args, options);
 }
 
 function run(file, args, options) {

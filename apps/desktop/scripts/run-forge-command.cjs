@@ -25,22 +25,13 @@ run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build", ...(e
   env: process.env,
 });
 
-const forgeArgs = ["pnpm", "exec", "electron-forge", command, `--platform=${targetPlatform}`];
-if (targetPlatform === "win32") {
-  forgeArgs.push("--arch=x64");
-}
-
-run(corepackCommand(), forgeArgs, {
+runPnpmCommand(["exec", "electron-forge", command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
   cwd: desktopRoot,
   env: withDesktopBinOnPath({
     ...process.env,
     TIMETRACKER_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
   }),
 });
-
-function corepackCommand() {
-  return process.platform === "win32" ? "corepack.cmd" : "corepack";
-}
 
 function withDesktopBinOnPath(baseEnv) {
   return {
@@ -49,10 +40,18 @@ function withDesktopBinOnPath(baseEnv) {
   };
 }
 
+function runPnpmCommand(args, options) {
+  if (process.platform === "win32") {
+    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "corepack", "pnpm", ...args], options);
+    return;
+  }
+
+  run("corepack", ["pnpm", ...args], options);
+}
+
 function run(file, args, options) {
   const result = spawnSync(file, args, {
     stdio: "inherit",
-    shell: process.platform === "win32" && file.toLowerCase().endsWith(".cmd"),
     ...options,
   });
 

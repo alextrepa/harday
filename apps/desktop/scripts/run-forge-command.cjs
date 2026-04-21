@@ -6,7 +6,9 @@ const requestedPlatform = process.argv[3] ?? "host";
 const embedded = process.argv.includes("--embedded");
 const desktopRoot = path.resolve(__dirname, "..");
 const scriptRoot = path.resolve(__dirname);
+const repoRoot = path.resolve(desktopRoot, "../..");
 const targetPlatform = requestedPlatform === "host" ? process.platform : requestedPlatform;
+const electronForgeBin = path.join(path.dirname(require.resolve("@electron-forge/cli/package.json", { paths: [repoRoot] })), "dist", "electron-forge.js");
 
 if (!["darwin", "win32"].includes(targetPlatform)) {
   console.error(`Unsupported desktop packaging platform: ${targetPlatform}`);
@@ -25,7 +27,7 @@ run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build", ...(e
   env: process.env,
 });
 
-runPnpmCommand(["exec", "electron-forge", command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
+run(process.execPath, [electronForgeBin, command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
   cwd: desktopRoot,
   env: withDesktopBinOnPath({
     ...process.env,
@@ -38,15 +40,6 @@ function withDesktopBinOnPath(baseEnv) {
     ...baseEnv,
     PATH: [path.join(desktopRoot, "bin"), baseEnv.PATH ?? ""].filter(Boolean).join(path.delimiter),
   };
-}
-
-function runPnpmCommand(args, options) {
-  if (process.platform === "win32") {
-    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "pnpm", ...args], options);
-    return;
-  }
-
-  run("pnpm", args, options);
 }
 
 function run(file, args, options) {

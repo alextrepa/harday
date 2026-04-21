@@ -21,13 +21,13 @@ run(process.execPath, [path.join(scriptRoot, "prepare-agent.cjs")], {
 
 switch (command) {
   case "build":
-    run(corepackCommand(), ["pnpm", "--dir", "../..", "--filter", "@timetracker/web", "build", "--mode", "desktop"], {
+    runPnpmCommand(["--dir", "../..", "--filter", "@timetracker/web", "build", "--mode", "desktop"], {
       cwd: desktopRoot,
       env,
     });
     break;
   case "start":
-    run(corepackCommand(), ["pnpm", "exec", "electron", "."], {
+    runPnpmCommand(["exec", "electron", "."], {
       cwd: desktopRoot,
       env: withoutElectronRunAsNode(env),
     });
@@ -37,20 +37,24 @@ switch (command) {
     process.exit(1);
 }
 
-function corepackCommand() {
-  return process.platform === "win32" ? "corepack.cmd" : "corepack";
-}
-
 function withoutElectronRunAsNode(baseEnv) {
   const nextEnv = { ...baseEnv };
   delete nextEnv.ELECTRON_RUN_AS_NODE;
   return nextEnv;
 }
 
+function runPnpmCommand(args, options) {
+  if (process.platform === "win32") {
+    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "corepack", "pnpm", ...args], options);
+    return;
+  }
+
+  run("corepack", ["pnpm", ...args], options);
+}
+
 function run(file, args, options) {
   const result = spawnSync(file, args, {
     stdio: "inherit",
-    shell: process.platform === "win32" && file.toLowerCase().endsWith(".cmd"),
     ...options,
   });
 

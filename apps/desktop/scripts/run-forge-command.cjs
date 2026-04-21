@@ -29,18 +29,11 @@ run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build", ...(e
 
 run(process.execPath, [electronForgeBin, command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
   cwd: desktopRoot,
-  env: withDesktopBinOnPath({
+  env: {
     ...process.env,
     TIMETRACKER_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
-  }),
+  },
 });
-
-function withDesktopBinOnPath(baseEnv) {
-  return {
-    ...baseEnv,
-    PATH: [path.join(desktopRoot, "bin"), baseEnv.PATH ?? ""].filter(Boolean).join(path.delimiter),
-  };
-}
 
 function run(file, args, options) {
   const result = spawnSync(file, args, {

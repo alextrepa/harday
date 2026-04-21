@@ -21,7 +21,6 @@
     "dev:extension": "corepack pnpm --filter @timetracker/extension dev",
     "dev:agent": "cd apps/macos-agent && swift run timetracker-agent",
     "build:extension:firefox": "corepack pnpm --filter @timetracker/extension build:firefox",
-    "dev:convex": "convex dev",
     "start:desktop": "corepack pnpm --filter @timetracker/desktop start",
     "start:desktop:embedded": "corepack pnpm --filter @timetracker/desktop start:embedded",
     "test": "corepack pnpm --filter @timetracker/shared test",
@@ -39,11 +38,6 @@
     "typescript": "^5.8.2",
     "vite": "^6.2.0",
     "vitest": "^3.0.8"
-  },
-  "dependencies": {
-    "@auth/core": "^0.37.4",
-    "@convex-dev/auth": "^0.0.80",
-    "convex": "^1.20.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

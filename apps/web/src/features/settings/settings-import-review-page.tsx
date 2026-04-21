@@ -1,0 +1,422 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { ArrowRight, CheckSquare, FolderTree, MinusSquare, RefreshCw, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  buildImportHierarchy,
+  commitSelectedConnectorImportsToLocalStore,
+  dismissConnectorImportCandidates,
+  getConnectorsOverview,
+  listConnectorImportCandidates,
+  updateConnectorImportSelection,
+} from "@/lib/app-api";
+import { useLocalWorkItems } from "@/lib/local-hooks";
+import type { LocalWorkItem } from "@/lib/local-store";
+import type { ConnectorImportCandidate, ConnectorsOverview } from "@timetracker/shared";
+import { cn } from "@/lib/utils";
+
+interface ImportConnectionGroup {
+  connectionId: string;
+  connectionLabel: string;
+  tenantLabel: string;
+  items: ConnectorImportCandidate[];
+}
+
+function groupImportCandidatesByConnection(items: ConnectorImportCandidate[]): ImportConnectionGroup[] {
+  const groups = new Map<string, ImportConnectionGroup>();
+
+  for (const item of items) {
+    const existing = groups.get(item.connectionId);
+    if (existing) {
+      existing.items.push(item);
+      continue;
+    }
+
+    groups.set(item.connectionId, {
+      connectionId: item.connectionId,
+      connectionLabel: item.connectionLabel,
+      tenantLabel: item.tenantLabel,
+      items: [item],
+    });
+  }
+
+  return Array.from(groups.values()).sort(
+    (left, right) =>
+      left.tenantLabel.localeCompare(right.tenantLabel) ||
+      left.connectionLabel.localeCompare(right.connectionLabel),
+  );
+}
+
+function formatImportMeta(item: ConnectorImportCandidate) {
+  const parts = [
+    typeof item.priority === "number" ? `P${item.priority}` : undefined,
+    item.projectName,
+    `${item.workItemType} #${item.externalId}`,
+    item.state,
+    item.assignedTo,
+  ].filter(Boolean);
+
+  return parts.join(" · ");
+}
+
+export function SettingsImportReviewPage() {
+  const localWorkItems = useLocalWorkItems();
+  const [overview, setOverview] = useState<ConnectorsOverview | null>(null);
+  const [items, setItems] = useState<ConnectorImportCandidate[]>([]);
+  const [selectedCount, setSelectedCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setIsLoading(true);
+    try {
+      const [nextOverview, nextImports] = await Promise.all([
+        getConnectorsOverview(),
+        listConnectorImportCandidates(),
+      ]);
+      setOverview(nextOverview);
+      setItems(nextImports.items);
+      setSelectedCount(nextImports.selectedCount);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to load staged imports.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const connectionGroups = useMemo(() => groupImportCandidatesByConnection(items), [items]);
+  const existingWorkItemsByImportKey = useMemo(
+    () =>
+      new Map(
+        localWorkItems
+          .filter((workItem): workItem is LocalWorkItem & { sourceId: string } => Boolean(workItem.sourceId))
+          .map((workItem) => [`${workItem.source}:${workItem.sourceId}`, workItem] as const),
+      ),
+    [localWorkItems],
+  );
+
+  const toggleItems = async (ids: string[], selected: boolean) => {
+    if (ids.length === 0) {
+      return;
+    }
+
+    setIsMutating(true);
+    setStatusMessage(null);
+    setError(null);
+    try {
+      await updateConnectorImportSelection(ids, selected);
+      await refresh();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update staged import selection.");
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const dismissItems = async (ids: string[], successLabel: string) => {
+    if (ids.length === 0) {
+      return;
+    }
+
+    setIsMutating(true);
+    setStatusMessage(null);
+    setError(null);
+    try {
+      const result = await dismissConnectorImportCandidates(ids);
+      await refresh();
+      setStatusMessage(
+        `${result.dismissedCount} staged item${result.dismissedCount === 1 ? "" : "s"} dismissed from ${successLabel}.`,
+      );
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to dismiss staged import items.");
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const handleCommitSelected = async () => {
+    setIsMutating(true);
+    setStatusMessage(null);
+    setError(null);
+    try {
+      const result = await commitSelectedConnectorImportsToLocalStore();
+      await refresh();
+      const parts = [];
+      if (result.importedCount > 0) {
+        parts.push(`${result.importedCount} imported`);
+      }
+      if (result.updatedCount > 0) {
+        parts.push(`${result.updatedCount} updated`);
+      }
+
+      setStatusMessage(
+        parts.length > 0
+          ? `${parts.join(" · ")} backlog item${result.importedCount + result.updatedCount === 1 ? "" : "s"} applied.`
+          : "No backlog items changed.",
+      );
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to import selected backlog items.");
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h2 className="settings-section-title">Import Review</h2>
+        <p className="settings-section-desc">
+          Review everything staged by the connectors before it reaches backlog. Child items stay one level deep and inherit their parent context when needed.
+        </p>
+
+        <div className="settings-panel import-review-toolbar">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge>{overview?.totalPendingImportCount ?? items.length} staged items</Badge>
+            <Badge className="bg-muted">{selectedCount} selected</Badge>
+            <Badge className="bg-muted">{overview?.azureDevOpsConnections.length ?? 0} Azure DevOps connections</Badge>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || isMutating}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || isMutating || items.every((item) => !item.selectable)}
+              onClick={() =>
+                void toggleItems(
+                  items.filter((item) => item.selectable).map((item) => item.id),
+                  true,
+                )
+              }
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              Select All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || isMutating || selectedCount === 0}
+              onClick={() =>
+                void dismissItems(
+                  items.filter((item) => item.selectable && item.selected).map((item) => item.id),
+                  "review queue",
+                )
+              }
+            >
+              <X className="h-3.5 w-3.5" />
+              Dismiss Selected
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || isMutating || selectedCount === 0}
+              onClick={() =>
+                void toggleItems(
+                  items.filter((item) => item.selectable && item.selected).map((item) => item.id),
+                  false,
+                )
+              }
+            >
+              <MinusSquare className="h-3.5 w-3.5" />
+              Clear Selection
+            </Button>
+            <Button
+              size="sm"
+              disabled={isLoading || isMutating || selectedCount === 0}
+              onClick={() => void handleCommitSelected()}
+            >
+              <ArrowRight className="h-3.5 w-3.5" />
+              Sync Selected To Backlog
+            </Button>
+          </div>
+        </div>
+
+        {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
+        {error ? <div className="message-panel message-panel-warning">{error}</div> : null}
+
+        {isLoading ? (
+          <div className="message-panel">Loading staged imports…</div>
+        ) : connectionGroups.length === 0 ? (
+          <div className="message-panel">
+            No staged imports yet. Go to <Link to="/settings/connectors">Connectors</Link> and sync one of your Azure DevOps connections first.
+          </div>
+        ) : (
+          <div className="import-review-groups">
+            {connectionGroups.map((group) => {
+              const hierarchy = buildImportHierarchy(group.items);
+              const selectableIds = group.items.filter((item) => item.selectable).map((item) => item.id);
+              const selectedIds = group.items
+                .filter((item) => item.selectable && item.selected)
+                .map((item) => item.id);
+
+              return (
+                <section key={group.connectionId} className="settings-panel import-review-panel">
+                  <div className="import-review-panel-header">
+                    <div className="import-review-panel-title-wrap">
+                      <div className="import-review-panel-kicker">{group.tenantLabel}</div>
+                      <h3 className="import-review-panel-title">{group.connectionLabel}</h3>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className="bg-muted">{group.items.length} staged</Badge>
+                      <Badge className="bg-muted">{selectedIds.length} selected</Badge>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isMutating || selectableIds.length === 0}
+                      onClick={() => void toggleItems(selectableIds, true)}
+                    >
+                      <CheckSquare className="h-3.5 w-3.5" />
+                      Select Connection
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isMutating || group.items.length === 0}
+                      onClick={() => void dismissItems(group.items.map((item) => item.id), `${group.connectionLabel} sync`)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Dismiss Connection
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isMutating || selectedIds.length === 0}
+                      onClick={() => void toggleItems(selectedIds, false)}
+                    >
+                      <MinusSquare className="h-3.5 w-3.5" />
+                      Clear Connection
+                    </Button>
+                  </div>
+
+                  <div className="import-review-list">
+                    {hierarchy.rootItems.map((rootItem) => {
+                      const childItems = hierarchy.childrenByParent.get(rootItem.sourceId) ?? [];
+                      const existingRootItem = existingWorkItemsByImportKey.get(
+                        `${rootItem.source}:${rootItem.sourceId}`,
+                      );
+
+                      return (
+                        <div key={rootItem.id} className="import-review-node">
+                          <label
+                            className={cn(
+                              "import-review-item",
+                              !rootItem.selectable && "is-context-only",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={rootItem.selectable ? rootItem.selected : childItems.some((child) => child.selected)}
+                              disabled={isMutating || !rootItem.selectable}
+                              onChange={(event) =>
+                                void toggleItems([rootItem.id], event.target.checked)
+                              }
+                            />
+                            <div className="import-review-item-main">
+                              <div className="import-review-item-title-row">
+                                {typeof rootItem.priority === "number" ? (
+                                  <span className="import-review-item-priority" aria-label={`Priority ${rootItem.priority}`}>
+                                    {rootItem.priority}
+                                  </span>
+                                ) : null}
+                                <span className="import-review-item-title">{rootItem.title}</span>
+                                {existingRootItem ? (
+                                  <Badge className="bg-muted">
+                                    {rootItem.selected ? "Update existing task" : "Existing task"}
+                                  </Badge>
+                                ) : null}
+                                {!rootItem.selectable ? (
+                                  <Badge className="bg-muted">
+                                    <FolderTree className="h-3 w-3" />
+                                    Context parent
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <div className="import-review-item-meta">{formatImportMeta(rootItem)}</div>
+                              {existingRootItem ? (
+                                <div className="import-review-item-meta">
+                                  Matches backlog task: {existingRootItem.title}
+                                </div>
+                              ) : null}
+                              {rootItem.note ? <div className="import-review-item-note">{rootItem.note}</div> : null}
+                            </div>
+                          </label>
+
+                          {childItems.length > 0 ? (
+                            <div className="import-review-children">
+                              {childItems.map((childItem) => {
+                                const existingChildItem = existingWorkItemsByImportKey.get(
+                                  `${childItem.source}:${childItem.sourceId}`,
+                                );
+
+                                return (
+                                  <label key={childItem.id} className="import-review-item is-child">
+                                    <input
+                                      type="checkbox"
+                                      checked={childItem.selected}
+                                      disabled={isMutating || !childItem.selectable}
+                                      onChange={(event) =>
+                                        void toggleItems([childItem.id], event.target.checked)
+                                      }
+                                    />
+                                    <div className="import-review-item-main">
+                                      <div className="import-review-item-title-row">
+                                        {typeof childItem.priority === "number" ? (
+                                          <span className="import-review-item-priority" aria-label={`Priority ${childItem.priority}`}>
+                                            {childItem.priority}
+                                          </span>
+                                        ) : null}
+                                        <span className="import-review-item-title">{childItem.title}</span>
+                                        {existingChildItem ? (
+                                          <Badge className="bg-muted">
+                                            {childItem.selected ? "Update existing task" : "Existing task"}
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                      <div className="import-review-item-meta">{formatImportMeta(childItem)}</div>
+                                      {existingChildItem ? (
+                                        <div className="import-review-item-meta">
+                                          Matches backlog task: {existingChildItem.title}
+                                        </div>
+                                      ) : null}
+                                      {childItem.note ? (
+                                        <div className="import-review-item-note">{childItem.note}</div>
+                                      ) : null}
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

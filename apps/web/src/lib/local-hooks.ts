@@ -1,0 +1,105 @@
+import { useCallback, useSyncExternalStore } from "react";
+import type { ActivityBlockRecord } from "@timetracker/shared";
+import {
+  localStore,
+  type ImportedBrowserDraft,
+  type OutlookMeetingDraft,
+} from "@/lib/local-store";
+
+export function useLocalState() {
+  return useSyncExternalStore(localStore.subscribe, localStore.snapshot, localStore.snapshot);
+}
+
+export function useLocalTeam() {
+  const state = useLocalState();
+  return state.team ? { team: state.team, membership: { role: "owner" } } : null;
+}
+
+export function useLocalProjects() {
+  return useLocalState().projects.filter((project) => project.status === "active");
+}
+
+export function useLocalWorkItems() {
+  return useLocalState().workItems;
+}
+
+export function useLocalRules() {
+  return useLocalState().rules;
+}
+
+export function useExtensionBridgeStatus() {
+  return useLocalState().extensionBridgeStatus;
+}
+
+export function useOutlookIntegration() {
+  return useLocalState().outlookIntegration;
+}
+
+export function useUserPreferences() {
+  return useLocalState().userPreferences;
+}
+
+export function useLocalTimeline(localDate: string) {
+  useLocalState();
+  return localStore.getTimeline(localDate);
+}
+
+export function useLocalTimelineActions() {
+  return {
+    assignBlock: useCallback((block: ActivityBlockRecord, projectId: string) => {
+      localStore.upsertEditedBlock({
+        ...block,
+        projectId,
+        assignmentSource: "manual",
+        status: "edited",
+        locked: true,
+      });
+    }, []),
+    renameBlock: useCallback((block: ActivityBlockRecord, label: string) => {
+      localStore.upsertEditedBlock({
+        ...block,
+        display: { ...block.display, label },
+      });
+    }, []),
+    updateNote: useCallback((block: ActivityBlockRecord, note: string) => {
+      localStore.upsertEditedBlock({
+        ...block,
+        note,
+      });
+    }, []),
+    assignImportedBrowserDraft: useCallback((draft: ImportedBrowserDraft, projectId: string) => {
+      localStore.updateImportedBrowserDraft(draft._id, {
+        projectId,
+        status: projectId ? "assigned" : "draft",
+        assignmentSource: projectId ? "manual" : "none",
+        explanation: projectId
+          ? "Assigned manually from the imported browser bucket."
+          : "Assignment cleared. This bucket remains local until reviewed.",
+      });
+    }, []),
+    updateImportedBrowserDraftNote: useCallback((draft: ImportedBrowserDraft, note: string) => {
+      localStore.updateImportedBrowserDraft(draft._id, { note });
+    }, []),
+    assignOutlookMeetingDraft: useCallback((meeting: OutlookMeetingDraft, projectId: string) => {
+      localStore.updateOutlookMeetingDraft(meeting._id, {
+        projectId,
+        status: projectId ? "assigned" : "draft",
+        assignmentSource: projectId ? "manual" : "none",
+        explanation: projectId
+          ? "Assigned manually from the imported Outlook meeting."
+          : "Assignment cleared. This meeting stays local until you review it.",
+      });
+    }, []),
+    updateOutlookMeetingDraftNote: useCallback((meeting: OutlookMeetingDraft, note: string) => {
+      localStore.updateOutlookMeetingDraft(meeting._id, { note });
+    }, []),
+    dismissBlock: localStore.dismissBlock,
+    dismissImportedBrowserDraft: localStore.dismissImportedBrowserDraft.bind(localStore),
+    dismissOutlookMeetingDraft: localStore.dismissOutlookMeetingDraft.bind(localStore),
+    commitBlock: localStore.commitBlock,
+    commitImportedBrowserDraft: localStore.commitImportedBrowserDraft.bind(localStore),
+    commitOutlookMeetingDraft: localStore.commitOutlookMeetingDraft.bind(localStore),
+    saveRuleFromBlock: localStore.saveRuleFromBlock,
+    saveRuleFromImportedBrowserDraft: localStore.saveRuleFromImportedBrowserDraft.bind(localStore),
+  };
+}

@@ -15,7 +15,7 @@ In this repo, "meaningful operation" does not mean every function call or UI ren
 - a timer being started or saved
 - Outlook meetings being imported
 - a timesheet entry being committed
-- an app API or Convex HTTP request completing
+- an app API request completing
 
 We will not use scattered `console.log()` calls as the primary debugging model.
 
@@ -26,7 +26,6 @@ This app is split across multiple runtimes:
 - `apps/web`
 - `apps/api`
 - `apps/desktop`
-- `convex`
 
 Wide events fit that shape well because each runtime can emit one authoritative record for its part of a flow, keyed by shared IDs where possible.
 
@@ -92,13 +91,9 @@ These are acceptable as the default business context:
 
 ### Remote sink policy
 
-Until the product has explicit consent and a stronger privacy review, remote logging should be limited to:
+Until the product has explicit consent and a stronger privacy review, diagnostics should default to local-only storage.
 
-- Convex server-side operations
-- operational status for desktop or agent processes
-- explicitly remote-safe aggregate events
-
-The web and desktop apps should default to a local diagnostic sink first.
+If a remote sink is introduced later, it should accept only explicitly remote-safe aggregate events and operational status, never raw activity details.
 
 ## Two Sinks
 
@@ -117,9 +112,9 @@ Recommended retention:
 
 - last 5,000 events or last 7 days, whichever is smaller
 
-### 2. Remote operational sink
+### 2. Optional remote operational sink
 
-Use this for `convex` now, and for remote-safe app events later.
+Use this only for explicitly remote-safe app events if the product later adds an external service.
 
 Properties:
 
@@ -232,20 +227,6 @@ First instrumentation points:
 - [local-store.ts](../apps/web/src/lib/local-store.ts)
 - [app-api.ts](../apps/web/src/lib/app-api.ts)
 
-### `convex`
-
-Convex is the cleanest place to start remote operational logging because it already represents explicit server boundaries.
-
-Start with:
-
-- `api.extension.pair`
-- `api.extension.ingest`
-- future sync mutation completion events
-
-First instrumentation point:
-
-- [http.ts](../convex/http.ts)
-
 ## Event Shape Examples
 
 ### Web: browser bucket import
@@ -279,38 +260,6 @@ First instrumentation point:
 }
 ```
 
-### Convex: extension ingest
-
-```json
-{
-  "ts": "2026-04-15T14:23:11.118Z",
-  "event_name": "api.extension.ingest",
-  "level": "info",
-  "outcome": "success",
-  "duration_ms": 84,
-  "service": "timetracker-convex",
-  "runtime": "convex",
-  "privacy_tier": "remote_safe",
-  "workspace": {
-    "team_id": "team_123",
-    "user_id": "user_456"
-  },
-  "http": {
-    "method": "POST",
-    "path": "/api/extension/ingest",
-    "status_code": 200
-  },
-  "activity": {
-    "source": "browser_extension",
-    "segment_count": 18,
-    "captured_url_mode": "sanitized_path"
-  },
-  "device": {
-    "device_id": "device_789"
-  }
-}
-```
-
 ## Sampling And Retention
 
 Wide events are information-dense, but some flows are still high-volume.
@@ -327,7 +276,6 @@ Recommended starting policy:
 - `web`: keep all mutation events, drop polling/status noise
 - `extension`: keep finalized segments and failures, sample healthy repeated status pings at 10% if needed
 - `agent`: keep HTTP completions and aggregation work, drop raw sampling loop noise
-- `convex`: keep all for now because volume should be manageable
 
 ## Implementation Plan
 
@@ -335,7 +283,6 @@ Recommended starting policy:
 
 Add a shared logger contract and instrument the real runtime boundaries first:
 
-- `convex/http.ts`
 - `apps/api/src/server.ts`
 - `apps/web/src/lib/app-api.ts`
 

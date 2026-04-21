@@ -3,23 +3,13 @@ name: Desktop Manual Build
 on:
   workflow_dispatch:
 
-jobs:
-  package-desktop:
-    name: Package desktop (${{ matrix.label }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: macos
-            os: macos-latest
-            command: corepack pnpm make:desktop
-            artifact_name: harday-macos
-          - label: windows
-            os: windows-latest
-            command: corepack pnpm make:desktop:win
-            artifact_name: harday-windows
+permissions:
+  contents: read
 
+jobs:
+  package-macos:
+    name: Package macOS desktop
+    runs-on: macos-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,8 +18,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enable Corepack
         run: corepack enable
@@ -37,12 +25,40 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Package desktop app
-        run: ${{ matrix.command }}
+      - name: Package macOS app
+        run: corepack pnpm make:desktop
 
-      - name: Upload desktop artifacts
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: harday-macos
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+
+  package-windows:
+    name: Package Windows desktop
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Package Windows app
+        run: corepack pnpm make:desktop:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: harday-windows
           path: apps/desktop/out/make/**
           if-no-files-found: error

@@ -14,7 +14,6 @@ const env = {
   TIMETRACKER_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
   VITE_ENABLE_ACTIVITY_LOGGER: embedded ? "true" : "false",
   VITE_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
-  PATH: [path.join(desktopRoot, "bin"), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
 };
 
 run(process.execPath, [path.join(scriptRoot, "prepare-agent.cjs")], {

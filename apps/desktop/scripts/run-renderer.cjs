@@ -2,24 +2,13 @@ const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 
 const command = process.argv[2];
-const embedded = process.argv.includes("--embedded");
 const desktopRoot = path.resolve(__dirname, "..");
 const scriptRoot = path.resolve(__dirname);
 const repoRoot = path.resolve(desktopRoot, "../..");
 const viteBin = path.join(path.dirname(require.resolve("vite/package.json", { paths: [repoRoot] })), "bin", "vite.js");
 const electronCli = path.join(path.dirname(require.resolve("electron/package.json", { paths: [repoRoot] })), "cli.js");
 
-const env = {
-  ...process.env,
-  TIMETRACKER_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
-  VITE_ENABLE_ACTIVITY_LOGGER: embedded ? "true" : "false",
-  VITE_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
-};
-
-run(process.execPath, [path.join(scriptRoot, "prepare-agent.cjs")], {
-  cwd: desktopRoot,
-  env,
-});
+const env = { ...process.env };
 
 switch (command) {
   case "build":

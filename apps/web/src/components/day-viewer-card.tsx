@@ -45,7 +45,7 @@ export function DayViewerCard({
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-0">
-        <div className="border-b border-[var(--border)] bg-[var(--surface-high)] px-4 py-4 sm:px-5 sm:py-5">
+        <div className="relative border-b border-[var(--border)] bg-[var(--surface-high)] px-4 py-4 sm:px-5 sm:py-5 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-b before:from-indigo-500/[0.06] before:to-transparent">
           <div className="space-y-3 lg:hidden">
             <h1 className="min-w-0 text-[26px] font-semibold tracking-[-0.04em] text-foreground sm:text-[28px]">
               {formatPageTitle(date)}

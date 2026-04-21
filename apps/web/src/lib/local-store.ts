@@ -231,7 +231,6 @@ export interface LocalAppState {
   backlogStatusMappings: LocalBacklogStatusMapping[];
   backlogSortMode: BacklogSortMode;
   capture: CaptureSettings;
-  activityLoggerEnabled: boolean;
   lastExtensionImportAt?: number;
   extensionBridgeStatus?: ExtensionBridgeStatus;
   outlookIntegration: OutlookConnectionSnapshot;
@@ -469,7 +468,6 @@ function createDefaultState(): LocalAppState {
     backlogStatusMappings: [],
     backlogSortMode: "custom",
     capture: defaultCapture,
-    activityLoggerEnabled: false,
     outlookIntegration: {
       configured: false,
       connected: false,
@@ -667,20 +665,23 @@ function normalizeWorkItem(workItem: PersistedLocalWorkItem): LocalWorkItem {
 
 function normalizeState(state: Partial<LocalAppState>): LocalAppState {
   const defaults = createDefaultState();
-  const rawWorkItems = (state.workItems ?? defaults.workItems) as PersistedLocalWorkItem[];
+  const { activityLoggerEnabled: _removedActivityLoggerEnabled, ...persistedState } = state as Partial<LocalAppState> & {
+    activityLoggerEnabled?: boolean;
+  };
+  const rawWorkItems = (persistedState.workItems ?? defaults.workItems) as PersistedLocalWorkItem[];
   const workItems = rawWorkItems.map((workItem) => normalizeWorkItem(workItem));
-  const backlogStatuses = (state.backlogStatuses ?? defaults.backlogStatuses)
+  const backlogStatuses = (persistedState.backlogStatuses ?? defaults.backlogStatuses)
     .filter((status): status is LocalBacklogStatus => Boolean(status?._id && status.name))
     .map((status) => ({
       _id: status._id,
       name: normalizeBacklogStatusName(status.name),
       createdAt: status.createdAt ?? Date.now(),
     }));
-  const backlogStatusMappings = (state.backlogStatusMappings ?? defaults.backlogStatusMappings).filter(
+  const backlogStatusMappings = (persistedState.backlogStatusMappings ?? defaults.backlogStatusMappings).filter(
     (mapping): mapping is LocalBacklogStatusMapping =>
       Boolean(mapping?.source && mapping.connectionId && mapping.sourceStatusKey && mapping.backlogStatusId),
   );
-  const persistedBacklogSortMode = state.backlogSortMode as BacklogSortMode | "priority" | undefined;
+  const persistedBacklogSortMode = persistedState.backlogSortMode as BacklogSortMode | "priority" | undefined;
   const backlogSortMode =
     persistedBacklogSortMode === "priority"
       ? "priority_asc"
@@ -689,38 +690,39 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
   return ensureLocalWorkspace(
     reconcileImportedBacklogStatuses({
       ...defaults,
-      ...state,
+      ...persistedState,
       user: {
         ...defaults.user,
-        ...state.user,
+        ...persistedState.user,
       },
-      projects: (state.projects ?? defaults.projects).map((project) => normalizeProject(project)),
-      rules: state.rules ?? defaults.rules,
-      segments: state.segments ?? defaults.segments,
-      dismissedSegmentIds: state.dismissedSegmentIds ?? defaults.dismissedSegmentIds,
-      editedBlocks: state.editedBlocks ?? defaults.editedBlocks,
-      importedBrowserDrafts: state.importedBrowserDrafts ?? defaults.importedBrowserDrafts,
-      outlookMeetingDrafts: state.outlookMeetingDrafts ?? defaults.outlookMeetingDrafts,
-      timers: (state.timers ?? defaults.timers).map((timer) => normalizeTimer(timer)),
-      timesheetEntries: (state.timesheetEntries ?? defaults.timesheetEntries).map((entry) => normalizeTimesheetEntry(entry)),
+      projects: (persistedState.projects ?? defaults.projects).map((project) => normalizeProject(project)),
+      rules: persistedState.rules ?? defaults.rules,
+      segments: persistedState.segments ?? defaults.segments,
+      dismissedSegmentIds: persistedState.dismissedSegmentIds ?? defaults.dismissedSegmentIds,
+      editedBlocks: persistedState.editedBlocks ?? defaults.editedBlocks,
+      importedBrowserDrafts: persistedState.importedBrowserDrafts ?? defaults.importedBrowserDrafts,
+      outlookMeetingDrafts: persistedState.outlookMeetingDrafts ?? defaults.outlookMeetingDrafts,
+      timers: (persistedState.timers ?? defaults.timers).map((timer) => normalizeTimer(timer)),
+      timesheetEntries: (persistedState.timesheetEntries ?? defaults.timesheetEntries).map((entry) =>
+        normalizeTimesheetEntry(entry),
+      ),
       workItems,
       backlogStatuses,
       backlogStatusMappings,
       backlogSortMode,
       capture: {
         ...defaults.capture,
-        ...state.capture,
-        blockedDomains: state.capture?.blockedDomains ?? defaults.capture.blockedDomains,
-        sensitiveDomains: state.capture?.sensitiveDomains ?? defaults.capture.sensitiveDomains,
+        ...persistedState.capture,
+        blockedDomains: persistedState.capture?.blockedDomains ?? defaults.capture.blockedDomains,
+        sensitiveDomains: persistedState.capture?.sensitiveDomains ?? defaults.capture.sensitiveDomains,
       },
-      activityLoggerEnabled: false,
       outlookIntegration: {
         ...defaults.outlookIntegration,
-        ...state.outlookIntegration,
+        ...persistedState.outlookIntegration,
       },
       userPreferences: {
         ...defaults.userPreferences,
-        ...state.userPreferences,
+        ...persistedState.userPreferences,
       },
     }),
   );
@@ -1856,12 +1858,6 @@ export const localStore = {
     updateState((state) => ({
       ...state,
       extensionBridgeStatus: status,
-    }));
-  },
-  setActivityLoggerEnabled(enabled: boolean) {
-    updateState((state) => ({
-      ...state,
-      activityLoggerEnabled: false,
     }));
   },
   setOutlookIntegration(snapshot: OutlookConnectionSnapshot) {

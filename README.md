@@ -2,7 +2,7 @@
 
 A privacy-first time-tracking MVP for reviewing local activity drafts, assigning them to projects, and committing cleaned timesheet entries.
 
-The current app is **local-first**: raw activity drafts stay in browser/local extension storage. Convex is scaffolded for future sync, but the web app does not need a Convex deployment to run the MVP flow.
+The current app is **local-first**: raw activity drafts stay in browser/local extension storage, and the app runs without any backend service.
 
 ## What Works Today
 
@@ -27,7 +27,7 @@ Do not treat draft activity as synced timesheet data. A draft is only a suggesti
 
 Rules are more sensitive than drafts. Saving a rule can store a reusable signal such as `github.com` plus `/myorg/project`. The app shows a warning before saving a rule; only save rules for patterns you are comfortable reusing and eventually syncing.
 
-The extension currently keeps captured activity in browser extension storage. It does **not** upload raw activity to Convex.
+The extension currently keeps captured activity in browser extension storage. It does **not** upload raw activity anywhere.
 The web app can read that local data only through the installed extension bridge on approved local origins.
 
 ## Requirements
@@ -193,26 +193,11 @@ The bridge currently allows these local app origins:
 - `http://localhost:4173`
 - `http://127.0.0.1:4173`
 
-## Convex Status
+## Local-Only Status
 
-Convex files exist under `convex/` for the planned sync backend:
+This repo currently targets a local-only workflow.
 
-- team/project metadata
-- Google auth
-- extension pairing
-- timer/timesheet/rule sync
-- reports
-- future committed-data ingestion
-
-The local-first MVP intentionally does not require Convex to review local drafts.
-
-If you want to work on the Convex backend later, start it separately:
-
-```sh
-corepack pnpm dev:convex
-```
-
-Do not re-enable raw activity upload. Sync should be limited to active timer continuity, committed timesheet entries, project/team metadata, and explicitly accepted rules.
+Do not introduce raw activity upload. Any future persistence changes should preserve the same privacy boundary: raw activity stays local, and only explicit user-approved records should ever leave the device.
 
 ## Verification
 
@@ -241,7 +226,6 @@ The root build creates the web app, the desktop renderer in `apps/web/dist-deskt
 ```text
 apps/web/          local-first React + TanStack Router app
 apps/extension/    Chromium + Firefox local capture extension
-convex/            scaffolded future sync backend
 packages/shared/   shared types, normalization, timeline aggregation, rules
 docs/              architecture notes
 ```

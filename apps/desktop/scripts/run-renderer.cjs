@@ -5,6 +5,9 @@ const command = process.argv[2];
 const embedded = process.argv.includes("--embedded");
 const desktopRoot = path.resolve(__dirname, "..");
 const scriptRoot = path.resolve(__dirname);
+const repoRoot = path.resolve(desktopRoot, "../..");
+const viteBin = path.join(path.dirname(require.resolve("vite/package.json", { paths: [repoRoot] })), "bin", "vite.js");
+const electronCli = path.join(path.dirname(require.resolve("electron/package.json", { paths: [repoRoot] })), "cli.js");
 
 const env = {
   ...process.env,
@@ -21,13 +24,13 @@ run(process.execPath, [path.join(scriptRoot, "prepare-agent.cjs")], {
 
 switch (command) {
   case "build":
-    runPnpmCommand(["--dir", "../..", "--filter", "@timetracker/web", "build", "--mode", "desktop"], {
-      cwd: desktopRoot,
+    run(process.execPath, [viteBin, "build", "--mode", "desktop"], {
+      cwd: path.resolve(desktopRoot, "../web"),
       env,
     });
     break;
   case "start":
-    runPnpmCommand(["exec", "electron", "."], {
+    run(process.execPath, [electronCli, "."], {
       cwd: desktopRoot,
       env: withoutElectronRunAsNode(env),
     });
@@ -41,15 +44,6 @@ function withoutElectronRunAsNode(baseEnv) {
   const nextEnv = { ...baseEnv };
   delete nextEnv.ELECTRON_RUN_AS_NODE;
   return nextEnv;
-}
-
-function runPnpmCommand(args, options) {
-  if (process.platform === "win32") {
-    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "pnpm", ...args], options);
-    return;
-  }
-
-  run("pnpm", args, options);
 }
 
 function run(file, args, options) {

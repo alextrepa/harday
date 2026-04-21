@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const connectorBacklogSources = ["azure_devops"] as const;
-export type ConnectorBacklogSource = (typeof connectorBacklogSources)[number];
+export const connectorSourceSchema = z.string().trim().min(1).max(120);
+export type ConnectorBacklogSource = z.infer<typeof connectorSourceSchema>;
 
 export function normalizeConnectorStatusKey(value: string) {
   return value.trim().toLocaleLowerCase();
@@ -10,54 +10,110 @@ export function normalizeConnectorStatusKey(value: string) {
 export const azureDevOpsQueryScopes = ["assigned_to_me", "project_open_tasks"] as const;
 export type AzureDevOpsQueryScope = (typeof azureDevOpsQueryScopes)[number];
 
+export const jiraQueryScopes = ["assigned_to_me", "project_open_issues"] as const;
+export type JiraQueryScope = (typeof jiraQueryScopes)[number];
+
 export const connectorImportDepthSchema = z.union([z.literal(0), z.literal(1)]);
 export type ConnectorImportDepth = z.infer<typeof connectorImportDepthSchema>;
 
-export const azureDevOpsConnectionInputSchema = z.object({
-  id: z.string().trim().min(1).max(120).optional(),
-  label: z.string().trim().min(1).max(120),
-  tenantLabel: z.string().trim().min(1).max(120),
-  organizationUrl: z.string().trim().url(),
-  project: z.string().trim().max(120).optional(),
-  personalAccessToken: z.string().trim().min(1).max(300),
-  queryScope: z.enum(azureDevOpsQueryScopes).default("assigned_to_me"),
-  priorityFieldName: z.string().trim().min(1).max(200).optional(),
-  autoSync: z.boolean().default(false),
-  autoSyncIntervalMinutes: z.number().int().min(1).max(1440).default(15),
-});
-export type AzureDevOpsConnectionInput = z.infer<typeof azureDevOpsConnectionInputSchema>;
+export const connectorFieldValueSchema = z.union([
+  z.string().max(4000),
+  z.number().finite(),
+  z.boolean(),
+]);
+export type ConnectorFieldValue = z.infer<typeof connectorFieldValueSchema>;
 
-export const azureDevOpsConnectionSummarySchema = z.object({
+export const connectorFieldValuesSchema = z.record(z.string().min(1).max(120), connectorFieldValueSchema);
+export type ConnectorFieldValues = z.infer<typeof connectorFieldValuesSchema>;
+
+export const connectorSummaryValueSchema = z.union([
+  z.string().max(1000),
+  z.number().finite(),
+  z.boolean(),
+]);
+export type ConnectorSummaryValue = z.infer<typeof connectorSummaryValueSchema>;
+
+export const connectorSummaryValuesSchema = z.record(
+  z.string().min(1).max(120),
+  connectorSummaryValueSchema,
+);
+export type ConnectorSummaryValues = z.infer<typeof connectorSummaryValuesSchema>;
+
+export const connectorFieldTypeSchema = z.enum([
+  "text",
+  "password",
+  "url",
+  "select",
+  "number",
+  "checkbox",
+]);
+export type ConnectorFieldType = z.infer<typeof connectorFieldTypeSchema>;
+
+export const connectorFieldOptionSchema = z.object({
+  value: z.string().min(1).max(120),
+  label: z.string().min(1).max(120),
+});
+export type ConnectorFieldOption = z.infer<typeof connectorFieldOptionSchema>;
+
+export const connectorFieldSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
+  type: connectorFieldTypeSchema,
+  placeholder: z.string().trim().max(240).optional(),
+  helpText: z.string().trim().max(500).optional(),
+  required: z.boolean().default(false),
+  secret: z.boolean().default(false),
+  defaultValue: connectorFieldValueSchema.optional(),
+  options: z.array(connectorFieldOptionSchema).max(50).optional(),
+  min: z.number().finite().optional(),
+  max: z.number().finite().optional(),
+  step: z.number().finite().optional(),
+});
+export type ConnectorField = z.infer<typeof connectorFieldSchema>;
+
+export const connectorPluginManifestSchema = z.object({
+  id: connectorSourceSchema,
+  displayName: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
+  iconSvg: z.string().min(1).max(20000),
+  entrypoint: z.string().trim().min(1).max(240),
+  connectionFields: z.array(connectorFieldSchema).min(1).max(50),
+});
+export type ConnectorPluginManifest = z.infer<typeof connectorPluginManifestSchema>;
+
+export const connectorConnectionSummarySchema = z.object({
   id: z.string().min(1).max(120),
+  pluginId: connectorSourceSchema,
   label: z.string().min(1).max(120),
   tenantLabel: z.string().min(1).max(120),
-  organizationUrl: z.string().url(),
-  project: z.string().max(120).optional(),
-  queryScope: z.enum(azureDevOpsQueryScopes),
-  priorityFieldName: z.string().min(1).max(200).optional(),
   autoSync: z.boolean(),
   autoSyncIntervalMinutes: z.number().int().min(1).max(1440),
-  priorityFieldResolvedName: z.string().min(1).max(200).optional(),
-  priorityFieldResolvedReferenceName: z.string().min(1).max(200).optional(),
-  priorityFieldType: z.string().min(1).max(80).optional(),
-  priorityFieldIsQueryable: z.boolean().optional(),
   connectedAt: z.number().int().positive(),
   lastSyncAt: z.number().int().positive().optional(),
   lastError: z.string().max(1000).optional(),
   pendingImportCount: z.number().int().nonnegative(),
   selectedImportCount: z.number().int().nonnegative(),
+  configSummary: connectorSummaryValuesSchema,
+  editableValues: connectorFieldValuesSchema,
 });
-export type AzureDevOpsConnectionSummary = z.infer<typeof azureDevOpsConnectionSummarySchema>;
+export type ConnectorConnectionSummary = z.infer<typeof connectorConnectionSummarySchema>;
+
+export const connectorOverviewGroupSchema = z.object({
+  plugin: connectorPluginManifestSchema,
+  connections: z.array(connectorConnectionSummarySchema),
+});
+export type ConnectorOverviewGroup = z.infer<typeof connectorOverviewGroupSchema>;
 
 export const connectorsOverviewSchema = z.object({
-  azureDevOpsConnections: z.array(azureDevOpsConnectionSummarySchema),
+  plugins: z.array(connectorPluginManifestSchema),
+  connectionGroups: z.array(connectorOverviewGroupSchema),
   totalPendingImportCount: z.number().int().nonnegative(),
   totalSelectedImportCount: z.number().int().nonnegative(),
 });
 export type ConnectorsOverview = z.infer<typeof connectorsOverviewSchema>;
 
 export const connectorBacklogStatusInputSchema = z.object({
-  source: z.enum(connectorBacklogSources),
+  source: connectorSourceSchema,
   connectionId: z.string().trim().min(1).max(120),
   connectionLabel: z.string().trim().min(1).max(120),
   tenantLabel: z.string().trim().min(1).max(120),
@@ -84,19 +140,31 @@ export type ConnectorBacklogStatusUpsertRequest = z.infer<typeof connectorBacklo
 export const connectorBacklogStatusUpsertResponseSchema = connectorBacklogStatusListResponseSchema;
 export type ConnectorBacklogStatusUpsertResponse = z.infer<typeof connectorBacklogStatusUpsertResponseSchema>;
 
-export const azureDevOpsSyncRequestSchema = z.object({
+export const connectorSyncRequestSchema = z.object({
   trigger: z.enum(["manual", "auto"]).default("manual"),
 });
-export type AzureDevOpsSyncRequest = z.infer<typeof azureDevOpsSyncRequestSchema>;
+export type ConnectorSyncRequest = z.infer<typeof connectorSyncRequestSchema>;
 
-export const azureDevOpsConnectionSaveResponseSchema = z.object({
-  overview: connectorsOverviewSchema,
-  connection: azureDevOpsConnectionSummarySchema,
+export const connectorConnectionSaveRequestSchema = z.object({
+  id: z.string().trim().min(1).max(120).optional(),
+  values: connectorFieldValuesSchema,
 });
-export type AzureDevOpsConnectionSaveResponse = z.infer<typeof azureDevOpsConnectionSaveResponseSchema>;
+export type ConnectorConnectionSaveRequest = z.infer<typeof connectorConnectionSaveRequestSchema>;
+
+export const connectorConnectionSaveResponseSchema = z.object({
+  overview: connectorsOverviewSchema,
+  connection: connectorConnectionSummarySchema,
+});
+export type ConnectorConnectionSaveResponse = z.infer<typeof connectorConnectionSaveResponseSchema>;
+
+export const connectorPluginValidationResultSchema = z.object({
+  normalizedConfig: connectorFieldValuesSchema,
+  connectionSummary: connectorSummaryValuesSchema.default({}),
+});
+export type ConnectorPluginValidationResult = z.infer<typeof connectorPluginValidationResultSchema>;
 
 export const connectorImportCandidateInputSchema = z.object({
-  source: z.enum(connectorBacklogSources),
+  source: connectorSourceSchema,
   connectionId: z.string().trim().min(1).max(120),
   connectionLabel: z.string().trim().min(1).max(120),
   tenantLabel: z.string().trim().min(1).max(120),
@@ -126,6 +194,11 @@ export const connectorImportCandidateSchema = connectorImportCandidateInputSchem
   pushedAt: z.number().int().positive(),
 });
 export type ConnectorImportCandidate = z.infer<typeof connectorImportCandidateSchema>;
+
+export const connectorPluginSyncResultSchema = z.object({
+  items: z.array(connectorImportCandidateInputSchema),
+});
+export type ConnectorPluginSyncResult = z.infer<typeof connectorPluginSyncResultSchema>;
 
 export const connectorImportPushRequestSchema = z.object({
   items: z.array(connectorImportCandidateInputSchema).min(1).max(200),
@@ -173,12 +246,12 @@ export const connectorImportCommitResponseSchema = z.object({
 });
 export type ConnectorImportCommitResponse = z.infer<typeof connectorImportCommitResponseSchema>;
 
-export const azureDevOpsSyncResultSchema = z.object({
-  connection: azureDevOpsConnectionSummarySchema,
+export const connectorSyncResultSchema = z.object({
+  connection: connectorConnectionSummarySchema,
   mode: z.enum(["review", "backlog"]),
   items: z.array(connectorImportCandidateSchema),
   stagedCount: z.number().int().nonnegative(),
   updatedCount: z.number().int().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
 });
-export type AzureDevOpsSyncResult = z.infer<typeof azureDevOpsSyncResultSchema>;
+export type ConnectorSyncResult = z.infer<typeof connectorSyncResultSchema>;

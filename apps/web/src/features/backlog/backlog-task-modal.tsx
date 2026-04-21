@@ -197,13 +197,13 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     () => selectedProject?.tasks.find((task) => task._id === taskId),
     [selectedProject, taskId],
   );
-  const azureMetaParts = useMemo(
+  const sourceMetaParts = useMemo(
     () =>
       workItem
         ? [
             isSubtaskItem(workItem) ? "Subtask" : undefined,
-            workItem.source === "azure_devops" ? workItem.sourceConnectionLabel : undefined,
-            workItem.source === "azure_devops" ? workItem.sourceProjectName : undefined,
+            workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceConnectionLabel : undefined,
+            workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceProjectName : undefined,
             workItem.sourceWorkItemType,
           ].filter(Boolean)
         : [],
@@ -213,9 +213,12 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     () => [selectedProject?.name, selectedTask?.name].filter(Boolean),
     [selectedProject?.name, selectedTask?.name],
   );
-  const adoReference = workItem?.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
-  const adoSourceUrl = workItem?.source === "azure_devops" ? workItem.sourceId : undefined;
-  const azureMetaLabel = [adoReference ? `#${adoReference}` : undefined, ...azureMetaParts].filter(Boolean).join(" · ");
+  const sourceReference = workItem?.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
+  const sourceUrl =
+    workItem && workItem.source !== "manual" && workItem.source !== "outlook"
+      ? workItem.sourceId
+      : undefined;
+  const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
   const importedPriorityValue = !isSubtaskDraft ? workItem?.importedPriority : undefined;
   const parsedPriorityDraft = !isSubtaskDraft ? parsePriorityInput(priority) : undefined;
   const canResetToImportedPriority =
@@ -702,20 +705,20 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
             </label>
           )}
 
-          {azureMetaParts.length > 0 || adoReference ? (
+          {sourceMetaParts.length > 0 || sourceReference ? (
             <div className="backlog-field-title-full">
-              {adoSourceUrl ? (
+              {sourceUrl ? (
                 <a
-                  href={adoSourceUrl}
+                  href={sourceUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="backlog-task-meta backlog-task-meta-link"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  {azureMetaLabel}
+                  {sourceMetaLabel}
                 </a>
               ) : (
-                <span className="backlog-task-meta">{azureMetaLabel}</span>
+                <span className="backlog-task-meta">{sourceMetaLabel}</span>
               )}
             </div>
           ) : null}

@@ -5,23 +5,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocalState, useOutlookIntegration } from "@/lib/local-hooks";
 import {
-  deleteAzureDevOpsConnection,
-  getAppApiDescription,
+  deleteConnectorConnection,
   getAppApiBaseUrl,
+  getAppApiDescription,
   getConnectorsOverview,
-  saveAzureDevOpsConnection,
-  syncAzureDevOpsConnection,
+  saveConnectorConnection,
+  syncConnectorConnection,
 } from "@/lib/app-api";
 import { connectOutlook, disconnectOutlook } from "@/lib/outlook";
-import type { AzureDevOpsConnectionInput, ConnectorsOverview } from "@timetracker/shared";
+import type {
+  ConnectorConnectionSummary,
+  ConnectorField,
+  ConnectorFieldValue,
+  ConnectorFieldValues,
+  ConnectorOverviewGroup,
+  ConnectorPluginManifest,
+  ConnectorsOverview,
+} from "@timetracker/shared";
 
-const AZURE_SCOPE_OPTIONS: Array<{
-  value: AzureDevOpsConnectionInput["queryScope"];
-  label: string;
-}> = [
-  { value: "assigned_to_me", label: "Assigned to me" },
-  { value: "project_open_tasks", label: "Open tasks across organization" },
-];
+type ConnectorFormState = {
+  pluginId: string;
+  editingConnectionId: string | null;
+  values: ConnectorFieldValues;
+};
 
 function formatConnectorTimestamp(timestamp?: number) {
   if (!timestamp) {
@@ -31,32 +37,152 @@ function formatConnectorTimestamp(timestamp?: number) {
   return new Date(timestamp).toLocaleString();
 }
 
-function parseAutoSyncIntervalMinutes(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const parsed = Number(trimmed);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1440) {
-    return null;
-  }
-
-  return parsed;
+function prettifySummaryKey(key: string) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function createEmptyAzureForm() {
-  return {
-    editingConnectionId: null as string | null,
-    label: "",
-    tenantLabel: "",
-    organizationUrl: "https://dev.azure.com/",
-    personalAccessToken: "",
-    queryScope: "assigned_to_me" as AzureDevOpsConnectionInput["queryScope"],
-    priorityFieldName: "",
-    autoSync: false,
-    autoSyncIntervalMinutes: "15",
-  };
+function buildDefaultValue(field: ConnectorField): ConnectorFieldValue {
+  if (field.defaultValue !== undefined) {
+    return field.defaultValue;
+  }
+
+  switch (field.type) {
+    case "checkbox":
+      return false;
+    case "number":
+      return typeof field.min === "number" ? field.min : 0;
+    default:
+      return "";
+  }
+}
+
+function buildFormValues(
+  plugin: ConnectorPluginManifest,
+  editableValues?: ConnectorFieldValues,
+): ConnectorFieldValues {
+  const values: ConnectorFieldValues = {};
+
+  for (const field of plugin.connectionFields) {
+    values[field.id] =
+      editableValues?.[field.id] ??
+      (field.secret ? "" : buildDefaultValue(field));
+  }
+
+  return values;
+}
+
+function isFieldEmpty(value: ConnectorFieldValue | undefined) {
+  return value === undefined || value === "" || value === null;
+}
+
+function canSubmitPluginForm(plugin: ConnectorPluginManifest | undefined, values: ConnectorFieldValues) {
+  if (!plugin) {
+    return false;
+  }
+
+  return plugin.connectionFields.every((field) => {
+    if (!field.required) {
+      return true;
+    }
+
+    if (field.id === "autoSyncIntervalMinutes" && values.autoSync !== true) {
+      return true;
+    }
+
+    return !isFieldEmpty(values[field.id]);
+  });
+}
+
+function ConnectorPluginIcon({ plugin }: { plugin: ConnectorPluginManifest }) {
+  return (
+    <span
+      className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted/40 text-foreground [&>svg]:h-5 [&>svg]:w-5"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: plugin.iconSvg }}
+    />
+  );
+}
+
+function ConnectorFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: ConnectorField;
+  value: ConnectorFieldValue | undefined;
+  onChange: (nextValue: ConnectorFieldValue) => void;
+}) {
+  if (field.type === "checkbox") {
+    return (
+      <label className="connector-form-toggle connector-form-field-wide">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span>
+          <span className="connector-form-toggle-title">{field.label}</span>
+          {field.helpText ? (
+            <span className="connector-form-toggle-description">{field.helpText}</span>
+          ) : null}
+        </span>
+      </label>
+    );
+  }
+
+  if (field.type === "select") {
+    return (
+      <label className="field connector-form-field-wide">
+        <span className="field-label">{field.label}</span>
+        <select
+          className="field-input"
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {field.helpText ? <span className="field-help">{field.helpText}</span> : null}
+      </label>
+    );
+  }
+
+  return (
+    <label className={`field ${field.type === "password" || field.helpText ? "connector-form-field-wide" : ""}`}>
+      <span className="field-label">{field.label}</span>
+      <Input
+        type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
+        value={
+          typeof value === "number"
+            ? String(value)
+            : typeof value === "boolean"
+              ? (value ? "true" : "false")
+              : (value ?? "")
+        }
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        onChange={(event) => {
+          if (field.type === "number") {
+            const nextValue = Number(event.target.value);
+            onChange(Number.isFinite(nextValue) ? nextValue : 0);
+            return;
+          }
+
+          onChange(event.target.value);
+        }}
+        placeholder={field.placeholder}
+        autoComplete="off"
+      />
+      {field.helpText ? <span className="field-help">{field.helpText}</span> : null}
+    </label>
+  );
 }
 
 export function SettingsConnectorsPage() {
@@ -65,35 +191,22 @@ export function SettingsConnectorsPage() {
   const [isUpdatingOutlook, setIsUpdatingOutlook] = useState(false);
   const [connectors, setConnectors] = useState<ConnectorsOverview | null>(null);
   const [connectorError, setConnectorError] = useState<string | null>(null);
-  const [azureStatusMessage, setAzureStatusMessage] = useState<string | null>(null);
-  const [isUpdatingAzure, setIsUpdatingAzure] = useState(false);
-  const [isAzureFormOpen, setIsAzureFormOpen] = useState(false);
-  const [azureForm, setAzureForm] = useState(createEmptyAzureForm);
-  const parsedAutoSyncIntervalMinutes = parseAutoSyncIntervalMinutes(azureForm.autoSyncIntervalMinutes);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isMutatingConnector, setIsMutatingConnector] = useState(false);
+  const [formState, setFormState] = useState<ConnectorFormState | null>(null);
 
-  const azureImportedCount = useMemo(
-    () => state.workItems.filter((workItem) => workItem.source === "azure_devops").length,
+  const importedCountsByPlugin = useMemo(
+    () =>
+      state.workItems.reduce<Record<string, number>>((counts, workItem) => {
+        if (workItem.source === "manual" || workItem.source === "outlook") {
+          return counts;
+        }
+
+        counts[workItem.source] = (counts[workItem.source] ?? 0) + 1;
+        return counts;
+      }, {}),
     [state.workItems],
   );
-
-  const azureConnectionsByTenant = useMemo(() => {
-    const groups = new Map<
-      string,
-      NonNullable<ConnectorsOverview["azureDevOpsConnections"]>
-    >();
-
-    for (const connection of connectors?.azureDevOpsConnections ?? []) {
-      const existing = groups.get(connection.tenantLabel);
-      if (existing) {
-        existing.push(connection);
-        continue;
-      }
-
-      groups.set(connection.tenantLabel, [connection]);
-    }
-
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
-  }, [connectors?.azureDevOpsConnections]);
 
   const refreshConnectors = async () => {
     try {
@@ -108,6 +221,13 @@ export function SettingsConnectorsPage() {
   useEffect(() => {
     void refreshConnectors();
   }, []);
+
+  const connectorGroups = connectors?.connectionGroups ?? [];
+  const pluginsById = useMemo(
+    () => new Map((connectors?.plugins ?? []).map((plugin) => [plugin.id, plugin] as const)),
+    [connectors?.plugins],
+  );
+  const activePlugin = formState ? pluginsById.get(formState.pluginId) : undefined;
 
   const handleOutlookConnect = async () => {
     setIsUpdatingOutlook(true);
@@ -127,383 +247,223 @@ export function SettingsConnectorsPage() {
     }
   };
 
-  const handleAzureSave = async () => {
-    setIsUpdatingAzure(true);
-    setAzureStatusMessage(null);
+  const handleCreate = (plugin: ConnectorPluginManifest) => {
+    setConnectorError(null);
+    setStatusMessage(null);
+    setFormState({
+      pluginId: plugin.id,
+      editingConnectionId: null,
+      values: buildFormValues(plugin),
+    });
+  };
+
+  const handleEdit = (plugin: ConnectorPluginManifest, connection: ConnectorConnectionSummary) => {
+    setConnectorError(null);
+    setStatusMessage(null);
+    setFormState({
+      pluginId: plugin.id,
+      editingConnectionId: connection.id,
+      values: buildFormValues(plugin, connection.editableValues),
+    });
+  };
+
+  const handleCancel = () => {
+    setFormState(null);
+  };
+
+  const handleSave = async () => {
+    if (!formState) {
+      return;
+    }
+
+    setIsMutatingConnector(true);
+    setStatusMessage(null);
     setConnectorError(null);
     try {
-      const result = await saveAzureDevOpsConnection({
-        id: azureForm.editingConnectionId ?? undefined,
-        label: azureForm.label,
-        tenantLabel: azureForm.tenantLabel,
-        organizationUrl: azureForm.organizationUrl,
-        personalAccessToken: azureForm.personalAccessToken,
-        queryScope: azureForm.queryScope,
-        priorityFieldName: azureForm.priorityFieldName.trim() || undefined,
-        autoSync: azureForm.autoSync,
-        autoSyncIntervalMinutes: parsedAutoSyncIntervalMinutes ?? 15,
-      });
+      const result = await saveConnectorConnection(
+        formState.pluginId,
+        formState.values,
+        formState.editingConnectionId ?? undefined,
+      );
       setConnectors(result.overview);
-      const prioritySummary = result.connection.priorityFieldName
-        ? [
-            result.connection.priorityFieldResolvedReferenceName
-              ? `resolved to ${result.connection.priorityFieldResolvedReferenceName}`
-              : undefined,
-            typeof result.connection.priorityFieldIsQueryable === "boolean"
-              ? `WIQL queryable: ${result.connection.priorityFieldIsQueryable ? "yes" : "no"}`
-              : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : "";
-      setAzureStatusMessage(
-        [
-          azureForm.editingConnectionId
-            ? "Azure DevOps connection updated."
-            : "Azure DevOps connection added.",
-          azureForm.autoSync ? "Auto sync to backlog enabled." : "Review queue sync enabled.",
-          prioritySummary,
-        ]
-          .filter(Boolean)
-          .join(" "),
+      setStatusMessage(
+        formState.editingConnectionId
+          ? `${result.connection.label} connection updated.`
+          : `${result.connection.label} connection added.`,
       );
-      setAzureForm(createEmptyAzureForm());
-      setIsAzureFormOpen(false);
+      setFormState(null);
     } catch (error) {
-      setConnectorError(error instanceof Error ? error.message : "Unable to save the Azure DevOps connection.");
+      setConnectorError(error instanceof Error ? error.message : "Unable to save the connector connection.");
     } finally {
-      setIsUpdatingAzure(false);
+      setIsMutatingConnector(false);
     }
   };
 
-  const handleAzureDelete = async (connectionId: string) => {
-    setIsUpdatingAzure(true);
-    setAzureStatusMessage(null);
+  const handleDelete = async (pluginId: string, connectionId: string) => {
+    setIsMutatingConnector(true);
+    setStatusMessage(null);
     setConnectorError(null);
     try {
-      const overview = await deleteAzureDevOpsConnection(connectionId);
+      const overview = await deleteConnectorConnection(pluginId, connectionId);
       setConnectors(overview);
-      if (azureForm.editingConnectionId === connectionId) {
-        setAzureForm(createEmptyAzureForm());
-        setIsAzureFormOpen(false);
+      if (formState?.editingConnectionId === connectionId && formState.pluginId === pluginId) {
+        setFormState(null);
       }
-      setAzureStatusMessage("Azure DevOps connection removed.");
+      setStatusMessage("Connection removed.");
     } catch (error) {
-      setConnectorError(error instanceof Error ? error.message : "Unable to delete the Azure DevOps connection.");
+      setConnectorError(error instanceof Error ? error.message : "Unable to delete the connector connection.");
     } finally {
-      setIsUpdatingAzure(false);
+      setIsMutatingConnector(false);
     }
   };
 
-  const handleAzureSync = async (connectionId: string) => {
-    setIsUpdatingAzure(true);
-    setAzureStatusMessage(null);
+  const handleSync = async (pluginId: string, connectionId: string) => {
+    setIsMutatingConnector(true);
+    setStatusMessage(null);
     setConnectorError(null);
     try {
-      const result = await syncAzureDevOpsConnection(connectionId);
+      const result = await syncConnectorConnection(pluginId, connectionId);
       await refreshConnectors();
-      setAzureStatusMessage(
+      setStatusMessage(
         result.mode === "backlog"
-          ? [
-              result.connection.label,
-              `${result.backlogImportedCount} imported`,
-              `${result.backlogUpdatedCount} updated`,
-            ].join(" · ")
-          : [
-              result.connection.label,
-              `${result.stagedCount} staged`,
-              `${result.updatedCount} refreshed`,
-              `${result.skippedCount} skipped`,
-            ].join(" · "),
+          ? [result.connection.label, `${result.backlogImportedCount} imported`, `${result.backlogUpdatedCount} updated`]
+              .join(" · ")
+          : [result.connection.label, `${result.stagedCount} staged`, `${result.updatedCount} refreshed`, `${result.skippedCount} skipped`]
+              .join(" · "),
       );
     } catch (error) {
-      setConnectorError(error instanceof Error ? error.message : "Unable to sync Azure DevOps tasks.");
+      setConnectorError(error instanceof Error ? error.message : "Unable to sync connector items.");
     } finally {
-      setIsUpdatingAzure(false);
+      setIsMutatingConnector(false);
     }
-  };
-
-  const handleAzureCreate = () => {
-    setConnectorError(null);
-    setAzureStatusMessage(null);
-    setAzureForm(createEmptyAzureForm());
-    setIsAzureFormOpen(true);
-  };
-
-  const handleAzureEdit = (connection: ConnectorsOverview["azureDevOpsConnections"][number]) => {
-    setConnectorError(null);
-    setAzureStatusMessage(null);
-      setAzureForm({
-        editingConnectionId: connection.id,
-        label: connection.label,
-      tenantLabel: connection.tenantLabel,
-      organizationUrl: connection.organizationUrl,
-      personalAccessToken: "",
-        queryScope: connection.queryScope,
-        priorityFieldName: connection.priorityFieldName ?? "",
-        autoSync: connection.autoSync,
-        autoSyncIntervalMinutes: String(connection.autoSyncIntervalMinutes),
-      });
-    setIsAzureFormOpen(true);
-  };
-
-  const handleAzureCancel = () => {
-    setAzureForm(createEmptyAzureForm());
-    setIsAzureFormOpen(false);
   };
 
   return (
     <div className="settings-sections">
-      <section className="settings-section">
-        <h2 className="settings-section-title">Azure DevOps</h2>
-        <p className="settings-section-desc">
-          Configure as many tenant and organization combinations as you need. Each connection keeps its own PAT, pulls work items across every accessible project in that organization, stages imports independently, and feeds the app only through the local app API.
-        </p>
-
-        <div className="settings-panel space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge>{connectors?.azureDevOpsConnections.length ?? 0} Azure DevOps connections</Badge>
-            <Badge className="bg-muted">{connectors?.totalPendingImportCount ?? 0} staged imports</Badge>
-            <Badge className="bg-muted">{connectors?.totalSelectedImportCount ?? 0} selected for sync</Badge>
-            <Badge className="bg-muted">{azureImportedCount} backlog items imported</Badge>
+      {connectorGroups.map((group) => (
+        <section key={group.plugin.id} className="settings-section">
+          <div className="flex items-start gap-3">
+            <ConnectorPluginIcon plugin={group.plugin} />
+            <div className="min-w-0 flex-1">
+              <h2 className="settings-section-title">{group.plugin.displayName}</h2>
+              <p className="settings-section-desc">
+                {group.plugin.description ?? "Configure this connector and sync imported work into backlog."}
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-1 text-sm text-foreground/70">
-            <p>Connector API: {getAppApiDescription()}</p>
-            {getAppApiDescription() !== getAppApiBaseUrl() ? (
-              <p className="text-foreground/50">Endpoint: {getAppApiBaseUrl()}</p>
-            ) : null}
-            <p>Use one connection per tenant + organization + PAT combination.</p>
-            <p>Connections can either stage imports for review or auto sync them straight to backlog on a configurable interval.</p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button size="sm" disabled={isUpdatingAzure} onClick={handleAzureCreate}>
-              Add a connection
-            </Button>
-          </div>
-        </div>
-
-        {isAzureFormOpen ? (
-          <div className="settings-panel connector-form-panel">
-            <div className="connector-form-header">
-              <div>
-                <div className="connector-form-kicker">
-                  {azureForm.editingConnectionId ? "Edit connection" : "Add connection"}
-                </div>
-                <div className="connector-form-title">
-                  {azureForm.editingConnectionId ? "Replace Azure DevOps settings" : "New Azure DevOps source"}
-                </div>
-              </div>
+          <div className="settings-panel space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>{group.connections.length} connection{group.connections.length === 1 ? "" : "s"}</Badge>
+              <Badge className="bg-muted">
+                {group.connections.reduce((sum, connection) => sum + connection.pendingImportCount, 0)} staged imports
+              </Badge>
+              <Badge className="bg-muted">
+                {group.connections.reduce((sum, connection) => sum + connection.selectedImportCount, 0)} selected for sync
+              </Badge>
+              <Badge className="bg-muted">
+                {importedCountsByPlugin[group.plugin.id] ?? 0} backlog items imported
+              </Badge>
             </div>
 
-            <div className="connector-form-grid">
-              <label className="field">
-                <span className="field-label">Tenant</span>
-                <Input
-                  value={azureForm.tenantLabel}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({ ...current, tenantLabel: event.target.value }))
-                  }
-                  placeholder="Contoso Entra"
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="field">
-                <span className="field-label">Connection label</span>
-                <Input
-                  value={azureForm.label}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({ ...current, label: event.target.value }))
-                  }
-                  placeholder="Contoso Web Platform"
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="field">
-                <span className="field-label">Organization URL</span>
-                <Input
-                  value={azureForm.organizationUrl}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({ ...current, organizationUrl: event.target.value }))
-                  }
-                  placeholder="https://dev.azure.com/your-org"
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="field connector-form-field-wide">
-                <span className="field-label">Personal Access Token</span>
-                <Input
-                  type="password"
-                  value={azureForm.personalAccessToken}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({
-                      ...current,
-                      personalAccessToken: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    azureForm.editingConnectionId
-                      ? "Paste a replacement PAT to update this connection"
-                      : "Paste a PAT with work item read access"
-                  }
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="field connector-form-field-wide">
-                <span className="field-label">Import scope</span>
-                <select
-                  className="field-input"
-                  value={azureForm.queryScope}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({
-                      ...current,
-                      queryScope: event.target.value as AzureDevOpsConnectionInput["queryScope"],
-                    }))
-                  }
-                >
-                  {AZURE_SCOPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field connector-form-field-wide">
-                <span className="field-label">Priority field</span>
-                <Input
-                  value={azureForm.priorityFieldName}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({
-                      ...current,
-                      priorityFieldName: event.target.value,
-                    }))
-                  }
-                  placeholder="MS Priority or Microsoft.VSTS.Common.Priority"
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="connector-form-toggle connector-form-field-wide">
-                <input
-                  type="checkbox"
-                  checked={azureForm.autoSync}
-                  onChange={(event) =>
-                    setAzureForm((current) => ({
-                      ...current,
-                      autoSync: event.target.checked,
-                    }))
-                  }
-                />
-                <span>
-                  <span className="connector-form-toggle-title">Auto sync to backlog</span>
-                  <span className="connector-form-toggle-description">
-                    Skip the review queue and import synced Azure DevOps tasks directly into backlog.
-                  </span>
-                </span>
-              </label>
-
-              {azureForm.autoSync ? (
-                <label className="field connector-form-field-wide">
-                  <span className="field-label">Auto sync interval (minutes)</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    step={1}
-                    value={azureForm.autoSyncIntervalMinutes}
-                    onChange={(event) =>
-                      setAzureForm((current) => ({
-                        ...current,
-                        autoSyncIntervalMinutes: event.target.value,
-                      }))
-                    }
-                    placeholder="15"
-                    autoComplete="off"
-                  />
-                  <span className="field-help">
-                    Run automatic sync every 1 to 1440 minutes while the app is open.
-                  </span>
-                </label>
+            <div className="space-y-1 text-sm text-foreground/70">
+              <p>Connector API: {getAppApiDescription()}</p>
+              {getAppApiDescription() !== getAppApiBaseUrl() ? (
+                <p className="text-foreground/50">Endpoint: {getAppApiBaseUrl()}</p>
               ) : null}
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button
-                disabled={
-                  isUpdatingAzure ||
-                  azureForm.tenantLabel.trim().length === 0 ||
-                  azureForm.label.trim().length === 0 ||
-                  azureForm.organizationUrl.trim().length === 0 ||
-                  azureForm.personalAccessToken.trim().length === 0 ||
-                  (azureForm.autoSync && parsedAutoSyncIntervalMinutes === null)
-                }
-                onClick={() => void handleAzureSave()}
-              >
-                {azureForm.editingConnectionId ? "Update Connection" : "Add Connection"}
-              </Button>
-              <Button variant="outline" disabled={isUpdatingAzure} onClick={handleAzureCancel}>
-                Cancel
+              <Button size="sm" disabled={isMutatingConnector} onClick={() => handleCreate(group.plugin)}>
+                Add a connection
               </Button>
             </div>
           </div>
-        ) : null}
 
-        {azureConnectionsByTenant.length === 0 ? (
-          <div className="message-panel">No Azure DevOps connections configured yet.</div>
-        ) : (
-          <div className="connector-groups">
-            {azureConnectionsByTenant.map(([tenantLabel, tenantConnections]) => (
-              <section key={tenantLabel} className="connector-tenant-group">
-                <div className="connector-tenant-header">
-                  <div className="connector-tenant-kicker">Tenant</div>
-                  <h3 className="connector-tenant-title">{tenantLabel}</h3>
+          {formState?.pluginId === group.plugin.id ? (
+            <div className="settings-panel connector-form-panel">
+              <div className="connector-form-header">
+                <div>
+                  <div className="connector-form-kicker">
+                    {formState.editingConnectionId ? "Edit connection" : "Add connection"}
+                  </div>
+                  <div className="connector-form-title">
+                    {formState.editingConnectionId
+                      ? `Replace ${group.plugin.displayName} settings`
+                      : `New ${group.plugin.displayName} source`}
+                  </div>
                 </div>
+              </div>
 
+              <div className="connector-form-grid">
+                {group.plugin.connectionFields.map((field) => {
+                  if (field.id === "autoSyncIntervalMinutes" && formState.values.autoSync !== true) {
+                    return null;
+                  }
+
+                  return (
+                    <ConnectorFieldInput
+                      key={field.id}
+                      field={field}
+                      value={formState.values[field.id]}
+                      onChange={(nextValue) =>
+                        setFormState((current) =>
+                          current
+                            ? {
+                                ...current,
+                                values: {
+                                  ...current.values,
+                                  [field.id]: nextValue,
+                                },
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={isMutatingConnector || !canSubmitPluginForm(activePlugin, formState.values)}
+                  onClick={() => void handleSave()}
+                >
+                  {formState.editingConnectionId ? "Update Connection" : "Add Connection"}
+                </Button>
+                <Button variant="outline" disabled={isMutatingConnector} onClick={handleCancel}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {group.connections.length === 0 ? (
+            <div className="message-panel">No {group.plugin.displayName} connections configured yet.</div>
+          ) : (
+            <div className="connector-groups">
+              <section className="connector-tenant-group">
                 <div className="connector-card-grid">
-                  {tenantConnections.map((connection) => (
+                  {group.connections.map((connection) => (
                     <article key={connection.id} className="connector-card">
                       <div className="connector-card-topline">
                         <div>
                           <div className="connector-card-title">{connection.label}</div>
-                          <div className="connector-card-subtitle">{connection.organizationUrl}</div>
+                          <div className="connector-card-subtitle">{connection.tenantLabel}</div>
                         </div>
                         <Badge className={connection.lastError ? "bg-[var(--danger-muted)] text-[var(--danger)]" : "bg-muted"}>
-                          All projects
+                          {connection.autoSync
+                            ? `Auto every ${connection.autoSyncIntervalMinutes} min`
+                            : "Stage for review"}
                         </Badge>
                       </div>
 
                       <div className="connector-card-meta">
-                        <span>
-                          Scope:{" "}
-                          {connection.queryScope === "assigned_to_me"
-                            ? "Assigned to me across organization"
-                            : "Open tasks across organization"}
-                        </span>
-                        <span>
-                          Sync mode:{" "}
-                          {connection.autoSync
-                            ? `Auto to backlog every ${connection.autoSyncIntervalMinutes} min`
-                            : "Stage for review"}
-                        </span>
-                        {connection.priorityFieldName ? (
-                          <span>Priority field: {connection.priorityFieldName}</span>
-                        ) : null}
-                        {connection.priorityFieldResolvedReferenceName ? (
-                          <span>Resolved as: {connection.priorityFieldResolvedReferenceName}</span>
-                        ) : null}
-                        {connection.priorityFieldType ? (
-                          <span>Field type: {connection.priorityFieldType}</span>
-                        ) : null}
-                        {typeof connection.priorityFieldIsQueryable === "boolean" ? (
-                          <span>WIQL queryable: {connection.priorityFieldIsQueryable ? "Yes" : "No"}</span>
-                        ) : null}
-                        {connection.project ? <span>Migrated from project-scoped config: {connection.project}</span> : null}
+                        {Object.entries(connection.configSummary).map(([key, value]) => (
+                          <span key={key}>
+                            {prettifySummaryKey(key)}: {String(value)}
+                          </span>
+                        ))}
                         <span>Last sync: {formatConnectorTimestamp(connection.lastSyncAt)}</span>
                         {!connection.autoSync ? (
                           <span>{connection.pendingImportCount} staged · {connection.selectedImportCount} selected</span>
@@ -521,8 +481,8 @@ export function SettingsConnectorsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={isUpdatingAzure}
-                          onClick={() => handleAzureEdit(connection)}
+                          disabled={isMutatingConnector}
+                          onClick={() => handleEdit(group.plugin, connection)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                           Edit
@@ -530,8 +490,8 @@ export function SettingsConnectorsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={isUpdatingAzure}
-                          onClick={() => void handleAzureSync(connection.id)}
+                          disabled={isMutatingConnector}
+                          onClick={() => void handleSync(group.plugin.id, connection.id)}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                           Sync
@@ -539,8 +499,8 @@ export function SettingsConnectorsPage() {
                         <Button
                           size="sm"
                           variant="danger"
-                          disabled={isUpdatingAzure}
-                          onClick={() => void handleAzureDelete(connection.id)}
+                          disabled={isMutatingConnector}
+                          onClick={() => void handleDelete(group.plugin.id, connection.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           Remove
@@ -550,13 +510,13 @@ export function SettingsConnectorsPage() {
                   ))}
                 </div>
               </section>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+        </section>
+      ))}
 
-        {azureStatusMessage ? <div className="message-panel">{azureStatusMessage}</div> : null}
-        {connectorError ? <div className="message-panel message-panel-warning">{connectorError}</div> : null}
-      </section>
+      {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
+      {connectorError ? <div className="message-panel message-panel-warning">{connectorError}</div> : null}
 
       <section className="settings-section">
         <h2 className="settings-section-title">Outlook Calendar</h2>

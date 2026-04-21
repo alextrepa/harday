@@ -114,7 +114,7 @@ export interface LocalWorkItem {
   _id: string;
   title: string;
   status: "active" | "archived";
-  source: "manual" | "azure_devops" | "jira" | "outlook";
+  source: "manual" | ConnectorBacklogSource | "outlook";
   sourceId?: string;
   sourceConnectionId?: string;
   sourceConnectionLabel?: string;
@@ -324,7 +324,7 @@ function findMappedBacklogStatusId(
   connectionId: string | undefined,
   sourceStatusKey: string | undefined,
 ) {
-  if (!connectionId || !sourceStatusKey || source === "manual" || source === "jira" || source === "outlook") {
+  if (!connectionId || !sourceStatusKey || source === "manual" || source === "outlook") {
     return undefined;
   }
 
@@ -1550,7 +1550,8 @@ export const localStore = {
           const sourceId = workItem.sourceId;
 
           if (
-            workItem.source !== "azure_devops" ||
+            workItem.source === "manual" ||
+            workItem.source === "outlook" ||
             workItem.sourceConnectionId !== archiveConnectionId ||
             !sourceId
           ) {

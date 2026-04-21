@@ -1,4 +1,3 @@
-const { spawn } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { stat } = require("node:fs/promises");
 const http = require("node:http");
@@ -36,10 +35,10 @@ const internalAppApiEntryPath = app.isPackaged
   : path.resolve(__dirname, "../../api/src/server.ts");
 
 let quitAfterShutdown = false;
-let internalAppApiProcess = null;
-let internalAppApiStopping = false;
+let internalAppApiServer = null;
 let internalAppApiStartPromise = null;
 let internalAppApiStopPromise = null;
+let internalAppApiModulePromise = null;
 
 async function resolveAssetPath(requestPath) {
   const normalizedPath = requestPath === "/" ? "/index.html" : requestPath;
@@ -74,36 +73,6 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function logInternalAppApiLine(line) {
-  const trimmedLine = line.trim();
-  if (trimmedLine) {
-    console.error(`[internal-app-api] ${trimmedLine}`);
-  }
-}
-
-function pipeInternalAppApiLogs(apiProcess) {
-  for (const stream of [apiProcess.stdout, apiProcess.stderr]) {
-    if (!stream) {
-      continue;
-    }
-
-    stream.setEncoding("utf8");
-    let buffer = "";
-    stream.on("data", (chunk) => {
-      buffer += chunk;
-      const lines = buffer.split(/\r?\n/u);
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        logInternalAppApiLine(line);
-      }
-    });
-    stream.on("end", () => {
-      logInternalAppApiLine(buffer);
-      buffer = "";
-    });
-  }
-}
-
 async function checkInternalAppApiHealth(timeoutMs = 750) {
   return await new Promise((resolve) => {
     const request = http.get(
@@ -130,16 +99,12 @@ async function waitForInternalAppApiStartup(apiProcess) {
   let lastError = null;
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (internalAppApiProcess !== apiProcess) {
+    if (internalAppApiServer !== apiProcess) {
       throw lastError ?? new Error("Internal connector API failed to start");
     }
 
     if (await checkInternalAppApiHealth()) {
       return;
-    }
-
-    if (apiProcess.exitCode !== null) {
-      break;
     }
 
     lastError = new Error("Internal connector API is still starting");
@@ -154,8 +119,8 @@ async function ensureInternalAppApiRunning() {
     return;
   }
 
-  if (internalAppApiProcess && !internalAppApiStopping) {
-    await waitForInternalAppApiStartup(internalAppApiProcess);
+  if (internalAppApiServer) {
+    await waitForInternalAppApiStartup(internalAppApiServer);
     return;
   }
 
@@ -176,47 +141,37 @@ async function ensureInternalAppApiRunning() {
       throw new Error(`Internal connector API entry missing: ${internalAppApiEntryPath}`);
     }
 
-    internalAppApiStopping = false;
-    const apiProcess = spawn(process.execPath, ["--experimental-strip-types", internalAppApiEntryPath], {
-      cwd: internalAppApiRuntimeRoot,
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: "1",
-        TIMETRACKER_APP_API_HOST: INTERNAL_APP_API_HOST,
-        TIMETRACKER_APP_API_PORT: String(INTERNAL_APP_API_PORT),
-        TIMETRACKER_APP_API_STATE_PATH:
-          process.env.TIMETRACKER_APP_API_STATE_PATH ?? path.join(app.getPath("userData"), "app-api-state.json"),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+    internalAppApiModulePromise ??= import(pathToFileURL(internalAppApiEntryPath).toString());
+    const { startAppApiServer } = await internalAppApiModulePromise;
+    if (typeof startAppApiServer !== "function") {
+      throw new Error(`Internal connector API module is missing startAppApiServer: ${internalAppApiEntryPath}`);
+    }
+
+    const apiServer = await startAppApiServer({
+      host: INTERNAL_APP_API_HOST,
+      port: INTERNAL_APP_API_PORT,
+      statePath:
+        process.env.TIMETRACKER_APP_API_STATE_PATH ?? path.join(app.getPath("userData"), "app-api-state.json"),
     });
-
-    internalAppApiProcess = apiProcess;
-    pipeInternalAppApiLogs(apiProcess);
-
-    apiProcess.on("exit", (code, signal) => {
-      if (internalAppApiProcess !== apiProcess) {
-        return;
-      }
-
-      if (!internalAppApiStopping && code !== 0) {
-        console.error(`Internal connector API exited unexpectedly (code: ${code ?? "null"}, signal: ${signal ?? "none"}).`);
-      }
-
-      internalAppApiProcess = null;
-      internalAppApiStopping = false;
-    });
+    internalAppApiServer = apiServer;
 
     try {
-      await waitForInternalAppApiStartup(apiProcess);
+      await waitForInternalAppApiStartup(apiServer);
     } catch (error) {
-      if (internalAppApiProcess === apiProcess) {
-        internalAppApiStopping = true;
-        internalAppApiProcess = null;
+      if (internalAppApiServer === apiServer) {
+        internalAppApiServer = null;
       }
 
-      if (apiProcess.exitCode === null && !apiProcess.killed) {
-        apiProcess.kill("SIGKILL");
-      }
+      await new Promise((resolve, reject) => {
+        apiServer.close((closeError) => {
+          if (closeError) {
+            reject(closeError);
+            return;
+          }
+
+          resolve();
+        });
+      });
 
       throw error;
     }
@@ -236,7 +191,7 @@ async function stopInternalAppApi() {
     }
   }
 
-  if (!internalAppApiProcess) {
+  if (!internalAppApiServer) {
     return;
   }
 
@@ -244,43 +199,16 @@ async function stopInternalAppApi() {
     return await internalAppApiStopPromise;
   }
 
-  const apiProcess = internalAppApiProcess;
-  internalAppApiStopping = true;
+  const apiServer = internalAppApiServer;
 
   internalAppApiStopPromise = new Promise((resolve) => {
-    let settled = false;
-
-    const finish = () => {
-      if (settled) {
-        return;
+    apiServer.close(() => {
+      if (internalAppApiServer === apiServer) {
+        internalAppApiServer = null;
       }
 
-      settled = true;
-      if (internalAppApiProcess === apiProcess) {
-        internalAppApiProcess = null;
-        internalAppApiStopping = false;
-      }
       resolve();
-    };
-
-    const killTimeout = setTimeout(() => {
-      if (apiProcess.exitCode === null && !apiProcess.killed) {
-        apiProcess.kill("SIGKILL");
-      }
-    }, 1500);
-
-    apiProcess.once("exit", () => {
-      clearTimeout(killTimeout);
-      finish();
     });
-
-    if (apiProcess.exitCode !== null) {
-      clearTimeout(killTimeout);
-      finish();
-      return;
-    }
-
-    apiProcess.kill("SIGTERM");
   }).finally(() => {
     internalAppApiStopPromise = null;
   });
@@ -289,7 +217,7 @@ async function stopInternalAppApi() {
 }
 
 function shouldWaitForShutdown() {
-  return Boolean(internalAppApiProcess || internalAppApiStartPromise || internalAppApiStopPromise);
+  return Boolean(internalAppApiServer || internalAppApiStartPromise || internalAppApiStopPromise);
 }
 
 async function resolveRendererUrl() {

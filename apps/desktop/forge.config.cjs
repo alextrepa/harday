@@ -13,6 +13,7 @@ module.exports = {
     ignore: [/^\/bin(?:\/|$)/, /^\/build(?:\/|$)/, /^\/node_modules(?:\/|$)/, /^\/out(?:\/|$)/],
     extraResource: [
       path.resolve(__dirname, "../web/dist-desktop"),
+      path.resolve(__dirname, "build/internal-app-runtime"),
       path.resolve(__dirname, "../../assets"),
     ],
   },

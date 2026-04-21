@@ -1,0 +1,48 @@
+import { connectorFieldValuesSchema, type ConnectorFieldValues } from "../../../../packages/shared/src/connectors.ts";
+import { runPluginWorker } from "../../src/plugin-worker.ts";
+import { fetchJiraImportCandidates, type JiraConnectionInput, validateJiraConnection } from "../../src/connectors/jira.ts";
+
+function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string; label: string; tenantLabel: string }): JiraConnectionInput {
+  const parsed = connectorFieldValuesSchema.parse(values);
+
+  if (typeof parsed.baseUrl !== "string" || !parsed.baseUrl.trim()) {
+    throw new Error('Jira field "baseUrl" is required.');
+  }
+
+  if (typeof parsed.email !== "string" || !parsed.email.trim()) {
+    throw new Error('Jira field "email" is required.');
+  }
+
+  if (typeof parsed.apiToken !== "string" || !parsed.apiToken.trim()) {
+    throw new Error('Jira field "apiToken" is required.');
+  }
+
+  if (parsed.queryScope !== "assigned_to_me" && parsed.queryScope !== "project_open_issues") {
+    throw new Error('Jira field "queryScope" is invalid.');
+  }
+
+  return {
+    id: connection?.id,
+    label: connection?.label ?? "Jira",
+    tenantLabel: connection?.tenantLabel ?? "Default workspace",
+    baseUrl: parsed.baseUrl,
+    email: parsed.email,
+    apiToken: parsed.apiToken,
+    projectKey:
+      typeof parsed.projectKey === "string" && parsed.projectKey.trim()
+        ? parsed.projectKey.trim()
+        : undefined,
+    queryScope: parsed.queryScope,
+  };
+}
+
+runPluginWorker({
+  async validateConnection(config) {
+    const jiraConfig = buildJiraConfig(config);
+    return await validateJiraConnection(jiraConfig);
+  },
+  async syncConnection(connection) {
+    const jiraConfig = buildJiraConfig(connection.config, connection);
+    return await fetchJiraImportCandidates(jiraConfig);
+  },
+});

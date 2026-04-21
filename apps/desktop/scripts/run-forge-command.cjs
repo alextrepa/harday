@@ -52,8 +52,14 @@ function withDesktopBinOnPath(baseEnv) {
 function run(file, args, options) {
   const result = spawnSync(file, args, {
     stdio: "inherit",
+    shell: process.platform === "win32" && file.toLowerCase().endsWith(".cmd"),
     ...options,
   });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);

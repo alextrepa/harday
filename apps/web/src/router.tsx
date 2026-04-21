@@ -15,6 +15,7 @@ import { SettingsLayout } from "@/features/settings/settings-layout";
 import { SettingsGeneralPage } from "@/features/settings/settings-general-page";
 import { SettingsConnectorsPage } from "@/features/settings/settings-connectors-page";
 import { SettingsBacklogPage } from "@/features/settings/settings-backlog-page";
+import { SettingsExportPage } from "@/features/settings/settings-export-page";
 import { SettingsImportReviewPage } from "@/features/settings/settings-import-review-page";
 import { SettingsDebugPage } from "@/features/settings/settings-debug-page";
 import { TimePage } from "@/features/time/time-page";
@@ -102,16 +103,6 @@ const reviewRoute = createRoute({
   },
 });
 
-const activityRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/activity/$date",
-  validateSearch: reviewSearchSchema,
-  component: () => {
-    const params = activityRoute.useParams();
-    return <Navigate to="/time/$date" params={{ date: params.date === "today" ? "today" : params.date }} replace />;
-  },
-});
-
 const projectsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects",
@@ -175,6 +166,12 @@ const settingsBacklogRoute = createRoute({
   component: SettingsBacklogPage,
 });
 
+const settingsExportRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/export",
+  component: SettingsExportPage,
+});
+
 const settingsImportReviewRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/imports",
@@ -205,7 +202,6 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
     timeRoute,
     reviewRoute,
-    activityRoute,
     backlogRoute,
     projectsRoute,
     projectDetailRoute,
@@ -217,6 +213,7 @@ const routeTree = rootRoute.addChildren([
       settingsGeneralRoute,
       settingsConnectorsRoute,
       settingsBacklogRoute,
+      settingsExportRoute,
       settingsImportReviewRoute,
       settingsDebugRoute,
     ]),

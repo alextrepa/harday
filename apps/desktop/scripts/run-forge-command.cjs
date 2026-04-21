@@ -3,7 +3,6 @@ const path = require("node:path");
 
 const command = process.argv[2];
 const requestedPlatform = process.argv[3] ?? "host";
-const embedded = process.argv.includes("--embedded");
 const desktopRoot = path.resolve(__dirname, "..");
 const scriptRoot = path.resolve(__dirname);
 const repoRoot = path.resolve(desktopRoot, "../..");
@@ -22,18 +21,22 @@ if (command === "make" && targetPlatform === "darwin") {
   });
 }
 
-run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build", ...(embedded ? ["--embedded"] : [])], {
+run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build"], {
   cwd: desktopRoot,
   env: process.env,
 });
 
 run(process.execPath, [electronForgeBin, command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
   cwd: desktopRoot,
-  env: {
-    ...process.env,
-    TIMETRACKER_EMBED_ACTIVITY_LOGGER: embedded ? "true" : "false",
-  },
+  env: withDesktopBinOnPath(process.env),
 });
+
+function withDesktopBinOnPath(baseEnv) {
+  return {
+    ...baseEnv,
+    PATH: [path.join(desktopRoot, "bin"), baseEnv.PATH ?? ""].filter(Boolean).join(path.delimiter),
+  };
+}
 
 function run(file, args, options) {
   const result = spawnSync(file, args, {

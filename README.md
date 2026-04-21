@@ -1,40 +1,25 @@
 # Time Tracker
 
-A privacy-first time-tracking MVP for reviewing local activity drafts, assigning them to projects, and committing cleaned timesheet entries.
-
-The current app is **local-first**: raw activity drafts stay in browser/local extension storage, and the app runs without any backend service.
+A local-first time-tracking app for managing projects, running timers, and saving timesheet entries without a backend service.
 
 ## What Works Today
 
 - Create a local workspace and projects.
-- Start/stop a local timer from the review page.
-- Generate local sample activity blocks for review.
-- Import timed Outlook meetings into the local review queue.
-- Assign drafts to projects.
+- Start and stop a local timer.
+- Add and edit manual time entries.
 - Add local notes.
-- Dismiss private/noisy drafts.
-- Commit cleaned blocks into local timesheet entries.
-- Save explicit local rules from reviewed blocks.
-- View lightweight reports from committed entries.
-- Run the Chromium or Firefox extension in local capture mode.
-- Read sanitized browser buckets into the review page through a local extension bridge.
+- Manage backlog items and project tasks.
+- Package the Electron desktop app for local-first timer tracking.
 
 ## Privacy Model
 
-Raw activity is local-only in the MVP.
-
-Do not treat draft activity as synced timesheet data. A draft is only a suggestion source until you review it and click **Commit time**.
-
-Rules are more sensitive than drafts. Saving a rule can store a reusable signal such as `github.com` plus `/myorg/project`. The app shows a warning before saving a rule; only save rules for patterns you are comfortable reusing and eventually syncing.
-
-The extension currently keeps captured activity in browser extension storage. It does **not** upload raw activity anywhere.
-The web app can read that local data only through the installed extension bridge on approved local origins.
+Time entries, timers, project metadata, and user preferences stay local in the current MVP.
+The app does not upload tracking data automatically.
 
 ## Requirements
 
 - Node.js 22+
 - Corepack
-- Chromium-based browser or Firefox if you want to load the extension
 
 This repo uses pnpm through Corepack. Use the root scripts rather than calling `pnpm` directly.
 
@@ -76,7 +61,7 @@ The app uses a browser-only Microsoft sign-in and requests `Calendars.ReadBasic`
 
 ## Start The Desktop Timer
 
-The first Electron cut is intentionally timer-first. It wraps the existing React app, but disables the activity logger, browser extension bridge, and Outlook import so the desktop build stays focused on local timers and projects.
+The Electron app is timer-first and focused on local timers and projects.
 
 Run it in development:
 
@@ -112,92 +97,21 @@ The Electron shell serves the desktop renderer locally and opens it in a locked-
 - manual time entries
 - start/stop timer flow
 
-Desktop mode currently hides:
+## Basic App Flow
 
-- activity review
-- browser extension import
-- macOS collector/activity logger UI
-- Outlook calendar import
-
-## Basic Web App Flow
-
-1. Open the web app.
-2. Click **Start local workspace** if you land on the intro/sign-in page.
-3. Create a workspace name and starter projects.
-4. Open **Review**.
-5. Start a timer with **Local timer**.
-6. Stop the timer when you are done; it becomes a private local activity draft.
-7. Assign the draft to a project.
-8. Optionally edit its label or note.
-9. Click **Dismiss private/noise** for activity that should not enter your timesheet.
-10. If the browser extension is installed, let the review page import 5-minute browser buckets automatically or click **Refresh from browser**.
-11. Review imported browser buckets, especially ones marked **Mixed bucket**.
-12. Click **Commit time** for activity you want in your timesheet.
-13. Optionally click **Save this as a rule** after assigning a block.
-14. Read the rule privacy warning, then either save or cancel.
-15. Open **Reports** to see committed time by project/user.
-
-## Local Sample Data
-
-Onboarding adds a couple of sample drafts.
-
-You can also click **Add local sample** on the review page. This is useful for trying assignment, dismiss, commit, and rule behavior without installing the extension.
-
-## Start The Chromium Extension
-
-For Chromium development:
-
-```sh
-corepack pnpm dev:extension
-```
-
-For a Chromium loadable build:
-
-```sh
-corepack pnpm --filter @timetracker/extension build:chromium
-```
-
-Then load the Chromium extension:
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select `apps/extension/dist`.
-5. Open the extension popup.
-6. Confirm the popup shows the local collector status and the **Open local web app** action.
-7. Browse normally; tab/window/idle transitions create sanitized local draft segments inside extension storage.
-8. Open the web app review page on `http://localhost:5173` and the extension bridge will expose imported browser buckets automatically.
-
-## Start The Firefox Extension
-
-Build the Firefox package:
-
-```sh
-corepack pnpm build:extension:firefox
-```
-
-Then load it temporarily:
-
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on**.
-3. Select `apps/extension/dist-firefox/manifest.json`.
-4. Open the extension popup.
-5. Confirm the popup shows the local collector status and the **Open local web app** action.
-6. Browse normally; tab/window/idle transitions create sanitized local draft segments inside Firefox extension storage.
-7. Open the web app review page on `http://localhost:5173` and the extension bridge will expose imported browser buckets automatically.
-
-The bridge currently allows these local app origins:
-
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-- `http://localhost:4173`
-- `http://127.0.0.1:4173`
+1. Open the web or desktop app.
+2. Start a local workspace if prompted.
+3. Create or import projects and tasks.
+4. Start a timer or add a manual time entry for the day.
+5. Stop the timer when you are done.
+6. Edit the saved entry if needed.
+7. Review totals on the time page and adjust projects, tasks, or notes.
 
 ## Local-Only Status
 
 This repo currently targets a local-only workflow.
 
-Do not introduce raw activity upload. Any future persistence changes should preserve the same privacy boundary: raw activity stays local, and only explicit user-approved records should ever leave the device.
+Do not introduce automatic activity collection or raw activity upload. Any future persistence changes should preserve the same privacy boundary: explicit user-approved records stay in control of the user.
 
 ## Verification
 
@@ -219,13 +133,13 @@ Run production builds:
 corepack pnpm build
 ```
 
-The root build creates the web app, the desktop renderer in `apps/web/dist-desktop`, the shared package, the Chromium extension in `apps/extension/dist`, and the Firefox extension in `apps/extension/dist-firefox`.
+The root build creates the web app, the desktop renderer in `apps/web/dist-desktop`, the shared package, and the remaining extension assets in this repo.
 
 ## Repo Map
 
 ```text
 apps/web/          local-first React + TanStack Router app
-apps/extension/    Chromium + Firefox local capture extension
+apps/extension/    browser extension sources retained in the repo
 packages/shared/   shared types, normalization, timeline aggregation, rules
 docs/              architecture notes
 ```

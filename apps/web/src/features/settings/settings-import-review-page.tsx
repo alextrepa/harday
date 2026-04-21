@@ -181,7 +181,9 @@ export function SettingsImportReviewPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{overview?.totalPendingImportCount ?? items.length} staged items</Badge>
             <Badge className="bg-muted">{selectedCount} selected</Badge>
-            <Badge className="bg-muted">{overview?.azureDevOpsConnections.length ?? 0} Azure DevOps connections</Badge>
+            <Badge className="bg-muted">
+              {overview?.connectionGroups.reduce((sum, group) => sum + group.connections.length, 0) ?? 0} connector connections
+            </Badge>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -254,7 +256,7 @@ export function SettingsImportReviewPage() {
           <div className="message-panel">Loading staged imports…</div>
         ) : connectionGroups.length === 0 ? (
           <div className="message-panel">
-            No staged imports yet. Go to <Link to="/settings/connectors">Connectors</Link> and sync one of your Azure DevOps connections first.
+            No staged imports yet. Go to <Link to="/settings/connectors">Connectors</Link> and sync one of your connector connections first.
           </div>
         ) : (
           <div className="import-review-groups">
@@ -309,8 +311,7 @@ export function SettingsImportReviewPage() {
                   </div>
 
                   <div className="import-review-list">
-                    {hierarchy.rootItems.map((rootItem) => {
-                      const childItems = hierarchy.childrenByParent.get(rootItem.sourceId) ?? [];
+                    {hierarchy.map(({ item: rootItem, children: childItems }) => {
                       const existingRootItem = existingWorkItemsByImportKey.get(
                         `${rootItem.source}:${rootItem.sourceId}`,
                       );

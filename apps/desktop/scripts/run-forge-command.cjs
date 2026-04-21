@@ -26,6 +26,11 @@ run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build"], {
   env: process.env,
 });
 
+run(process.execPath, [path.join(scriptRoot, "prepare-internal-api.cjs")], {
+  cwd: desktopRoot,
+  env: process.env,
+});
+
 run(process.execPath, [electronForgeBin, command, `--platform=${targetPlatform}`, ...(targetPlatform === "win32" ? ["--arch=x64"] : [])], {
   cwd: desktopRoot,
   env: withDesktopBinOnPath(process.env),

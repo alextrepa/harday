@@ -4,7 +4,7 @@ import { ListTodo, Play, Settings, Square, Timer, X } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { getConnectorsOverview, syncAzureDevOpsConnection } from "@/lib/app-api";
+import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
 import { localStore } from "@/lib/local-store";
 import { isDesktopShell } from "@/lib/runtime";
 import { cn, getIsoWeekDates, todayIsoDate } from "@/lib/utils";
@@ -42,7 +42,7 @@ function formatDurationShort(durationMs: number) {
   return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
-function AzureDevOpsAutoSyncScheduler() {
+function ConnectorAutoSyncScheduler() {
   const loopStateRef = useRef({
     cancelled: false,
     running: false,
@@ -73,27 +73,34 @@ function AzureDevOpsAutoSyncScheduler() {
       try {
         const overview = await getConnectorsOverview();
         const now = Date.now();
-        const dueConnections = overview.azureDevOpsConnections.filter((connection) => {
-          if (!connection.autoSync) {
-            return false;
-          }
+        const dueConnections = overview.connectionGroups.flatMap((group) =>
+          group.connections
+            .filter((connection) => {
+              if (!connection.autoSync) {
+                return false;
+              }
 
-          if (!connection.lastSyncAt) {
-            return true;
-          }
+              if (!connection.lastSyncAt) {
+                return true;
+              }
 
-          return now - connection.lastSyncAt >= connection.autoSyncIntervalMinutes * 60_000;
-        });
+              return now - connection.lastSyncAt >= connection.autoSyncIntervalMinutes * 60_000;
+            })
+            .map((connection) => ({
+              pluginId: group.plugin.id,
+              connection,
+            })),
+        );
 
-        for (const connection of dueConnections) {
+        for (const dueConnection of dueConnections) {
           if (loopState.cancelled) {
             break;
           }
 
-          await syncAzureDevOpsConnection(connection.id, { trigger: "auto" });
+          await syncConnectorConnection(dueConnection.pluginId, dueConnection.connection.id, { trigger: "auto" });
         }
       } catch (error) {
-        console.error("Azure DevOps auto sync failed.", error);
+        console.error("Connector auto sync failed.", error);
       } finally {
         loopState.running = false;
         scheduleNext();
@@ -565,7 +572,7 @@ export function AppShell() {
 
   return (
     <div className={cn("flex min-h-screen flex-col bg-background", isDesktopShell && "desktop-shell-app")}>
-      <AzureDevOpsAutoSyncScheduler />
+      <ConnectorAutoSyncScheduler />
       {/* Top sticky nav */}
       <nav className={cn("harday-nav", isDesktopShell && "desktop-shell-nav desktop-drag-region")}>
         {isDesktopShell ? (

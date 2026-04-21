@@ -2,11 +2,11 @@ import {
   connectorBacklogStatusListResponseSchema,
   connectorBacklogStatusUpsertRequestSchema,
   connectorBacklogStatusUpsertResponseSchema,
-  azureDevOpsConnectionSaveResponseSchema,
-  azureDevOpsConnectionInputSchema,
-  azureDevOpsSyncRequestSchema,
-  azureDevOpsSyncResultSchema,
-  type AzureDevOpsSyncRequest,
+  connectorConnectionSaveResponseSchema,
+  connectorConnectionSaveRequestSchema,
+  connectorSyncRequestSchema,
+  connectorSyncResultSchema,
+  type ConnectorSyncRequest,
   connectorImportCommitResponseSchema,
   connectorImportDismissRequestSchema,
   connectorImportDismissResponseSchema,
@@ -14,16 +14,16 @@ import {
   connectorImportSelectionResponseSchema,
   connectorImportSelectionUpdateSchema,
   connectorsOverviewSchema,
-  type AzureDevOpsConnectionInput,
-  type AzureDevOpsConnectionSaveResponse,
-  type AzureDevOpsSyncResult,
   type ConnectorBacklogStatusInput,
+  type ConnectorConnectionSaveResponse,
+  type ConnectorFieldValues,
   type ConnectorImportCandidate,
   type ConnectorsOverview,
+  type ConnectorSyncResult,
 } from "@timetracker/shared";
 import { localStore } from "@/lib/local-store";
 
-export type SyncAzureDevOpsConnectionResult = AzureDevOpsSyncResult & {
+export type SyncConnectorConnectionResult = ConnectorSyncResult & {
   backlogImportedCount: number;
   backlogUpdatedCount: number;
 };
@@ -145,23 +145,28 @@ export function upsertConnectorBacklogStatuses(items: ConnectorBacklogStatusInpu
   );
 }
 
-export function saveAzureDevOpsConnection(
-  input: AzureDevOpsConnectionInput,
-): Promise<AzureDevOpsConnectionSaveResponse> {
-  const payload = azureDevOpsConnectionInputSchema.parse(input);
+export function saveConnectorConnection(
+  pluginId: string,
+  values: ConnectorFieldValues,
+  id?: string,
+): Promise<ConnectorConnectionSaveResponse> {
+  const payload = connectorConnectionSaveRequestSchema.parse({ id, values });
   return appApiRequest(
-    "/api/connectors/azure-devops/connections",
+    `/api/connectors/${encodeURIComponent(pluginId)}/connections`,
     {
       method: "POST",
       body: JSON.stringify(payload),
     },
-    azureDevOpsConnectionSaveResponseSchema,
+    connectorConnectionSaveResponseSchema,
   );
 }
 
-export function deleteAzureDevOpsConnection(connectionId: string): Promise<ConnectorsOverview> {
+export function deleteConnectorConnection(
+  pluginId: string,
+  connectionId: string,
+): Promise<ConnectorsOverview> {
   return appApiRequest(
-    `/api/connectors/azure-devops/connections/${encodeURIComponent(connectionId)}`,
+    `/api/connectors/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`,
     {
       method: "DELETE",
     },
@@ -169,18 +174,19 @@ export function deleteAzureDevOpsConnection(connectionId: string): Promise<Conne
   );
 }
 
-export function syncAzureDevOpsConnection(
+export function syncConnectorConnection(
+  pluginId: string,
   connectionId: string,
-  input?: AzureDevOpsSyncRequest,
-): Promise<SyncAzureDevOpsConnectionResult> {
-  const payload = azureDevOpsSyncRequestSchema.parse(input ?? { trigger: "manual" });
+  input?: ConnectorSyncRequest,
+): Promise<SyncConnectorConnectionResult> {
+  const payload = connectorSyncRequestSchema.parse(input ?? { trigger: "manual" });
   return appApiRequest(
-    `/api/connectors/azure-devops/connections/${encodeURIComponent(connectionId)}/sync`,
+    `/api/connectors/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}/sync`,
     {
       method: "POST",
       body: JSON.stringify(payload),
     },
-    azureDevOpsSyncResultSchema,
+    connectorSyncResultSchema,
   ).then((result) => {
     const importResult =
       result.mode === "backlog"
@@ -260,18 +266,10 @@ export function buildImportHierarchy(items: ConnectorImportCandidate[]) {
     siblings.sort((left, right) => left.title.localeCompare(right.title));
   }
 
-  const rootItems = items
-    .filter((item) => !item.parentSourceId || !itemsBySourceId.has(item.parentSourceId))
-    .sort((left, right) => {
-      if (left.connectionId !== right.connectionId) {
-        return left.connectionId.localeCompare(right.connectionId);
-      }
+  const roots = items.filter((item) => !item.parentSourceId || !itemsBySourceId.has(item.parentSourceId));
 
-      return left.title.localeCompare(right.title);
-    });
-
-  return {
-    rootItems,
-    childrenByParent,
-  };
+  return roots.map((item) => ({
+    item,
+    children: childrenByParent.get(item.sourceId) ?? [],
+  }));
 }

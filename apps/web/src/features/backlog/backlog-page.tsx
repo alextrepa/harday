@@ -30,10 +30,10 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { BacklogTaskModal } from "@/features/backlog/backlog-task-modal";
 import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
+import { getConnectorsOverview } from "@/lib/app-api";
 import { useLocalProjects, useLocalState, useLocalWorkItems } from "@/lib/local-hooks";
 import { localStore, type BacklogSortMode, type LocalWorkItem } from "@/lib/local-store";
 import { cn, todayIsoDate } from "@/lib/utils";
-import azureDevOpsIconUrl from "../../../../../assets/azure-devops.svg";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
 const BACKLOG_DRAG_MOUSE_TOLERANCE_PX = 4;
@@ -111,6 +111,20 @@ const BACKLOG_SORT_MODES: { value: "custom" | "priority"; label: string }[] = [
   { value: "custom", label: "Custom" },
   { value: "priority", label: "Priority" },
 ];
+
+function ConnectorSourceIcon({ svg }: { svg: string | undefined }) {
+  if (!svg) {
+    return null;
+  }
+
+  return (
+    <span
+      className="backlog-task-source-icon inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
 
 function isPrioritySortMode(mode: BacklogSortMode) {
   return mode === "priority_asc" || mode === "priority_desc";
@@ -238,6 +252,7 @@ export function BacklogPage() {
   const [expandedBacklogStatusId, setExpandedBacklogStatusId] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState("");
+  const [connectorIconsBySource, setConnectorIconsBySource] = useState<Record<string, string>>({});
   const [expandedDurationHours, setExpandedDurationHours] = useState("");
   const [expandedNoteModalTarget, setExpandedNoteModalTarget] = useState<ExpandedNoteModalTarget | null>(null);
   const [standaloneNoteModalState, setStandaloneNoteModalState] = useState<StandaloneNoteModalState | null>(null);
@@ -464,7 +479,10 @@ export function BacklogPage() {
     : expandedNoteModalTarget === "child"
       ? expandedChildWorkItem
       : expandedWorkItem;
-  const showExpandedNoteModalSourceIcon = expandedNoteModalWorkItem?.source === "azure_devops";
+  const showExpandedNoteModalSourceIcon =
+    expandedNoteModalWorkItem?.source !== "manual" &&
+    expandedNoteModalWorkItem?.source !== "outlook" &&
+    Boolean(expandedNoteModalWorkItem?.source && connectorIconsBySource[expandedNoteModalWorkItem.source]);
   const expandedNoteModalValue = standaloneNoteModalState
     ? standaloneNoteModalState.note
     : expandedNoteModalTarget === "child"
@@ -473,6 +491,16 @@ export function BacklogPage() {
   const isAnyModalOpen = Boolean(modalWorkItemId || subtaskModalParentId);
   const canReorderVisibleRootItems =
     backlogSortMode === "custom" && !isCreatingItem && !expandedWorkItemId && !isAnyModalOpen && visibleRootItems.length > 1;
+
+  useEffect(() => {
+    void getConnectorsOverview()
+      .then((overview) =>
+        setConnectorIconsBySource(
+          Object.fromEntries(overview.plugins.map((plugin) => [plugin.id, plugin.iconSvg] as const)),
+        ),
+      )
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1587,7 +1615,11 @@ export function BacklogPage() {
     const isArchivePending = pendingArchiveWorkItemId === workItem._id;
     const isDeletePending = pendingDeleteWorkItemId === workItem._id;
     const isArchived = workItem.status === "archived";
-    const showAzureDevOpsIcon = workItem.source === "azure_devops" && !isLogicalChild;
+    const showConnectorIcon =
+      workItem.source !== "manual" &&
+      workItem.source !== "outlook" &&
+      !isLogicalChild &&
+      Boolean(connectorIconsBySource[workItem.source]);
     const showSubtasksPill = !isLogicalChild && hasSubtasks;
     const canStartTimer = Boolean(!currentTimer && !isArchived);
     const editorTitle = isEditingChildItem ? expandedChildEditor.title : expandedTitle;
@@ -1621,16 +1653,16 @@ export function BacklogPage() {
         : editorParsedDurationMs <= 0
           ? "Enter a positive duration"
           : null;
-    const azureMetaParts = [
+    const sourceMetaParts = [
       isLogicalChild ? "Task" : undefined,
-      workItem.source === "azure_devops" ? workItem.sourceConnectionLabel : undefined,
-      workItem.source === "azure_devops" ? workItem.sourceProjectName : undefined,
+      workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceConnectionLabel : undefined,
+      workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceProjectName : undefined,
       workItem.sourceWorkItemType,
     ].filter(Boolean);
     const timeEntryMetaParts = [project?.name, task?.name].filter(Boolean);
-    const adoReference = workItem.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
-    const adoSourceUrl = workItem.source === "azure_devops" ? workItem.sourceId : undefined;
-    const azureMetaLabel = [adoReference ? `#${adoReference}` : undefined, ...azureMetaParts].filter(Boolean).join(" · ");
+    const sourceReference = workItem.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
+    const sourceUrl = workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceId : undefined;
+    const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
     const backlogStatusLabel = getBacklogStatusName(workItem.backlogStatusId, backlogStatusNameById);
     const startTimerTitle = currentTimer
       ? "Stop the current timer first"
@@ -1859,8 +1891,8 @@ export function BacklogPage() {
                       <div className="backlog-inline-title-display">
                         {!isLogicalChild ? <span className="backlog-priority-pill">{editorPriority}</span> : null}
                         <div className="backlog-inline-title-main">
-                          {showAzureDevOpsIcon ? (
-                            <img src={azureDevOpsIconUrl} alt="" aria-hidden="true" className="backlog-task-source-icon" />
+                          {showConnectorIcon ? (
+                            <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
                           ) : null}
                           <span className="backlog-inline-title-text">{editorTitle}</span>
                           {backlogStatusLabel ? (
@@ -1870,27 +1902,27 @@ export function BacklogPage() {
                       </div>
                     )}
                   </div>
-                  {azureMetaParts.length > 0 || adoReference ? (
+                  {sourceMetaParts.length > 0 || sourceReference ? (
                     <div
                       className={cn(
                         "backlog-inline-meta",
                         !isLogicalChild && "has-priority",
-                        showAzureDevOpsIcon && "has-source-icon",
+                        showConnectorIcon && "has-source-icon",
                       )}
                     >
-                      {adoSourceUrl ? (
+                      {sourceUrl ? (
                         <a
-                          href={adoSourceUrl}
+                          href={sourceUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="backlog-task-meta backlog-task-meta-link"
                           data-no-backlog-drag="true"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          {azureMetaLabel}
+                          {sourceMetaLabel}
                         </a>
                       ) : (
-                        <span className="backlog-task-meta">{azureMetaLabel}</span>
+                        <span className="backlog-task-meta">{sourceMetaLabel}</span>
                       )}
                     </div>
                   ) : null}
@@ -2133,8 +2165,8 @@ export function BacklogPage() {
             <div className="backlog-task-main">
               <div className="backlog-task-title-row">
                 <div className="backlog-task-title-content">
-                  {showAzureDevOpsIcon ? (
-                    <img src={azureDevOpsIconUrl} alt="" aria-hidden="true" className="backlog-task-source-icon" />
+                  {showConnectorIcon ? (
+                    <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
                   ) : null}
                   <span
                     className={cn(
@@ -2165,20 +2197,20 @@ export function BacklogPage() {
                   </button>
                 ) : null}
               </div>
-              {azureMetaParts.length > 0 || adoReference ? (
-                adoSourceUrl ? (
+              {sourceMetaParts.length > 0 || sourceReference ? (
+                sourceUrl ? (
                   <a
-                    href={adoSourceUrl}
+                    href={sourceUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="backlog-task-meta backlog-task-meta-link"
                     data-no-backlog-drag="true"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    {azureMetaLabel}
+                    {sourceMetaLabel}
                   </a>
                 ) : (
-                  <span className="backlog-task-meta">{azureMetaLabel}</span>
+                  <span className="backlog-task-meta">{sourceMetaLabel}</span>
                 )
               ) : null}
               {timeEntryMetaParts.length > 0 ? (
@@ -2310,18 +2342,22 @@ export function BacklogPage() {
     : undefined;
   const draggedWorkItemTask = draggedWorkItemProject?.tasks.find((item) => item._id === draggedWorkItem?.taskId);
   const draggedWorkItemChildCount = draggedWorkItem ? getChildItems(draggedWorkItem).length : 0;
-  const draggedWorkItemAdoReference =
+  const draggedWorkItemSourceReference =
     draggedWorkItem?.source === "azure_devops" ? parseWorkItemReference(draggedWorkItem.sourceId) : undefined;
-  const draggedWorkItemAzureMetaParts = draggedWorkItem
+  const draggedWorkItemSourceMetaParts = draggedWorkItem
     ? [
-        draggedWorkItem.source === "azure_devops" ? draggedWorkItem.sourceConnectionLabel : undefined,
-        draggedWorkItem.source === "azure_devops" ? draggedWorkItem.sourceProjectName : undefined,
+        draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook"
+          ? draggedWorkItem.sourceConnectionLabel
+          : undefined,
+        draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook"
+          ? draggedWorkItem.sourceProjectName
+          : undefined,
         draggedWorkItem.sourceWorkItemType,
       ].filter(Boolean)
     : [];
-  const draggedWorkItemAzureMetaLabel = [
-    draggedWorkItemAdoReference ? `#${draggedWorkItemAdoReference}` : undefined,
-    ...draggedWorkItemAzureMetaParts,
+  const draggedWorkItemSourceMetaLabel = [
+    draggedWorkItemSourceReference ? `#${draggedWorkItemSourceReference}` : undefined,
+    ...draggedWorkItemSourceMetaParts,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -2554,8 +2590,8 @@ export function BacklogPage() {
                 <div className="backlog-task-main">
                   <div className="backlog-task-title-row">
                     <div className="backlog-task-title-content">
-                      {draggedWorkItem.source === "azure_devops" ? (
-                        <img src={azureDevOpsIconUrl} alt="" aria-hidden="true" className="backlog-task-source-icon" />
+                      {draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook" ? (
+                        <ConnectorSourceIcon svg={connectorIconsBySource[draggedWorkItem.source]} />
                       ) : null}
                       <span
                         className={cn(
@@ -2567,8 +2603,8 @@ export function BacklogPage() {
                       </span>
                     </div>
                   </div>
-                  {draggedWorkItemAzureMetaLabel ? (
-                    <span className="backlog-task-meta">{draggedWorkItemAzureMetaLabel}</span>
+                  {draggedWorkItemSourceMetaLabel ? (
+                    <span className="backlog-task-meta">{draggedWorkItemSourceMetaLabel}</span>
                   ) : null}
                   {draggedWorkItemTimeEntryMetaParts.length > 0 ? (
                     <span className="backlog-task-meta backlog-task-meta-secondary">
@@ -2621,7 +2657,7 @@ export function BacklogPage() {
               <div className="backlog-note-modal-heading">
                 <div className="backlog-note-modal-title-row">
                   {showExpandedNoteModalSourceIcon ? (
-                    <img src={azureDevOpsIconUrl} alt="" aria-hidden="true" className="backlog-task-source-icon" />
+                    <ConnectorSourceIcon svg={expandedNoteModalWorkItem ? connectorIconsBySource[expandedNoteModalWorkItem.source] : undefined} />
                   ) : null}
                   <span id="backlog-note-modal-title" className="backlog-note-modal-task-title">
                     {expandedNoteModalTitle}

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import {
   Archive,
   ArchiveRestore,
+  AlertTriangle,
   ArrowUpDown,
   Check,
   ChevronRight,
@@ -32,7 +33,12 @@ import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/ba
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { getConnectorsOverview } from "@/lib/app-api";
 import { useLocalProjects, useLocalState, useLocalWorkItems } from "@/lib/local-hooks";
-import { localStore, type BacklogSortMode, type LocalWorkItem } from "@/lib/local-store";
+import {
+  hasWorkItemEstimateSyncIssue,
+  localStore,
+  type BacklogSortMode,
+  type LocalWorkItem,
+} from "@/lib/local-store";
 import { cn, todayIsoDate } from "@/lib/utils";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
@@ -75,6 +81,9 @@ type BacklogInlineEditorState = {
   backlogStatusId: string;
   projectId: string;
   taskId: string;
+  originalEstimateHours: string;
+  remainingEstimateHours: string;
+  completedEstimateHours: string;
   durationHours: string;
 };
 
@@ -86,6 +95,9 @@ const EMPTY_BACKLOG_INLINE_EDITOR_STATE: BacklogInlineEditorState = {
   backlogStatusId: "",
   projectId: "",
   taskId: "",
+  originalEstimateHours: "",
+  remainingEstimateHours: "",
+  completedEstimateHours: "",
   durationHours: "",
 };
 
@@ -98,6 +110,9 @@ function buildBacklogInlineEditorState(workItem: LocalWorkItem): BacklogInlineEd
     backlogStatusId: workItem.backlogStatusId ?? "",
     projectId: workItem.projectId ?? "",
     taskId: workItem.taskId ?? "",
+    originalEstimateHours: typeof workItem.originalEstimateHours === "number" ? String(workItem.originalEstimateHours) : "",
+    remainingEstimateHours: typeof workItem.remainingEstimateHours === "number" ? String(workItem.remainingEstimateHours) : "",
+    completedEstimateHours: typeof workItem.completedEstimateHours === "number" ? String(workItem.completedEstimateHours) : "",
     durationHours: "",
   };
 }
@@ -164,6 +179,19 @@ function parsePriorityInput(value: string) {
   }
 
   return parsedValue;
+}
+
+function parseEstimateInput(value: string) {
+  if (value.trim() === "") {
+    return undefined;
+  }
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    return null;
+  }
+
+  return Math.round(parsedValue * 10_000) / 10_000;
 }
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
@@ -252,6 +280,9 @@ export function BacklogPage() {
   const [expandedBacklogStatusId, setExpandedBacklogStatusId] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState("");
+  const [expandedOriginalEstimateHours, setExpandedOriginalEstimateHours] = useState("");
+  const [expandedRemainingEstimateHours, setExpandedRemainingEstimateHours] = useState("");
+  const [expandedCompletedEstimateHours, setExpandedCompletedEstimateHours] = useState("");
   const [connectorIconsBySource, setConnectorIconsBySource] = useState<Record<string, string>>({});
   const [expandedDurationHours, setExpandedDurationHours] = useState("");
   const [expandedNoteModalTarget, setExpandedNoteModalTarget] = useState<ExpandedNoteModalTarget | null>(null);
@@ -712,6 +743,9 @@ export function BacklogPage() {
     setExpandedBacklogStatusId("");
     setExpandedProjectId("");
     setExpandedTaskId("");
+    setExpandedOriginalEstimateHours("");
+    setExpandedRemainingEstimateHours("");
+    setExpandedCompletedEstimateHours("");
     setExpandedDurationHours("");
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
@@ -757,6 +791,16 @@ export function BacklogPage() {
     if (priority === null) {
       return null;
     }
+    const originalEstimateHours = parseEstimateInput(expandedOriginalEstimateHours);
+    const remainingEstimateHours = parseEstimateInput(expandedRemainingEstimateHours);
+    const completedEstimateHours = parseEstimateInput(expandedCompletedEstimateHours);
+    if (
+      originalEstimateHours === null ||
+      remainingEstimateHours === null ||
+      completedEstimateHours === null
+    ) {
+      return null;
+    }
 
     return {
       title: title || workItem.title,
@@ -765,6 +809,9 @@ export function BacklogPage() {
       backlogStatusId: expandedBacklogStatusId || undefined,
       projectId: expandedProjectId || undefined,
       taskId: expandedTaskId || undefined,
+      originalEstimateHours,
+      remainingEstimateHours,
+      completedEstimateHours,
     };
   }
 
@@ -782,6 +829,16 @@ export function BacklogPage() {
     if (!title && !preserveTitle) {
       return null;
     }
+    const originalEstimateHours = parseEstimateInput(expandedChildEditor.originalEstimateHours);
+    const remainingEstimateHours = parseEstimateInput(expandedChildEditor.remainingEstimateHours);
+    const completedEstimateHours = parseEstimateInput(expandedChildEditor.completedEstimateHours);
+    if (
+      originalEstimateHours === null ||
+      remainingEstimateHours === null ||
+      completedEstimateHours === null
+    ) {
+      return null;
+    }
 
     return {
       title: title || workItem.title,
@@ -789,6 +846,9 @@ export function BacklogPage() {
       backlogStatusId: expandedChildEditor.backlogStatusId || undefined,
       projectId: expandedChildEditor.projectId || undefined,
       taskId: expandedChildEditor.taskId || undefined,
+      originalEstimateHours,
+      remainingEstimateHours,
+      completedEstimateHours,
     };
   }
 
@@ -833,6 +893,15 @@ export function BacklogPage() {
     setExpandedBacklogStatusId(workItem.backlogStatusId ?? "");
     setExpandedProjectId(workItem.projectId ?? "");
     setExpandedTaskId(workItem.taskId ?? "");
+    setExpandedOriginalEstimateHours(
+      typeof workItem.originalEstimateHours === "number" ? String(workItem.originalEstimateHours) : "",
+    );
+    setExpandedRemainingEstimateHours(
+      typeof workItem.remainingEstimateHours === "number" ? String(workItem.remainingEstimateHours) : "",
+    );
+    setExpandedCompletedEstimateHours(
+      typeof workItem.completedEstimateHours === "number" ? String(workItem.completedEstimateHours) : "",
+    );
     setExpandedDurationHours("");
     setPendingArchiveWorkItemId(null);
     resetSubtaskDraft();
@@ -1629,6 +1698,15 @@ export function BacklogPage() {
     const editorBacklogStatusId = isEditingChildItem ? expandedChildEditor.backlogStatusId : expandedBacklogStatusId;
     const editorProjectId = isEditingChildItem ? expandedChildEditor.projectId : expandedProjectId;
     const editorTaskId = isEditingChildItem ? expandedChildEditor.taskId : expandedTaskId;
+    const editorOriginalEstimateHours = isEditingChildItem
+      ? expandedChildEditor.originalEstimateHours
+      : expandedOriginalEstimateHours;
+    const editorRemainingEstimateHours = isEditingChildItem
+      ? expandedChildEditor.remainingEstimateHours
+      : expandedRemainingEstimateHours;
+    const editorCompletedEstimateHours = isEditingChildItem
+      ? expandedChildEditor.completedEstimateHours
+      : expandedCompletedEstimateHours;
     const editorDurationHours = isEditingChildItem ? expandedChildEditor.durationHours : expandedDurationHours;
     const editorPriority = isEditingChildItem ? "" : expandedPriority;
     const editorPriorityDraft = isEditingChildItem ? "" : expandedPriorityDraft;
@@ -1644,7 +1722,11 @@ export function BacklogPage() {
     const hasEditorTimeDraft = showInlineEditor && editorDurationHours.trim().length > 0;
     const canSubmitEditorTime = Boolean(editorParsedDurationMs && editorParsedDurationMs > 0);
     const canSaveEditorTitle =
-      editorTitleDraft.trim().length > 0 && (isLogicalChild || parsePriorityInput(editorPriorityDraft) !== null);
+      editorTitleDraft.trim().length > 0 &&
+      (isLogicalChild || parsePriorityInput(editorPriorityDraft) !== null) &&
+      parseEstimateInput(editorOriginalEstimateHours) !== null &&
+      parseEstimateInput(editorRemainingEstimateHours) !== null &&
+      parseEstimateInput(editorCompletedEstimateHours) !== null;
     const canStartEditorTimer = Boolean(!currentTimer && !isArchived);
     const editorTimeFeedback = !hasEditorTimeDraft
       ? null
@@ -1667,6 +1749,7 @@ export function BacklogPage() {
     const startTimerTitle = currentTimer
       ? "Stop the current timer first"
       : `Start timer for ${workItem.title}`;
+    const hasEstimateSyncIssue = hasWorkItemEstimateSyncIssue(workItem);
     const editorStartTimerTitle = isArchived
       ? "Archived tasks cannot start timers"
       : currentTimer
@@ -1772,6 +1855,30 @@ export function BacklogPage() {
         }
 
         setExpandedTaskId(value);
+      };
+      const setInlineOriginalEstimateHours = (value: string) => {
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({ ...current, originalEstimateHours: value }));
+          return;
+        }
+
+        setExpandedOriginalEstimateHours(value);
+      };
+      const setInlineRemainingEstimateHours = (value: string) => {
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({ ...current, remainingEstimateHours: value }));
+          return;
+        }
+
+        setExpandedRemainingEstimateHours(value);
+      };
+      const setInlineCompletedEstimateHours = (value: string) => {
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({ ...current, completedEstimateHours: value }));
+          return;
+        }
+
+        setExpandedCompletedEstimateHours(value);
       };
       const setInlineDurationHours = (value: string) => {
         if (isEditingChildItem) {
@@ -2032,6 +2139,45 @@ export function BacklogPage() {
                   />
                 </label>
 
+                <label className="field backlog-field-project">
+                  <span className="field-label">Original</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={editorOriginalEstimateHours}
+                    onChange={(event) => setInlineOriginalEstimateHours(event.target.value)}
+                    placeholder="0"
+                    aria-label="Original estimate"
+                  />
+                </label>
+
+                <label className="field backlog-field-project">
+                  <span className="field-label">Remaining</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={editorRemainingEstimateHours}
+                    onChange={(event) => setInlineRemainingEstimateHours(event.target.value)}
+                    placeholder="0"
+                    aria-label="Remaining estimate"
+                  />
+                </label>
+
+                <label className="field backlog-field-project">
+                  <span className="field-label">Completed</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={editorCompletedEstimateHours}
+                    onChange={(event) => setInlineCompletedEstimateHours(event.target.value)}
+                    placeholder="0"
+                    aria-label="Completed estimate"
+                  />
+                </label>
+
                 {!isArchived ? (
                   <label className="field entry-field-note">
                     <span className="backlog-note-label">
@@ -2176,6 +2322,11 @@ export function BacklogPage() {
                   >
                     {workItem.title}
                   </span>
+                  {hasEstimateSyncIssue ? (
+                    <span className="backlog-task-meta flex items-center gap-1 text-amber-300" title="Estimate sync needs review">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                    </span>
+                  ) : null}
                   {backlogStatusLabel ? <span className="backlog-status-pill">{backlogStatusLabel}</span> : null}
                 </div>
                 {isMobileLayout && showSubtasksPill ? (

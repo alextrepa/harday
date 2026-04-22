@@ -1,7 +1,12 @@
 import type {
   ConnectorImportCandidateInput,
+  ConnectorPluginSyncResult,
+  ConnectorSyncFieldUpdate,
+  ConnectorSyncWorkItem,
+  ConnectorSyncWorkItemUpdate,
   JiraQueryScope,
 } from "../../../../packages/shared/src/connectors.ts";
+import { resolveEstimateSyncAction } from "./estimate-sync.ts";
 
 const CLOSED_STATUS_CATEGORY = "done";
 const MAX_RESULTS = 200;
@@ -16,6 +21,36 @@ export interface JiraConnectionInput {
   apiToken: string;
   projectKey?: string;
   queryScope: JiraQueryScope;
+  originalEstimateFieldName?: string;
+  remainingEstimateFieldName?: string;
+  completedEstimateFieldName?: string;
+}
+
+interface JiraFieldDefinition {
+  id?: string;
+  key?: string;
+  name?: string;
+  schema?: {
+    type?: string;
+    custom?: string;
+  };
+}
+
+export interface JiraResolvedFieldMetadata {
+  configuredName: string;
+  resolvedName: string;
+  resolvedId: string;
+  type?: string;
+}
+
+interface JiraSyncContext {
+  items: ConnectorImportCandidateInput[];
+  itemsBySourceId: Map<string, ConnectorImportCandidateInput>;
+  fields: {
+    originalEstimateField?: JiraResolvedFieldMetadata;
+    remainingEstimateField?: JiraResolvedFieldMetadata;
+    completedEstimateField?: JiraResolvedFieldMetadata;
+  };
 }
 
 interface JiraSearchResponse {
@@ -190,11 +225,12 @@ async function requestJira<T>(
 async function searchIssues(
   config: JiraConnectionInput,
   jql: string,
+  additionalFields: string[] = [],
 ): Promise<JiraIssue[]> {
   const body = {
     jql,
     maxResults: MAX_RESULTS,
-    fields: [
+    fields: Array.from(new Set([
       "summary",
       "description",
       "status",
@@ -204,7 +240,8 @@ async function searchIssues(
       "priority",
       "parent",
       "subtasks",
-    ],
+      ...additionalFields,
+    ])),
   };
 
   try {
@@ -237,6 +274,25 @@ async function searchIssues(
   }
 }
 
+async function updateJiraIssueFields(
+  config: JiraConnectionInput,
+  issueKey: string,
+  fields: Record<string, number>,
+) {
+  if (Object.keys(fields).length === 0) {
+    return;
+  }
+
+  await requestJira(
+    config,
+    `/rest/api/3/issue/${encodeURIComponent(issueKey)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ fields }),
+    },
+  );
+}
+
 function parsePriorityValue(value: unknown): number | undefined {
   const priorityName = normalizeDisplayValue((value as { name?: string } | undefined)?.name ?? value);
   if (!priorityName) {
@@ -259,11 +315,113 @@ function parsePriorityValue(value: unknown): number | undefined {
   }
 }
 
+function normalizeConfiguredFieldName(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeLookupValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLocaleLowerCase() : undefined;
+}
+
+function parseEstimateValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value * 10_000) / 10_000);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed * 10_000) / 10_000);
+    }
+  }
+
+  return undefined;
+}
+
+function requireSingleJiraFieldMatch(
+  configuredFieldName: string,
+  matches: JiraFieldDefinition[],
+  matchKind: "id" | "name",
+) {
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  if (matches.length > 1) {
+    const fieldIds = matches
+      .map((field) => field.id)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right));
+    throw new Error(
+      `Jira field "${configuredFieldName}" matched multiple fields by ${matchKind}. Use the exact field id instead${fieldIds.length > 0 ? `: ${fieldIds.join(", ")}` : "."}`,
+    );
+  }
+
+  return undefined;
+}
+
+async function resolveJiraFieldMetadata(
+  config: JiraConnectionInput,
+  configuredFieldName: string | undefined,
+): Promise<JiraResolvedFieldMetadata | undefined> {
+  const normalizedConfiguredFieldName = normalizeConfiguredFieldName(configuredFieldName);
+  if (!normalizedConfiguredFieldName) {
+    return undefined;
+  }
+
+  const normalizedLookupValue = normalizeLookupValue(normalizedConfiguredFieldName);
+  const fields = await requestJira<JiraFieldDefinition[]>(config, "/rest/api/3/field");
+
+  const idMatch = requireSingleJiraFieldMatch(
+    normalizedConfiguredFieldName,
+    fields.filter((field) => normalizeLookupValue(field.id) === normalizedLookupValue),
+    "id",
+  );
+  if (idMatch?.id) {
+    return {
+      configuredName: normalizedConfiguredFieldName,
+      resolvedName: idMatch.name?.trim() || normalizedConfiguredFieldName,
+      resolvedId: idMatch.id,
+      type: idMatch.schema?.type?.trim() || undefined,
+    };
+  }
+
+  const nameMatch = requireSingleJiraFieldMatch(
+    normalizedConfiguredFieldName,
+    fields.filter((field) => normalizeLookupValue(field.name) === normalizedLookupValue),
+    "name",
+  );
+  if (nameMatch?.id) {
+    return {
+      configuredName: normalizedConfiguredFieldName,
+      resolvedName: nameMatch.name?.trim() || normalizedConfiguredFieldName,
+      resolvedId: nameMatch.id,
+      type: nameMatch.schema?.type?.trim() || undefined,
+    };
+  }
+
+  throw new Error(
+    `Jira field "${normalizedConfiguredFieldName}" was not found. Enter the field name shown in Jira or the exact field id.`,
+  );
+}
+
 function mapIssueToCandidate(
   config: JiraConnectionInput,
   issue: JiraIssue,
   allIssues: Map<string, JiraIssue>,
   baseIssueKeys: Set<string>,
+  fieldIds?: {
+    originalEstimateFieldId?: string;
+    remainingEstimateFieldId?: string;
+    completedEstimateFieldId?: string;
+  },
 ): ConnectorImportCandidateInput | null {
   const title = normalizeDisplayValue(issue.fields?.summary);
   const issueType = normalizeDisplayValue((issue.fields?.issuetype as { name?: string } | undefined)?.name);
@@ -271,6 +429,15 @@ function mapIssueToCandidate(
   const assignedTo = normalizeDisplayValue(issue.fields?.assignee);
   const projectName = normalizeDisplayValue(issue.fields?.project);
   const note = extractDocumentText(issue.fields?.description);
+  const originalEstimateHours = fieldIds?.originalEstimateFieldId
+    ? parseEstimateValue(issue.fields?.[fieldIds.originalEstimateFieldId])
+    : undefined;
+  const remainingEstimateHours = fieldIds?.remainingEstimateFieldId
+    ? parseEstimateValue(issue.fields?.[fieldIds.remainingEstimateFieldId])
+    : undefined;
+  const completedEstimateHours = fieldIds?.completedEstimateFieldId
+    ? parseEstimateValue(issue.fields?.[fieldIds.completedEstimateFieldId])
+    : undefined;
   const parentIssue = issue.fields?.parent as JiraIssue | undefined;
   const parent = parentIssue?.key ? allIssues.get(parentIssue.key) ?? parentIssue : undefined;
   const parentTitle = normalizeDisplayValue(parent?.fields?.summary);
@@ -297,6 +464,9 @@ function mapIssueToCandidate(
       state,
       assignedTo,
       priority: parsePriorityValue(issue.fields?.priority),
+      originalEstimateHours,
+      remainingEstimateHours,
+      completedEstimateHours,
       parentSourceId: hasImportableParent && parent ? buildIssueUrl(config, parent.key) : undefined,
       parentTitle: hasImportableParent ? parentTitle : undefined,
       depth: hasImportableParent ? 1 : 0,
@@ -331,6 +501,9 @@ function mapIssueToCandidate(
     state,
     assignedTo,
     priority: parsePriorityValue(issue.fields?.priority),
+    originalEstimateHours,
+    remainingEstimateHours,
+    completedEstimateHours,
     depth: 0,
     selectable,
     selected: selectable,
@@ -338,32 +511,26 @@ function mapIssueToCandidate(
   };
 }
 
-export async function validateJiraConnection(config: JiraConnectionInput) {
-  const account = await requestJira<{ accountId?: string }>(config, "/rest/api/3/myself");
-  if (!account.accountId) {
-    throw new Error(`Jira authentication succeeded but the current account could not be resolved for ${config.baseUrl}.`);
-  }
-
-  return {
-    normalizedConfig: compactFieldValues({
-      baseUrl: normalizeBaseUrl(config.baseUrl),
-      email: config.email.trim(),
-      apiToken: config.apiToken,
-      projectKey: config.projectKey?.trim() || undefined,
-      queryScope: config.queryScope,
-    }),
-    connectionSummary: {
-      site: normalizeBaseUrl(config.baseUrl),
-      projectKey: config.projectKey?.trim() || "All projects",
-      scope: config.queryScope === "assigned_to_me" ? "Assigned to me" : "Open issues",
-    },
-  };
-}
-
-export async function fetchJiraImportCandidates(config: JiraConnectionInput) {
-  const baseIssues = await searchIssues(config, buildJql(config));
+async function fetchJiraSyncContext(config: JiraConnectionInput): Promise<JiraSyncContext> {
+  const originalEstimateField = await resolveJiraFieldMetadata(config, config.originalEstimateFieldName);
+  const remainingEstimateField = await resolveJiraFieldMetadata(config, config.remainingEstimateFieldName);
+  const completedEstimateField = await resolveJiraFieldMetadata(config, config.completedEstimateFieldName);
+  const additionalFields = [
+    originalEstimateField?.resolvedId,
+    remainingEstimateField?.resolvedId,
+    completedEstimateField?.resolvedId,
+  ].filter((value): value is string => Boolean(value));
+  const baseIssues = await searchIssues(config, buildJql(config), additionalFields);
   if (baseIssues.length === 0) {
-    return { items: [] };
+    return {
+      items: [],
+      itemsBySourceId: new Map(),
+      fields: {
+        originalEstimateField,
+        remainingEstimateField,
+        completedEstimateField,
+      },
+    };
   }
 
   const baseIssueKeys = new Set(baseIssues.map((issue) => issue.key));
@@ -375,13 +542,19 @@ export async function fetchJiraImportCandidates(config: JiraConnectionInput) {
         .filter((value) => !baseIssueKeys.has(value)),
     ),
   );
-  const parentIssues = parentKeys.length > 0 ? await searchIssues(config, buildJql(config, parentKeys)) : [];
+  const parentIssues = parentKeys.length > 0 ? await searchIssues(config, buildJql(config, parentKeys), additionalFields) : [];
   const allIssues = new Map<string, JiraIssue>(
     [...baseIssues, ...parentIssues].map((issue) => [issue.key, issue] as const),
   );
 
   const items = Array.from(allIssues.values())
-    .map((issue) => mapIssueToCandidate(config, issue, allIssues, baseIssueKeys))
+    .map((issue) =>
+      mapIssueToCandidate(config, issue, allIssues, baseIssueKeys, {
+        originalEstimateFieldId: originalEstimateField?.resolvedId,
+        remainingEstimateFieldId: remainingEstimateField?.resolvedId,
+        completedEstimateFieldId: completedEstimateField?.resolvedId,
+      }),
+    )
     .filter((item): item is ConnectorImportCandidateInput => Boolean(item))
     .sort((left, right) => {
       if (left.connectionId !== right.connectionId) {
@@ -399,5 +572,163 @@ export async function fetchJiraImportCandidates(config: JiraConnectionInput) {
       return left.title.localeCompare(right.title);
     });
 
-  return { items };
+  return {
+    items,
+    itemsBySourceId: new Map(items.map((item) => [item.sourceId, item] as const)),
+    fields: {
+      originalEstimateField,
+      remainingEstimateField,
+      completedEstimateField,
+    },
+  };
+}
+
+function buildJiraEstimateFieldUpdate(
+  localWorkItem: ConnectorSyncWorkItem,
+  remoteItem: ConnectorImportCandidateInput,
+  fieldKey: "originalEstimateHours" | "remainingEstimateHours" | "completedEstimateHours",
+): ConnectorSyncFieldUpdate | null {
+  const fieldSyncState = localWorkItem.estimateSync?.[fieldKey];
+  if (
+    remoteItem[fieldKey] === undefined &&
+    fieldSyncState?.remoteValue === undefined &&
+    fieldSyncState?.baselineValue === undefined
+  ) {
+    return null;
+  }
+
+  const action = resolveEstimateSyncAction({
+    localValue: localWorkItem[fieldKey],
+    remoteValue: remoteItem[fieldKey],
+    baselineValue: fieldSyncState?.baselineValue,
+    resolution: fieldSyncState?.resolution,
+  });
+
+  return {
+    status:
+      action.status === "push"
+        ? "pushed"
+        : action.status === "pull"
+          ? "pulled"
+          : action.status,
+    localValue: action.localValue,
+    remoteValue: action.remoteValue,
+    baselineValue: action.baselineValue,
+    nextBaselineValue: "nextBaselineValue" in action ? action.nextBaselineValue : undefined,
+  };
+}
+
+async function buildJiraWorkItemUpdates(
+  config: JiraConnectionInput,
+  syncContext: JiraSyncContext,
+  workItems: ConnectorSyncWorkItem[],
+): Promise<ConnectorSyncWorkItemUpdate[]> {
+  const updates: ConnectorSyncWorkItemUpdate[] = [];
+  const mappedFieldIds = {
+    originalEstimateHours: syncContext.fields.originalEstimateField?.resolvedId,
+    remainingEstimateHours: syncContext.fields.remainingEstimateField?.resolvedId,
+    completedEstimateHours: syncContext.fields.completedEstimateField?.resolvedId,
+  } as const;
+
+  for (const workItem of workItems) {
+    const remoteItem = syncContext.itemsBySourceId.get(workItem.sourceId);
+    if (!remoteItem) {
+      continue;
+    }
+
+    const fieldUpdates: ConnectorSyncWorkItemUpdate["fields"] = {};
+
+    for (const fieldKey of Object.keys(mappedFieldIds) as Array<keyof typeof mappedFieldIds>) {
+      const mappedFieldId = mappedFieldIds[fieldKey];
+      if (!mappedFieldId) {
+        continue;
+      }
+
+      const fieldUpdate = buildJiraEstimateFieldUpdate(workItem, remoteItem, fieldKey);
+      if (!fieldUpdate) {
+        continue;
+      }
+      fieldUpdates[fieldKey] = fieldUpdate;
+    }
+
+    if (Object.keys(fieldUpdates).length === 0) {
+      continue;
+    }
+
+    for (const fieldKey of Object.keys(fieldUpdates) as Array<keyof typeof fieldUpdates>) {
+      const mappedFieldId = mappedFieldIds[fieldKey];
+      const fieldUpdate = fieldUpdates[fieldKey];
+      if (!mappedFieldId || fieldUpdate?.status !== "pushed" || typeof workItem[fieldKey] !== "number") {
+        continue;
+      }
+
+      try {
+        await updateJiraIssueFields(config, remoteItem.externalId, {
+          [mappedFieldId]: workItem[fieldKey]!,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to update Jira issue.";
+        fieldUpdates[fieldKey] = {
+          ...fieldUpdate,
+          status: "error",
+          message,
+        };
+      }
+    }
+
+    updates.push({
+      localWorkItemId: workItem.localWorkItemId,
+      sourceId: workItem.sourceId,
+      fields: fieldUpdates,
+    });
+  }
+
+  return updates;
+}
+
+export async function validateJiraConnection(config: JiraConnectionInput) {
+  const account = await requestJira<{ accountId?: string }>(config, "/rest/api/3/myself");
+  const originalEstimateField = await resolveJiraFieldMetadata(config, config.originalEstimateFieldName);
+  const remainingEstimateField = await resolveJiraFieldMetadata(config, config.remainingEstimateFieldName);
+  const completedEstimateField = await resolveJiraFieldMetadata(config, config.completedEstimateFieldName);
+  if (!account.accountId) {
+    throw new Error(`Jira authentication succeeded but the current account could not be resolved for ${config.baseUrl}.`);
+  }
+
+  return {
+    normalizedConfig: compactFieldValues({
+      baseUrl: normalizeBaseUrl(config.baseUrl),
+      email: config.email.trim(),
+      apiToken: config.apiToken,
+      projectKey: config.projectKey?.trim() || undefined,
+      queryScope: config.queryScope,
+      originalEstimateFieldName: originalEstimateField?.configuredName,
+      remainingEstimateFieldName: remainingEstimateField?.configuredName,
+      completedEstimateFieldName: completedEstimateField?.configuredName,
+    }),
+    connectionSummary: compactFieldValues({
+      site: normalizeBaseUrl(config.baseUrl),
+      projectKey: config.projectKey?.trim() || "All projects",
+      scope: config.queryScope === "assigned_to_me" ? "Assigned to me" : "Open issues",
+      originalEstimateFieldName: originalEstimateField?.configuredName,
+      remainingEstimateFieldName: remainingEstimateField?.configuredName,
+      completedEstimateFieldName: completedEstimateField?.configuredName,
+    }),
+  };
+}
+
+export async function fetchJiraImportCandidates(config: JiraConnectionInput) {
+  const syncContext = await fetchJiraSyncContext(config);
+  return { items: syncContext.items };
+}
+
+export async function syncJiraConnection(
+  config: JiraConnectionInput,
+  workItems: ConnectorSyncWorkItem[] = [],
+): Promise<ConnectorPluginSyncResult> {
+  const syncContext = await fetchJiraSyncContext(config);
+  return {
+    items: syncContext.items,
+    workItemUpdates: await buildJiraWorkItemUpdates(config, syncContext, workItems),
+  };
 }

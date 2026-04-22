@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { access, readdir, readFile } from "node:fs/promises";
 import {
+  connectorSyncWorkItemSchema,
   connectorFieldValuesSchema,
   connectorPluginManifestSchema,
   connectorPluginSyncResultSchema,
@@ -10,6 +11,7 @@ import {
   type ConnectorFieldValues,
   type ConnectorPluginManifest,
   type ConnectorPluginSyncResult,
+  type ConnectorSyncWorkItem,
   type ConnectorPluginValidationResult,
 } from "../../../packages/shared/src/connectors.ts";
 import { z } from "zod";
@@ -43,7 +45,7 @@ type PluginInvocationConnection = z.infer<typeof pluginInvocationConnectionSchem
 
 interface ConnectorPluginModule {
   validateConnection(config: ConnectorFieldValues): Promise<unknown>;
-  syncConnection(connection: PluginInvocationConnection): Promise<unknown>;
+  syncConnection(connection: PluginInvocationConnection, workItems: ConnectorSyncWorkItem[]): Promise<unknown>;
 }
 
 const requireFromHere = createRequire(import.meta.url);
@@ -85,9 +87,11 @@ export class ConnectorPluginManager {
   async syncConnection(
     pluginId: string,
     connection: PluginInvocationConnection,
+    workItems: ConnectorSyncWorkItem[] = [],
   ): Promise<ConnectorPluginSyncResult> {
     const payload = {
       connection: pluginInvocationConnectionSchema.parse(connection),
+      workItems: workItems.map((workItem) => connectorSyncWorkItemSchema.parse(workItem)),
     };
 
     return this.invokePlugin(pluginId, "syncConnection", payload, connectorPluginSyncResultSchema);
@@ -104,7 +108,12 @@ export class ConnectorPluginManager {
     const operation =
       method === "validateConnection"
         ? pluginModule.validateConnection(connectorFieldValuesSchema.parse(params.config))
-        : pluginModule.syncConnection(pluginInvocationConnectionSchema.parse(params.connection));
+        : pluginModule.syncConnection(
+            pluginInvocationConnectionSchema.parse(params.connection),
+            Array.isArray(params.workItems)
+              ? params.workItems.map((workItem) => connectorSyncWorkItemSchema.parse(workItem))
+              : [],
+          );
 
     const result = await this.withTimeout(operation, `Connector plugin "${pluginId}" timed out while handling ${method}.`);
     return schema.parse(result);

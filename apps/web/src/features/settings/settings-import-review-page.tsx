@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, CheckSquare, FolderTree, MinusSquare, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckSquare, FolderTree, MinusSquare, RefreshCw, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,12 @@ import {
   updateConnectorImportSelection,
 } from "@/lib/app-api";
 import { useLocalWorkItems } from "@/lib/local-hooks";
-import type { LocalWorkItem } from "@/lib/local-store";
+import {
+  hasWorkItemEstimateSyncIssue,
+  localStore,
+  type LocalWorkItem,
+  type LocalWorkItemEstimateFieldKey,
+} from "@/lib/local-store";
 import type { ConnectorImportCandidate, ConnectorsOverview } from "@timetracker/shared";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +65,12 @@ function formatImportMeta(item: ConnectorImportCandidate) {
   return parts.join(" · ");
 }
 
+const ESTIMATE_FIELD_LABELS: Record<LocalWorkItemEstimateFieldKey, string> = {
+  originalEstimateHours: "Original",
+  remainingEstimateHours: "Remaining",
+  completedEstimateHours: "Completed",
+};
+
 export function SettingsImportReviewPage() {
   const localWorkItems = useLocalWorkItems();
   const [overview, setOverview] = useState<ConnectorsOverview | null>(null);
@@ -93,6 +104,19 @@ export function SettingsImportReviewPage() {
   }, []);
 
   const connectionGroups = useMemo(() => groupImportCandidatesByConnection(items), [items]);
+  const syncIssues = useMemo(
+    () =>
+      localWorkItems.flatMap((workItem) =>
+        (Object.keys(ESTIMATE_FIELD_LABELS) as LocalWorkItemEstimateFieldKey[])
+          .map((fieldKey) => ({
+            workItem,
+            fieldKey,
+            fieldState: workItem.estimateSync?.[fieldKey],
+          }))
+          .filter((issue) => issue.fieldState?.conflict || issue.fieldState?.error),
+      ),
+    [localWorkItems],
+  );
   const existingWorkItemsByImportKey = useMemo(
     () =>
       new Map(
@@ -172,10 +196,68 @@ export function SettingsImportReviewPage() {
   return (
     <div className="settings-sections">
       <section className="settings-section">
-        <h2 className="settings-section-title">Import Review</h2>
+        <h2 className="settings-section-title">Sync Review</h2>
         <p className="settings-section-desc">
-          Review everything staged by the connectors before it reaches backlog. Child items stay one level deep and inherit their parent context when needed.
+          Review staged connector imports and resolve estimate conflicts before the next sync pass. Child items stay one level deep and inherit their parent context when needed.
         </p>
+
+        {syncIssues.length > 0 ? (
+          <div className="settings-panel space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>{syncIssues.length} estimate issue{syncIssues.length === 1 ? "" : "s"}</Badge>
+            </div>
+            <div className="space-y-3">
+              {syncIssues.map(({ workItem, fieldKey, fieldState }) => (
+                <div key={`${workItem._id}:${fieldKey}`} className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <AlertTriangle className="h-4 w-4 text-amber-300" />
+                        <span>{workItem.title}</span>
+                        <Badge className="bg-muted">{ESTIMATE_FIELD_LABELS[fieldKey]}</Badge>
+                      </div>
+                      {fieldState?.conflict ? (
+                        <div className="text-sm text-foreground/70">
+                          Local: {fieldState.conflict.localValue ?? "empty"} · Remote: {fieldState.conflict.remoteValue ?? "empty"} · Last synced: {fieldState.conflict.baselineValue ?? "empty"}
+                        </div>
+                      ) : null}
+                      {fieldState?.error ? (
+                        <div className="text-sm text-foreground/70">{fieldState.error.message}</div>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {fieldState?.conflict ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => localStore.keepLocalEstimateConflict(workItem._id, fieldKey)}
+                          >
+                            Keep Local
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => localStore.acceptRemoteEstimateValue(workItem._id, fieldKey)}
+                          >
+                            Accept Remote
+                          </Button>
+                        </>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => localStore.dismissEstimateIssue(workItem._id, fieldKey)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="settings-panel import-review-toolbar">
           <div className="flex flex-wrap items-center gap-2">
@@ -340,6 +422,12 @@ export function SettingsImportReviewPage() {
                                   </span>
                                 ) : null}
                                 <span className="import-review-item-title">{rootItem.title}</span>
+                                {existingRootItem && hasWorkItemEstimateSyncIssue(existingRootItem) ? (
+                                  <Badge className="bg-amber-500/15 text-amber-300">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    Needs review
+                                  </Badge>
+                                ) : null}
                                 {existingRootItem ? (
                                   <Badge className="bg-muted">
                                     {rootItem.selected ? "Update existing task" : "Existing task"}
@@ -387,6 +475,12 @@ export function SettingsImportReviewPage() {
                                           </span>
                                         ) : null}
                                         <span className="import-review-item-title">{childItem.title}</span>
+                                        {existingChildItem && hasWorkItemEstimateSyncIssue(existingChildItem) ? (
+                                          <Badge className="bg-amber-500/15 text-amber-300">
+                                            <AlertTriangle className="h-3 w-3" />
+                                            Needs review
+                                          </Badge>
+                                        ) : null}
                                         {existingChildItem ? (
                                           <Badge className="bg-muted">
                                             {childItem.selected ? "Update existing task" : "Existing task"}

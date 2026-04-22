@@ -324,11 +324,28 @@ export function SettingsConnectorsPage() {
     try {
       const result = await syncConnectorConnection(pluginId, connectionId);
       await refreshConnectors();
+      const conflictCount = result.workItemUpdates.reduce(
+        (sum, workItem) =>
+          sum +
+          Object.values(workItem.fields).filter((field) => field?.status === "conflict").length,
+        0,
+      );
       setStatusMessage(
         result.mode === "backlog"
-          ? [result.connection.label, `${result.backlogImportedCount} imported`, `${result.backlogUpdatedCount} updated`]
+          ? [
+              result.connection.label,
+              `${result.backlogImportedCount} imported`,
+              `${result.backlogUpdatedCount} updated`,
+              ...(conflictCount > 0 ? [`${conflictCount} conflict${conflictCount === 1 ? "" : "s"}`] : []),
+            ]
               .join(" · ")
-          : [result.connection.label, `${result.stagedCount} staged`, `${result.updatedCount} refreshed`, `${result.skippedCount} skipped`]
+          : [
+              result.connection.label,
+              `${result.stagedCount} staged`,
+              `${result.updatedCount} refreshed`,
+              `${result.skippedCount} skipped`,
+              ...(conflictCount > 0 ? [`${conflictCount} conflict${conflictCount === 1 ? "" : "s"}`] : []),
+            ]
               .join(" · "),
       );
     } catch (error) {

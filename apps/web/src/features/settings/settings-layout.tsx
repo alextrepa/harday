@@ -8,7 +8,7 @@ const settingsTabs = [
   { to: "/settings/backlog", label: "Backlog", icon: ListTodo },
   { to: "/settings/projects", label: "Projects", icon: FolderKanban },
   { to: "/settings/export", label: "Export", icon: Download },
-  { to: "/settings/imports", label: "Import Review", icon: Inbox },
+  { to: "/settings/imports", label: "Sync Review", icon: Inbox },
   { to: "/settings/debug", label: "Debug", icon: Bug },
 ] as const;
 

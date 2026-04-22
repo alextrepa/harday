@@ -13,7 +13,12 @@ import {
   type RuleRecord,
   type TeamSettings,
 } from "@timetracker/shared";
-import type { ConnectorBacklogSource, ConnectorImportCandidate } from "@timetracker/shared";
+import type {
+  ConnectorBacklogSource,
+  ConnectorImportCandidate,
+  ConnectorSyncFieldUpdate,
+  ConnectorSyncWorkItemUpdate,
+} from "@timetracker/shared";
 import {
   formatTaskImportName,
   normalizeTaskImportName,
@@ -36,6 +41,55 @@ export interface LocalProjectTask {
   status: "active" | "archived";
   createdAt: number;
   archivedAt?: number;
+}
+
+export type LocalWorkItemEstimateFieldKey =
+  | "originalEstimateHours"
+  | "remainingEstimateHours"
+  | "completedEstimateHours";
+
+export interface LocalWorkItemEstimateFieldConflict {
+  detectedAt: number;
+  localValue?: number;
+  remoteValue?: number;
+  baselineValue?: number;
+}
+
+export interface LocalWorkItemEstimateFieldError {
+  detectedAt: number;
+  message: string;
+}
+
+export interface LocalWorkItemEstimateFieldState {
+  baselineValue?: number;
+  remoteValue?: number;
+  resolution?: "keep_local";
+  conflict?: LocalWorkItemEstimateFieldConflict;
+  error?: LocalWorkItemEstimateFieldError;
+}
+
+export interface LocalWorkItemEstimateSyncState {
+  originalEstimateHours?: LocalWorkItemEstimateFieldState;
+  remainingEstimateHours?: LocalWorkItemEstimateFieldState;
+  completedEstimateHours?: LocalWorkItemEstimateFieldState;
+}
+
+export function getWorkItemEstimateFieldState(
+  workItem: LocalWorkItem,
+  fieldKey: LocalWorkItemEstimateFieldKey,
+) {
+  return workItem.estimateSync?.[fieldKey];
+}
+
+export function hasWorkItemEstimateSyncIssue(workItem: LocalWorkItem) {
+  return ([
+    "originalEstimateHours",
+    "remainingEstimateHours",
+    "completedEstimateHours",
+  ] as const).some((fieldKey) => {
+    const fieldState = getWorkItemEstimateFieldState(workItem, fieldKey);
+    return Boolean(fieldState?.conflict || fieldState?.error);
+  });
 }
 
 export interface LocalProjectDraft {
@@ -132,6 +186,10 @@ export interface LocalWorkItem {
   projectId?: string;
   taskId?: string;
   note?: string;
+  originalEstimateHours?: number;
+  remainingEstimateHours?: number;
+  completedEstimateHours?: number;
+  estimateSync?: LocalWorkItemEstimateSyncState;
   createdAt: number;
   archivedAt?: number;
 }
@@ -150,6 +208,9 @@ export interface LocalWorkItemDraft {
   parentWorkItemId?: string;
   priority?: number;
   backlogStatusId?: string;
+  originalEstimateHours?: number;
+  remainingEstimateHours?: number;
+  completedEstimateHours?: number;
 }
 
 export interface ImportedBrowserDraft {
@@ -312,6 +373,63 @@ function normalizePriorityValue(priority?: number) {
   }
 
   return Math.max(0, Math.round(priority));
+}
+
+function normalizeEstimateValue(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.round(Math.max(0, value) * 10_000) / 10_000;
+}
+
+function durationMsToHours(durationMs: number) {
+  return Math.max(0, durationMs) / (60 * 60 * 1000);
+}
+
+function applyEstimateDelta(
+  value: number | undefined,
+  delta: number,
+  options?: { clampAtZero?: boolean },
+) {
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.0000001) {
+    return value;
+  }
+
+  const nextValue = (value ?? 0) + delta;
+  return normalizeEstimateValue(options?.clampAtZero ? Math.max(0, nextValue) : nextValue);
+}
+
+function createEstimateFieldState(value: number | undefined): LocalWorkItemEstimateFieldState | undefined {
+  const normalizedValue = normalizeEstimateValue(value);
+  if (normalizedValue === undefined) {
+    return undefined;
+  }
+
+  return {
+    baselineValue: normalizedValue,
+    remoteValue: normalizedValue,
+  };
+}
+
+function buildImportedEstimateSyncState(workItem: {
+  originalEstimateHours?: number;
+  remainingEstimateHours?: number;
+  completedEstimateHours?: number;
+}): LocalWorkItemEstimateSyncState | undefined {
+  const originalEstimateHours = createEstimateFieldState(workItem.originalEstimateHours);
+  const remainingEstimateHours = createEstimateFieldState(workItem.remainingEstimateHours);
+  const completedEstimateHours = createEstimateFieldState(workItem.completedEstimateHours);
+
+  if (!originalEstimateHours && !remainingEstimateHours && !completedEstimateHours) {
+    return undefined;
+  }
+
+  return {
+    originalEstimateHours,
+    remainingEstimateHours,
+    completedEstimateHours,
+  };
 }
 
 function normalizeBacklogStatusName(value: string) {
@@ -557,6 +675,10 @@ function createWorkItem(workItem: LocalWorkItemDraft): LocalWorkItem {
     projectId: workItem.projectId,
     taskId: workItem.taskId,
     note: workItem.note?.trim() || undefined,
+    originalEstimateHours: normalizeEstimateValue(workItem.originalEstimateHours),
+    remainingEstimateHours: normalizeEstimateValue(workItem.remainingEstimateHours),
+    completedEstimateHours: normalizeEstimateValue(workItem.completedEstimateHours),
+    estimateSync: undefined,
     createdAt: Date.now(),
     archivedAt: undefined,
   };
@@ -590,6 +712,10 @@ function createConnectorWorkItem(
     projectId: undefined,
     taskId: undefined,
     note: workItem.note?.trim() || undefined,
+    originalEstimateHours: normalizeEstimateValue(workItem.originalEstimateHours),
+    remainingEstimateHours: normalizeEstimateValue(workItem.remainingEstimateHours),
+    completedEstimateHours: normalizeEstimateValue(workItem.completedEstimateHours),
+    estimateSync: buildImportedEstimateSyncState(workItem),
     createdAt: workItem.pushedAt,
     archivedAt: undefined,
   };
@@ -604,6 +730,12 @@ function mergeConnectorWorkItem(
   const followsImportedPriority = existingWorkItem.priority === existingWorkItem.importedPriority;
   const followsImportedBacklogStatus =
     existingWorkItem.backlogStatusId === existingWorkItem.importedBacklogStatusId;
+  const followsImportedOriginalEstimate =
+    existingWorkItem.originalEstimateHours === existingWorkItem.estimateSync?.originalEstimateHours?.remoteValue;
+  const followsImportedRemainingEstimate =
+    existingWorkItem.remainingEstimateHours === existingWorkItem.estimateSync?.remainingEstimateHours?.remoteValue;
+  const followsImportedCompletedEstimate =
+    existingWorkItem.completedEstimateHours === existingWorkItem.estimateSync?.completedEstimateHours?.remoteValue;
 
   return {
     ...existingWorkItem,
@@ -622,6 +754,45 @@ function mergeConnectorWorkItem(
     importedBacklogStatusId: nextImportedState.importedBacklogStatusId,
     sourceStatusKey: nextImportedState.sourceStatusKey,
     sourceStatusLabel: nextImportedState.sourceStatusLabel,
+    originalEstimateHours: followsImportedOriginalEstimate
+      ? nextImportedState.originalEstimateHours
+      : existingWorkItem.originalEstimateHours,
+    remainingEstimateHours: followsImportedRemainingEstimate
+      ? nextImportedState.remainingEstimateHours
+      : existingWorkItem.remainingEstimateHours,
+    completedEstimateHours: followsImportedCompletedEstimate
+      ? nextImportedState.completedEstimateHours
+      : existingWorkItem.completedEstimateHours,
+    estimateSync: {
+      ...existingWorkItem.estimateSync,
+      originalEstimateHours: nextImportedState.estimateSync?.originalEstimateHours
+        ? {
+            ...existingWorkItem.estimateSync?.originalEstimateHours,
+            remoteValue: nextImportedState.estimateSync.originalEstimateHours.remoteValue,
+            baselineValue: followsImportedOriginalEstimate
+              ? nextImportedState.estimateSync.originalEstimateHours.baselineValue
+              : existingWorkItem.estimateSync?.originalEstimateHours?.baselineValue,
+          }
+        : existingWorkItem.estimateSync?.originalEstimateHours,
+      remainingEstimateHours: nextImportedState.estimateSync?.remainingEstimateHours
+        ? {
+            ...existingWorkItem.estimateSync?.remainingEstimateHours,
+            remoteValue: nextImportedState.estimateSync.remainingEstimateHours.remoteValue,
+            baselineValue: followsImportedRemainingEstimate
+              ? nextImportedState.estimateSync.remainingEstimateHours.baselineValue
+              : existingWorkItem.estimateSync?.remainingEstimateHours?.baselineValue,
+          }
+        : existingWorkItem.estimateSync?.remainingEstimateHours,
+      completedEstimateHours: nextImportedState.estimateSync?.completedEstimateHours
+        ? {
+            ...existingWorkItem.estimateSync?.completedEstimateHours,
+            remoteValue: nextImportedState.estimateSync.completedEstimateHours.remoteValue,
+            baselineValue: followsImportedCompletedEstimate
+              ? nextImportedState.estimateSync.completedEstimateHours.baselineValue
+              : existingWorkItem.estimateSync?.completedEstimateHours?.baselineValue,
+          }
+        : existingWorkItem.estimateSync?.completedEstimateHours,
+    },
     status: "active",
     archivedAt: undefined,
   };
@@ -655,6 +826,10 @@ function normalizeWorkItem(workItem: PersistedLocalWorkItem): LocalWorkItem {
     importedBacklogStatusId: workItem.importedBacklogStatusId,
     sourceStatusKey: workItem.sourceStatusKey,
     sourceStatusLabel: workItem.sourceStatusLabel,
+    originalEstimateHours: normalizeEstimateValue(workItem.originalEstimateHours),
+    remainingEstimateHours: normalizeEstimateValue(workItem.remainingEstimateHours),
+    completedEstimateHours: normalizeEstimateValue(workItem.completedEstimateHours),
+    estimateSync: workItem.estimateSync,
     createdAt: workItem.createdAt ?? Date.now(),
     archivedAt:
       workItem.archivedAt ??
@@ -811,6 +986,108 @@ function createTimesheetEntry(
     sourceBlockIds: values.sourceBlockIds,
     committedAt: Date.now(),
   };
+}
+
+function applyLoggedTimeToWorkItems(
+  workItems: LocalWorkItem[],
+  values: {
+    projectId?: string;
+    taskId?: string;
+    durationMsDelta: number;
+  },
+) {
+  if (!values.projectId || !values.taskId || values.durationMsDelta === 0) {
+    return workItems;
+  }
+
+  const deltaHours = durationMsToHours(values.durationMsDelta);
+  if (deltaHours === 0) {
+    return workItems;
+  }
+
+  return workItems.map((workItem) => {
+    if (workItem.projectId !== values.projectId || workItem.taskId !== values.taskId) {
+      return workItem;
+    }
+
+    return {
+      ...workItem,
+      remainingEstimateHours: applyEstimateDelta(workItem.remainingEstimateHours, -deltaHours, { clampAtZero: true }),
+      completedEstimateHours: applyEstimateDelta(workItem.completedEstimateHours, deltaHours, { clampAtZero: true }),
+    };
+  });
+}
+
+function applyConnectorFieldUpdateToWorkItem(
+  workItem: LocalWorkItem,
+  fieldKey: LocalWorkItemEstimateFieldKey,
+  update: ConnectorSyncFieldUpdate,
+): LocalWorkItem {
+  const nextEstimateSync: LocalWorkItemEstimateSyncState = {
+    ...workItem.estimateSync,
+  };
+  const currentFieldState = nextEstimateSync[fieldKey];
+  const nextFieldState: LocalWorkItemEstimateFieldState = {
+    ...currentFieldState,
+    remoteValue: update.remoteValue ?? currentFieldState?.remoteValue,
+  };
+
+  switch (update.status) {
+    case "pulled":
+      nextFieldState.baselineValue = update.nextBaselineValue ?? update.remoteValue;
+      nextFieldState.remoteValue = update.remoteValue;
+      nextFieldState.resolution = undefined;
+      nextFieldState.conflict = undefined;
+      nextFieldState.error = undefined;
+      return {
+        ...workItem,
+        [fieldKey]: update.remoteValue,
+        estimateSync: {
+          ...nextEstimateSync,
+          [fieldKey]: nextFieldState,
+        },
+      };
+    case "pushed":
+    case "noop":
+      nextFieldState.baselineValue = update.nextBaselineValue ?? nextFieldState.baselineValue;
+      nextFieldState.resolution = undefined;
+      nextFieldState.conflict = undefined;
+      nextFieldState.error = undefined;
+      return {
+        ...workItem,
+        estimateSync: {
+          ...nextEstimateSync,
+          [fieldKey]: nextFieldState,
+        },
+      };
+    case "conflict":
+      nextFieldState.conflict = {
+        detectedAt: Date.now(),
+        localValue: update.localValue ?? workItem[fieldKey],
+        remoteValue: update.remoteValue,
+        baselineValue: update.baselineValue ?? currentFieldState?.baselineValue,
+      };
+      nextFieldState.error = undefined;
+      return {
+        ...workItem,
+        estimateSync: {
+          ...nextEstimateSync,
+          [fieldKey]: nextFieldState,
+        },
+      };
+    case "error":
+      nextFieldState.error = {
+        detectedAt: Date.now(),
+        message: update.message ?? "Sync failed.",
+      };
+      return {
+        ...workItem,
+        estimateSync: {
+          ...nextEstimateSync,
+          [fieldKey]: nextFieldState,
+        },
+      };
+  }
 }
 
 function buildSampleSegment(state: LocalAppState, url: string, title: string): ActivitySegmentRecord {
@@ -1438,6 +1715,11 @@ export const localStore = {
           sourceBlockIds: [],
         }),
       ],
+      workItems: applyLoggedTimeToWorkItems(state.workItems, {
+        projectId: values.projectId,
+        taskId: values.taskId,
+        durationMsDelta: values.durationMs,
+      }),
     }));
   },
   addWorkItem(workItem: LocalWorkItemDraft) {
@@ -1593,6 +1875,122 @@ export const localStore = {
       archivedCount,
     };
   },
+  applyConnectorSyncWorkItemUpdates(updates: ConnectorSyncWorkItemUpdate[]) {
+    if (updates.length === 0) {
+      return;
+    }
+
+    updateState((state) => ({
+      ...state,
+      workItems: state.workItems.map((workItem) => {
+        const update = updates.find((item) => item.localWorkItemId === workItem._id);
+        if (!update) {
+          return workItem;
+        }
+
+        let nextWorkItem = workItem;
+        if (update.fields.originalEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "originalEstimateHours",
+            update.fields.originalEstimateHours,
+          );
+        }
+        if (update.fields.remainingEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "remainingEstimateHours",
+            update.fields.remainingEstimateHours,
+          );
+        }
+        if (update.fields.completedEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "completedEstimateHours",
+            update.fields.completedEstimateHours,
+          );
+        }
+
+        return nextWorkItem;
+      }),
+    }));
+  },
+  keepLocalEstimateConflict(workItemId: string, fieldKey: LocalWorkItemEstimateFieldKey) {
+    updateState((state) => ({
+      ...state,
+      workItems: state.workItems.map((workItem) => {
+        if (workItem._id !== workItemId) {
+          return workItem;
+        }
+
+        return {
+          ...workItem,
+          estimateSync: {
+            ...workItem.estimateSync,
+            [fieldKey]: {
+              ...workItem.estimateSync?.[fieldKey],
+              resolution: "keep_local" as const,
+              error: undefined,
+            },
+          },
+        };
+      }),
+    }));
+  },
+  acceptRemoteEstimateValue(workItemId: string, fieldKey: LocalWorkItemEstimateFieldKey) {
+    updateState((state) => ({
+      ...state,
+      workItems: state.workItems.map((workItem) => {
+        if (workItem._id !== workItemId) {
+          return workItem;
+        }
+
+        const fieldState = workItem.estimateSync?.[fieldKey];
+        const remoteValue = fieldState?.conflict?.remoteValue ?? fieldState?.remoteValue;
+        return {
+          ...workItem,
+          [fieldKey]: remoteValue,
+          estimateSync: {
+            ...workItem.estimateSync,
+            [fieldKey]: {
+              ...fieldState,
+              baselineValue: remoteValue,
+              remoteValue,
+              resolution: undefined,
+              conflict: undefined,
+              error: undefined,
+            },
+          },
+        };
+      }),
+    }));
+  },
+  dismissEstimateIssue(workItemId: string, fieldKey: LocalWorkItemEstimateFieldKey) {
+    updateState((state) => ({
+      ...state,
+      workItems: state.workItems.map((workItem) => {
+        if (workItem._id !== workItemId) {
+          return workItem;
+        }
+
+        const fieldState = workItem.estimateSync?.[fieldKey];
+        return {
+          ...workItem,
+          estimateSync: {
+            ...workItem.estimateSync,
+            [fieldKey]: {
+              ...fieldState,
+              baselineValue:
+                workItem[fieldKey] === fieldState?.remoteValue ? fieldState?.remoteValue : fieldState?.baselineValue,
+              resolution: undefined,
+              conflict: undefined,
+              error: undefined,
+            },
+          },
+        };
+      }),
+    }));
+  },
   reorderWorkItems(orderedIds: string[]) {
     if (orderedIds.length < 2) {
       return;
@@ -1686,6 +2084,18 @@ export const localStore = {
                 parentSourceId: nextParentWorkItemId ? undefined : nextParentSourceId,
                 hierarchyLevel: nextIsSubtask ? 1 : 0,
                 priority: nextPriority,
+                originalEstimateHours:
+                  "originalEstimateHours" in patch
+                    ? normalizeEstimateValue(patch.originalEstimateHours)
+                    : workItem.originalEstimateHours,
+                remainingEstimateHours:
+                  "remainingEstimateHours" in patch
+                    ? normalizeEstimateValue(patch.remainingEstimateHours)
+                    : workItem.remainingEstimateHours,
+                completedEstimateHours:
+                  "completedEstimateHours" in patch
+                    ? normalizeEstimateValue(patch.completedEstimateHours)
+                    : workItem.completedEstimateHours,
               }
             : workItem,
         ),
@@ -1757,22 +2167,44 @@ export const localStore = {
                 }
             : item,
         ),
+        workItems: applyLoggedTimeToWorkItems(
+          applyLoggedTimeToWorkItems(state.workItems, {
+            projectId: entry.projectId,
+            taskId: entry.taskId,
+            durationMsDelta: -entry.durationMs,
+          }),
+          {
+            projectId: values.projectId,
+            taskId: values.taskId,
+            durationMsDelta: values.durationMs,
+          },
+        ),
       };
     });
   },
   deleteTimesheetEntry(entryId: string) {
-    updateState((state) => ({
-      ...state,
-      timesheetEntries: state.timesheetEntries.filter((item) => item._id !== entryId),
-      timers: state.timers.map((timer) =>
-        timer.entryId === entryId
-          ? {
-              ...timer,
-              entryId: undefined,
-            }
-          : timer,
-      ),
-    }));
+    updateState((state) => {
+      const entry = state.timesheetEntries.find((item) => item._id === entryId);
+      return {
+        ...state,
+        timesheetEntries: state.timesheetEntries.filter((item) => item._id !== entryId),
+        timers: state.timers.map((timer) =>
+          timer.entryId === entryId
+            ? {
+                ...timer,
+                entryId: undefined,
+              }
+            : timer,
+        ),
+        workItems: entry
+          ? applyLoggedTimeToWorkItems(state.workItems, {
+              projectId: entry.projectId,
+              taskId: entry.taskId,
+              durationMsDelta: -entry.durationMs,
+            })
+          : state.workItems,
+      };
+    });
   },
   saveTimer(timerId: string) {
     updateState((state) => {
@@ -1781,6 +2213,9 @@ export const localStore = {
         return state;
       }
 
+      const existingEntry = timer.entryId
+        ? state.timesheetEntries.find((entry) => entry._id === timer.entryId)
+        : undefined;
       const durationMs = timer.accumulatedDurationMs + Math.max(0, Date.now() - timer.startedAt);
       const nextEntry = createTimesheetEntry(state, {
         localDate: timer.localDate,
@@ -1798,6 +2233,20 @@ export const localStore = {
         timesheetEntries: timer.entryId
           ? state.timesheetEntries.map((entry) => (entry._id === timer.entryId ? nextEntry : entry))
           : [...state.timesheetEntries, nextEntry],
+        workItems: applyLoggedTimeToWorkItems(
+          existingEntry
+            ? applyLoggedTimeToWorkItems(state.workItems, {
+                projectId: existingEntry.projectId,
+                taskId: existingEntry.taskId,
+                durationMsDelta: -existingEntry.durationMs,
+              })
+            : state.workItems,
+          {
+            projectId: timer.projectId,
+            taskId: timer.taskId,
+            durationMsDelta: durationMs,
+          },
+        ),
       };
     });
   },

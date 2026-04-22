@@ -1,5 +1,5 @@
 import { connectorFieldValuesSchema, type ConnectorFieldValues } from "../../../../packages/shared/src/connectors.ts";
-import { fetchJiraImportCandidates, type JiraConnectionInput, validateJiraConnection } from "../../src/connectors/jira.ts";
+import { syncJiraConnection, type JiraConnectionInput, validateJiraConnection } from "../../src/connectors/jira.ts";
 
 function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string; label: string; tenantLabel: string }): JiraConnectionInput {
   const parsed = connectorFieldValuesSchema.parse(values);
@@ -32,6 +32,18 @@ function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string
         ? parsed.projectKey.trim()
         : undefined,
     queryScope: parsed.queryScope,
+    originalEstimateFieldName:
+      typeof parsed.originalEstimateFieldName === "string" && parsed.originalEstimateFieldName.trim()
+        ? parsed.originalEstimateFieldName.trim()
+        : undefined,
+    remainingEstimateFieldName:
+      typeof parsed.remainingEstimateFieldName === "string" && parsed.remainingEstimateFieldName.trim()
+        ? parsed.remainingEstimateFieldName.trim()
+        : undefined,
+    completedEstimateFieldName:
+      typeof parsed.completedEstimateFieldName === "string" && parsed.completedEstimateFieldName.trim()
+        ? parsed.completedEstimateFieldName.trim()
+        : undefined,
   };
 }
 
@@ -45,7 +57,7 @@ export async function syncConnection(connection: {
   label: string;
   tenantLabel: string;
   config: ConnectorFieldValues;
-}) {
+}, workItems = []) {
   const jiraConfig = buildJiraConfig(connection.config, connection);
-  return await fetchJiraImportCandidates(jiraConfig);
+  return await syncJiraConnection(jiraConfig, workItems);
 }

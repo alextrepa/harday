@@ -1,6 +1,6 @@
 import { connectorFieldValuesSchema, type ConnectorFieldValues } from "../../../../packages/shared/src/connectors.ts";
 import {
-  fetchAzureDevOpsImportCandidates,
+  syncAzureDevOpsConnection,
   type AzureDevOpsConnectionInput,
   validateAzureDevOpsConnection,
 } from "../../src/connectors/azure-devops.ts";
@@ -31,6 +31,18 @@ function buildAzureConfig(values: ConnectorFieldValues, connection?: { id: strin
       typeof parsed.priorityFieldName === "string" && parsed.priorityFieldName.trim()
         ? parsed.priorityFieldName.trim()
         : undefined,
+    originalEstimateFieldName:
+      typeof parsed.originalEstimateFieldName === "string" && parsed.originalEstimateFieldName.trim()
+        ? parsed.originalEstimateFieldName.trim()
+        : undefined,
+    remainingEstimateFieldName:
+      typeof parsed.remainingEstimateFieldName === "string" && parsed.remainingEstimateFieldName.trim()
+        ? parsed.remainingEstimateFieldName.trim()
+        : undefined,
+    completedEstimateFieldName:
+      typeof parsed.completedEstimateFieldName === "string" && parsed.completedEstimateFieldName.trim()
+        ? parsed.completedEstimateFieldName.trim()
+        : undefined,
   };
 }
 
@@ -46,6 +58,15 @@ export async function validateConnection(config: ConnectorFieldValues) {
 
   if (azureConfig.priorityFieldName) {
     normalizedConfig.priorityFieldName = azureConfig.priorityFieldName;
+  }
+  if (azureConfig.originalEstimateFieldName) {
+    normalizedConfig.originalEstimateFieldName = azureConfig.originalEstimateFieldName;
+  }
+  if (azureConfig.remainingEstimateFieldName) {
+    normalizedConfig.remainingEstimateFieldName = azureConfig.remainingEstimateFieldName;
+  }
+  if (azureConfig.completedEstimateFieldName) {
+    normalizedConfig.completedEstimateFieldName = azureConfig.completedEstimateFieldName;
   }
 
   const connectionSummary: Record<string, string | boolean> = {
@@ -65,6 +86,15 @@ export async function validateConnection(config: ConnectorFieldValues) {
   if (typeof validation.priorityField?.isQueryable === "boolean") {
     connectionSummary.priorityFieldIsQueryable = validation.priorityField.isQueryable;
   }
+  if (validation.originalEstimateField?.configuredName) {
+    connectionSummary.originalEstimateFieldName = validation.originalEstimateField.configuredName;
+  }
+  if (validation.remainingEstimateField?.configuredName) {
+    connectionSummary.remainingEstimateFieldName = validation.remainingEstimateField.configuredName;
+  }
+  if (validation.completedEstimateField?.configuredName) {
+    connectionSummary.completedEstimateFieldName = validation.completedEstimateField.configuredName;
+  }
 
   return {
     normalizedConfig,
@@ -77,7 +107,7 @@ export async function syncConnection(connection: {
   label: string;
   tenantLabel: string;
   config: ConnectorFieldValues;
-}) {
+}, workItems = []) {
   const azureConfig = buildAzureConfig(connection.config, connection);
-  return await fetchAzureDevOpsImportCandidates(azureConfig);
+  return await syncAzureDevOpsConnection(azureConfig, workItems);
 }

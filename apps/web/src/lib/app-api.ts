@@ -18,6 +18,7 @@ import {
   type ConnectorConnectionSaveResponse,
   type ConnectorFieldValues,
   type ConnectorImportCandidate,
+  type ConnectorSyncWorkItem,
   type ConnectorsOverview,
   type ConnectorSyncResult,
 } from "@timetracker/shared";
@@ -177,9 +178,52 @@ export function deleteConnectorConnection(
 export function syncConnectorConnection(
   pluginId: string,
   connectionId: string,
-  input?: ConnectorSyncRequest,
+  input?: Pick<ConnectorSyncRequest, "trigger">,
 ): Promise<SyncConnectorConnectionResult> {
-  const payload = connectorSyncRequestSchema.parse(input ?? { trigger: "manual" });
+  const connectorWorkItems = localStore
+    .snapshot()
+    .workItems.filter(
+      (workItem) =>
+        workItem.source === pluginId &&
+        workItem.sourceConnectionId === connectionId &&
+        typeof workItem.sourceId === "string",
+    )
+    .map((workItem) => ({
+      localWorkItemId: workItem._id,
+      sourceId: workItem.sourceId!,
+      originalEstimateHours: workItem.originalEstimateHours,
+      remainingEstimateHours: workItem.remainingEstimateHours,
+      completedEstimateHours: workItem.completedEstimateHours,
+      estimateSync: workItem.estimateSync
+        ? {
+            originalEstimateHours: workItem.estimateSync.originalEstimateHours
+              ? {
+                  baselineValue: workItem.estimateSync.originalEstimateHours.baselineValue,
+                  remoteValue: workItem.estimateSync.originalEstimateHours.remoteValue,
+                  resolution: workItem.estimateSync.originalEstimateHours.resolution,
+                }
+              : undefined,
+            remainingEstimateHours: workItem.estimateSync.remainingEstimateHours
+              ? {
+                  baselineValue: workItem.estimateSync.remainingEstimateHours.baselineValue,
+                  remoteValue: workItem.estimateSync.remainingEstimateHours.remoteValue,
+                  resolution: workItem.estimateSync.remainingEstimateHours.resolution,
+                }
+              : undefined,
+            completedEstimateHours: workItem.estimateSync.completedEstimateHours
+              ? {
+                  baselineValue: workItem.estimateSync.completedEstimateHours.baselineValue,
+                  remoteValue: workItem.estimateSync.completedEstimateHours.remoteValue,
+                  resolution: workItem.estimateSync.completedEstimateHours.resolution,
+                }
+              : undefined,
+          }
+        : undefined,
+    } satisfies ConnectorSyncWorkItem));
+  const payload = connectorSyncRequestSchema.parse({
+    ...(input ?? { trigger: "manual" }),
+    workItems: connectorWorkItems,
+  });
   return appApiRequest(
     `/api/connectors/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}/sync`,
     {
@@ -194,6 +238,7 @@ export function syncConnectorConnection(
             archiveMissingFromConnectionId: payload.trigger === "auto" ? connectionId : undefined,
           })
         : { importedCount: 0, updatedCount: 0 };
+    localStore.applyConnectorSyncWorkItemUpdates(result.workItemUpdates);
 
     return {
       ...result,

@@ -332,7 +332,7 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
               lastSyncAt: connection.lastSyncAt,
               lastError: connection.lastError,
               config: connection.config,
-            });
+            }, payload.workItems);
             const discoveredStatuses = collectConnectorStatuses(fetched.items);
             if (discoveredStatuses.length > 0) {
               await storage.upsertConnectorBacklogStatuses(discoveredStatuses);
@@ -359,6 +359,7 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
                 stagedCount: stageResult.queuedCount,
                 updatedCount: stageResult.updatedCount,
                 skippedCount: stageResult.skippedCount,
+                workItemUpdates: fetched.workItemUpdates,
               }),
             );
           } catch (error) {
@@ -374,6 +375,7 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
                 stagedCount: 0,
                 updatedCount: 0,
                 skippedCount: 0,
+                workItemUpdates: [],
               }),
             );
           }

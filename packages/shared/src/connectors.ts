@@ -140,8 +140,40 @@ export type ConnectorBacklogStatusUpsertRequest = z.infer<typeof connectorBacklo
 export const connectorBacklogStatusUpsertResponseSchema = connectorBacklogStatusListResponseSchema;
 export type ConnectorBacklogStatusUpsertResponse = z.infer<typeof connectorBacklogStatusUpsertResponseSchema>;
 
+export const connectorEstimateFieldKeySchema = z.enum([
+  "originalEstimateHours",
+  "remainingEstimateHours",
+  "completedEstimateHours",
+]);
+export type ConnectorEstimateFieldKey = z.infer<typeof connectorEstimateFieldKeySchema>;
+
+export const connectorSyncEstimateFieldStateSchema = z.object({
+  baselineValue: z.number().finite().nonnegative().optional(),
+  remoteValue: z.number().finite().nonnegative().optional(),
+  resolution: z.enum(["keep_local"]).optional(),
+});
+export type ConnectorSyncEstimateFieldState = z.infer<typeof connectorSyncEstimateFieldStateSchema>;
+
+export const connectorSyncEstimateStateSchema = z.object({
+  originalEstimateHours: connectorSyncEstimateFieldStateSchema.optional(),
+  remainingEstimateHours: connectorSyncEstimateFieldStateSchema.optional(),
+  completedEstimateHours: connectorSyncEstimateFieldStateSchema.optional(),
+});
+export type ConnectorSyncEstimateState = z.infer<typeof connectorSyncEstimateStateSchema>;
+
+export const connectorSyncWorkItemSchema = z.object({
+  localWorkItemId: z.string().trim().min(1).max(200),
+  sourceId: z.string().trim().min(1).max(400),
+  originalEstimateHours: z.number().finite().nonnegative().optional(),
+  remainingEstimateHours: z.number().finite().nonnegative().optional(),
+  completedEstimateHours: z.number().finite().nonnegative().optional(),
+  estimateSync: connectorSyncEstimateStateSchema.optional(),
+});
+export type ConnectorSyncWorkItem = z.infer<typeof connectorSyncWorkItemSchema>;
+
 export const connectorSyncRequestSchema = z.object({
   trigger: z.enum(["manual", "auto"]).default("manual"),
+  workItems: z.array(connectorSyncWorkItemSchema).max(1000).default([]),
 });
 export type ConnectorSyncRequest = z.infer<typeof connectorSyncRequestSchema>;
 
@@ -178,6 +210,9 @@ export const connectorImportCandidateInputSchema = z.object({
   state: z.string().trim().max(120).optional(),
   assignedTo: z.string().trim().max(240).optional(),
   priority: z.number().int().min(0).max(999).optional(),
+  originalEstimateHours: z.number().finite().nonnegative().optional(),
+  remainingEstimateHours: z.number().finite().nonnegative().optional(),
+  completedEstimateHours: z.number().finite().nonnegative().optional(),
   parentSourceId: z.string().trim().min(1).max(400).optional(),
   parentTitle: z.string().trim().max(240).optional(),
   depth: connectorImportDepthSchema,
@@ -195,8 +230,30 @@ export const connectorImportCandidateSchema = connectorImportCandidateInputSchem
 });
 export type ConnectorImportCandidate = z.infer<typeof connectorImportCandidateSchema>;
 
+export const connectorSyncFieldUpdateSchema = z.object({
+  status: z.enum(["noop", "pushed", "pulled", "conflict", "error"]),
+  localValue: z.number().finite().nonnegative().optional(),
+  remoteValue: z.number().finite().nonnegative().optional(),
+  baselineValue: z.number().finite().nonnegative().optional(),
+  nextBaselineValue: z.number().finite().nonnegative().optional(),
+  message: z.string().trim().max(1000).optional(),
+});
+export type ConnectorSyncFieldUpdate = z.infer<typeof connectorSyncFieldUpdateSchema>;
+
+export const connectorSyncWorkItemUpdateSchema = z.object({
+  localWorkItemId: z.string().trim().min(1).max(200),
+  sourceId: z.string().trim().min(1).max(400),
+  fields: z.object({
+    originalEstimateHours: connectorSyncFieldUpdateSchema.optional(),
+    remainingEstimateHours: connectorSyncFieldUpdateSchema.optional(),
+    completedEstimateHours: connectorSyncFieldUpdateSchema.optional(),
+  }),
+});
+export type ConnectorSyncWorkItemUpdate = z.infer<typeof connectorSyncWorkItemUpdateSchema>;
+
 export const connectorPluginSyncResultSchema = z.object({
   items: z.array(connectorImportCandidateInputSchema),
+  workItemUpdates: z.array(connectorSyncWorkItemUpdateSchema).default([]),
 });
 export type ConnectorPluginSyncResult = z.infer<typeof connectorPluginSyncResultSchema>;
 
@@ -253,5 +310,6 @@ export const connectorSyncResultSchema = z.object({
   stagedCount: z.number().int().nonnegative(),
   updatedCount: z.number().int().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
+  workItemUpdates: z.array(connectorSyncWorkItemUpdateSchema).default([]),
 });
 export type ConnectorSyncResult = z.infer<typeof connectorSyncResultSchema>;

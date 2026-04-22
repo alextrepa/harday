@@ -41,6 +41,9 @@ function buildImportCandidate(overrides: Record<string, unknown> = {}) {
     state: "Active",
     assignedTo: "Ada Lovelace",
     priority: 2,
+    originalEstimateHours: 12,
+    remainingEstimateHours: 8,
+    completedEstimateHours: 4,
     depth: 0 as const,
     selectable: true,
     selected: true,
@@ -113,6 +116,75 @@ describe("localStore backlog status sync", () => {
     expect(localStore.snapshot().workItems[0]).toMatchObject({
       _id: importedItem!._id,
       status: "archived",
+    });
+  });
+
+  it("initializes imported estimate fields from connector candidates", async () => {
+    const { localStore } = await import("./local-store");
+
+    localStore.importConnectorWorkItems([buildImportCandidate()]);
+
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      originalEstimateHours: 12,
+      remainingEstimateHours: 8,
+      completedEstimateHours: 4,
+    });
+  });
+
+  it("increments completed and decrements remaining when manual time is saved for a mapped task", async () => {
+    const { localStore } = await import("./local-store");
+
+    const projectId = localStore.snapshot().projects[0]!._id;
+    localStore.addProjectTask(projectId, "Imported task");
+    const taskId = localStore.snapshot().projects[0]!.tasks.at(-1)!._id;
+    localStore.importConnectorWorkItems([buildImportCandidate()]);
+    const workItem = localStore.snapshot().workItems[0]!;
+    localStore.updateWorkItem(workItem._id, {
+      projectId,
+      taskId,
+    });
+
+    localStore.saveManualTimeEntry({
+      localDate: "2026-04-21",
+      projectId,
+      taskId,
+      durationMs: 2 * 60 * 60 * 1000,
+    });
+
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      remainingEstimateHours: 6,
+      completedEstimateHours: 6,
+    });
+  });
+
+  it("clamps remaining at zero when logged time exceeds the estimate", async () => {
+    const { localStore } = await import("./local-store");
+
+    const projectId = localStore.snapshot().projects[0]!._id;
+    localStore.addProjectTask(projectId, "Overrun task");
+    const taskId = localStore.snapshot().projects[0]!.tasks.at(-1)!._id;
+    localStore.importConnectorWorkItems([
+      buildImportCandidate({
+        remainingEstimateHours: 1,
+        completedEstimateHours: 0,
+      }),
+    ]);
+    const workItem = localStore.snapshot().workItems[0]!;
+    localStore.updateWorkItem(workItem._id, {
+      projectId,
+      taskId,
+    });
+
+    localStore.saveManualTimeEntry({
+      localDate: "2026-04-21",
+      projectId,
+      taskId,
+      durationMs: 2 * 60 * 60 * 1000,
+    });
+
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      remainingEstimateHours: 0,
+      completedEstimateHours: 2,
     });
   });
 });

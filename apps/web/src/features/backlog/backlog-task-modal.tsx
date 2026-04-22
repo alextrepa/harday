@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ListTree, Play, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ListTree, Play, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
@@ -39,6 +39,23 @@ function parsePriorityInput(value: string) {
   }
 
   return parsedValue;
+}
+
+function formatEstimateInput(value?: number) {
+  return typeof value === "number" ? String(value) : "";
+}
+
+function parseEstimateInput(value: string) {
+  if (value.trim() === "") {
+    return undefined;
+  }
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    return null;
+  }
+
+  return Math.round(parsedValue * 10_000) / 10_000;
 }
 
 function collectBlockedParentIds(workItem: LocalWorkItem, workItems: LocalWorkItem[]) {
@@ -85,6 +102,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [priority, setPriority] = useState("");
+  const [originalEstimateHours, setOriginalEstimateHours] = useState("");
+  const [remainingEstimateHours, setRemainingEstimateHours] = useState("");
+  const [completedEstimateHours, setCompletedEstimateHours] = useState("");
   const [backlogStatusId, setBacklogStatusId] = useState("");
   const [parentTaskId, setParentTaskId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -180,10 +200,26 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     !isSubtaskDraft && parsePriorityInput(priority) === null
       ? "Enter a whole number"
       : null;
+  const originalEstimateError =
+    parseEstimateInput(originalEstimateHours) === null ? "Enter a non-negative number" : null;
+  const remainingEstimateError =
+    parseEstimateInput(remainingEstimateHours) === null ? "Enter a non-negative number" : null;
+  const completedEstimateError =
+    parseEstimateInput(completedEstimateHours) === null ? "Enter a non-negative number" : null;
   const canSubmitDuration = Boolean(parsedDurationMs && parsedDurationMs > 0);
   const canStartTimer = Boolean(!currentTimer && workItem?.status !== "archived");
-  const canCreateSubtask = title.trim().length > 0 && Boolean(parentTaskId);
-  const canSaveTask = title.trim().length > 0 && (isSubtaskDraft || parsePriorityInput(priority) !== null);
+  const canCreateSubtask =
+    title.trim().length > 0 &&
+    Boolean(parentTaskId) &&
+    !originalEstimateError &&
+    !remainingEstimateError &&
+    !completedEstimateError;
+  const canSaveTask =
+    title.trim().length > 0 &&
+    (isSubtaskDraft || parsePriorityInput(priority) !== null) &&
+    !originalEstimateError &&
+    !remainingEstimateError &&
+    !completedEstimateError;
   const subtaskCount = useMemo(
     () => (workItem && !isSubtaskItem(workItem) ? getDirectChildWorkItems(workItem, workItems).length : 0),
     [workItem, workItems],
@@ -231,6 +267,14 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
   const canResetToImportedBacklogStatus =
     !!workItem && backlogStatusId !== (workItem.importedBacklogStatusId ?? "");
   const importedPriorityLabel = formatPriorityInput(importedPriorityValue) || "empty";
+  const hasEstimateSyncIssue = Boolean(
+    workItem?.estimateSync?.originalEstimateHours?.conflict ||
+      workItem?.estimateSync?.remainingEstimateHours?.conflict ||
+      workItem?.estimateSync?.completedEstimateHours?.conflict ||
+      workItem?.estimateSync?.originalEstimateHours?.error ||
+      workItem?.estimateSync?.remainingEstimateHours?.error ||
+      workItem?.estimateSync?.completedEstimateHours?.error,
+  );
 
   useEffect(() => {
     if (isCreateSubtaskMode) {
@@ -242,6 +286,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       setTitle("");
       setNote("");
       setPriority("");
+      setOriginalEstimateHours("");
+      setRemainingEstimateHours("");
+      setCompletedEstimateHours("");
       setBacklogStatusId(parentWorkItem.backlogStatusId ?? "");
       setParentTaskId(parentWorkItem._id);
       setProjectId(parentWorkItem.projectId ?? "");
@@ -260,6 +307,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     setTitle(workItem.title);
     setNote(workItem.note ?? "");
     setPriority(formatPriorityInput(workItem.priority));
+    setOriginalEstimateHours(formatEstimateInput(workItem.originalEstimateHours));
+    setRemainingEstimateHours(formatEstimateInput(workItem.remainingEstimateHours));
+    setCompletedEstimateHours(formatEstimateInput(workItem.completedEstimateHours));
     setBacklogStatusId(workItem.backlogStatusId ?? "");
     setParentTaskId(resolvedParentTaskId);
     setProjectId(workItem.projectId ?? "");
@@ -319,6 +369,16 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       if (!parentTaskId && parsedPriority === null) {
         return null;
       }
+      const parsedOriginalEstimateHours = parseEstimateInput(originalEstimateHours);
+      const parsedRemainingEstimateHours = parseEstimateInput(remainingEstimateHours);
+      const parsedCompletedEstimateHours = parseEstimateInput(completedEstimateHours);
+      if (
+        parsedOriginalEstimateHours === null ||
+        parsedRemainingEstimateHours === null ||
+        parsedCompletedEstimateHours === null
+      ) {
+        return null;
+      }
       const nextPriority = parsedPriority === null ? undefined : parsedPriority;
 
       return {
@@ -330,9 +390,24 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
         parentSourceId: undefined,
         projectId: projectId || undefined,
         taskId: taskId || undefined,
+        originalEstimateHours: parsedOriginalEstimateHours,
+        remainingEstimateHours: parsedRemainingEstimateHours,
+        completedEstimateHours: parsedCompletedEstimateHours,
       };
     },
-    [backlogStatusId, note, parentTaskId, priority, projectId, taskId, title, workItem],
+    [
+      backlogStatusId,
+      completedEstimateHours,
+      note,
+      originalEstimateHours,
+      parentTaskId,
+      priority,
+      projectId,
+      remainingEstimateHours,
+      taskId,
+      title,
+      workItem,
+    ],
   );
 
   const saveAndClose = useCallback(() => {
@@ -723,6 +798,15 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
             </div>
           ) : null}
 
+          {hasEstimateSyncIssue ? (
+            <div className="backlog-field-title-full">
+              <span className="backlog-task-meta flex items-center gap-2 text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Estimate sync needs review in Sync Review.
+              </span>
+            </div>
+          ) : null}
+
           <label className="field backlog-field-parent">
             <span className="field-label">Parent task</span>
             <SearchableSelect
@@ -792,6 +876,48 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
               ariaLabel="Task mapping"
               disabled={!projectId || availableTasks.length === 0}
             />
+          </label>
+
+          <label className="field backlog-field-project">
+            <span className="field-label">Original</span>
+            <input
+              className="field-input"
+              type="text"
+              inputMode="decimal"
+              value={originalEstimateHours}
+              onChange={(event) => setOriginalEstimateHours(event.target.value)}
+              placeholder="0"
+              aria-label="Original estimate"
+            />
+            {originalEstimateError ? <span className="field-error">{originalEstimateError}</span> : null}
+          </label>
+
+          <label className="field backlog-field-project">
+            <span className="field-label">Remaining</span>
+            <input
+              className="field-input"
+              type="text"
+              inputMode="decimal"
+              value={remainingEstimateHours}
+              onChange={(event) => setRemainingEstimateHours(event.target.value)}
+              placeholder="0"
+              aria-label="Remaining estimate"
+            />
+            {remainingEstimateError ? <span className="field-error">{remainingEstimateError}</span> : null}
+          </label>
+
+          <label className="field backlog-field-project">
+            <span className="field-label">Completed</span>
+            <input
+              className="field-input"
+              type="text"
+              inputMode="decimal"
+              value={completedEstimateHours}
+              onChange={(event) => setCompletedEstimateHours(event.target.value)}
+              placeholder="0"
+              aria-label="Completed estimate"
+            />
+            {completedEstimateError ? <span className="field-error">{completedEstimateError}</span> : null}
           </label>
 
           {!isArchived ? (

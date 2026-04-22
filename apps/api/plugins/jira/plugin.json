@@ -22,6 +22,9 @@
         { "value": "project_open_issues", "label": "Open issues" }
       ]
     },
+    { "id": "originalEstimateFieldName", "label": "Original estimate field", "type": "text", "placeholder": "Original estimate field name or id" },
+    { "id": "remainingEstimateFieldName", "label": "Remaining field", "type": "text", "placeholder": "Remaining estimate field name or id" },
+    { "id": "completedEstimateFieldName", "label": "Completed field", "type": "text", "placeholder": "Completed estimate field name or id" },
     { "id": "autoSync", "label": "Auto sync to backlog", "type": "checkbox", "defaultValue": false, "helpText": "Import directly to backlog while the app is open." },
     { "id": "autoSyncIntervalMinutes", "label": "Auto sync interval (minutes)", "type": "number", "defaultValue": 15, "min": 1, "max": 1440, "step": 1 }
   ]

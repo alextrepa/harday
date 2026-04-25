@@ -179,7 +179,7 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
   }
 
   return (
-    <div ref={overlayRef} className="time-entry-modal-overlay">
+    <div ref={overlayRef} className="time-entry-modal-overlay submit-timesheet-modal-overlay">
       <div className="submit-timesheet-modal">
         <div className="submit-timesheet-modal-header">
           <div className="submit-timesheet-modal-title-wrap">

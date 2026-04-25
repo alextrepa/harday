@@ -14,10 +14,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  extractTaskNamesFromWorkbook,
-  type ProjectTaskImportResult,
-} from "@/features/projects/project-task-import";
+import type { ProjectTaskImportResult } from "@/features/projects/project-task-import-utils";
 import { useCurrentTeam } from "@/lib/session";
 import { useLocalState } from "@/lib/local-hooks";
 import { localStore, type LocalProject } from "@/lib/local-store";
@@ -402,6 +399,7 @@ function ProjectDetail({
 
     setIsImporting(true);
     try {
+      const { extractTaskNamesFromWorkbook } = await import("@/features/projects/project-task-import");
       const workbook = extractTaskNamesFromWorkbook(await file.arrayBuffer());
       if (workbook.taskNames.length === 0) {
         throw new Error("No usable task names were found in column C of the first worksheet.");

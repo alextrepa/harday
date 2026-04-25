@@ -1,6 +1,6 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
-import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import";
+import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import-utils";
 
 export interface TimesheetExportRow {
   date: string;
@@ -93,7 +93,8 @@ export async function parseTimesheetImportWorkbook(buffer: ArrayBuffer | Uint8Ar
   let workbook: ExcelJS.Workbook;
 
   try {
-    workbook = new ExcelJS.Workbook();
+    const ExcelJSModule = await import("exceljs");
+    workbook = new ExcelJSModule.default.Workbook();
     await workbook.xlsx.load(toArrayBuffer(buffer));
   } catch (error) {
     throw new Error(
@@ -189,7 +190,8 @@ function toArrayBuffer(workbookBytes: ArrayBuffer | Uint8Array) {
 
 export async function createTimesheetExportWorkbook(options: TimesheetExportOptions): Promise<ArrayBuffer> {
   const rows = buildTimesheetExportRows(options);
-  const workbook = new ExcelJS.Workbook();
+  const ExcelJSModule = await import("exceljs");
+  const workbook = new ExcelJSModule.default.Workbook();
   const sheet = workbook.addWorksheet("Time Logs");
 
   sheet.columns = [

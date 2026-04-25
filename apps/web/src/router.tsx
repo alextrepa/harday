@@ -6,23 +6,60 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { z } from "zod";
 import { AppShell } from "@/features/layout/app-shell";
-import { BacklogPage } from "@/features/backlog/backlog-page";
-import { ProjectsPage } from "@/features/projects/projects-page";
-import { SettingsLayout } from "@/features/settings/settings-layout";
-import { SettingsGeneralPage } from "@/features/settings/settings-general-page";
-import { SettingsConnectorsPage } from "@/features/settings/settings-connectors-page";
-import { SettingsBacklogPage } from "@/features/settings/settings-backlog-page";
-import { SettingsExportPage } from "@/features/settings/settings-export-page";
-import { SettingsProjectsPage } from "@/features/settings/settings-projects-page";
-import { SettingsImportReviewPage } from "@/features/settings/settings-import-review-page";
-import { SettingsDebugPage } from "@/features/settings/settings-debug-page";
-import { TimePage } from "@/features/time/time-page";
-import { SignInPage } from "@/features/auth/sign-in-page";
 import { useBootstrapSession } from "@/lib/session";
 import { todayIsoDate } from "@/lib/utils";
+
+const SignInPage = lazy(async () => {
+  const module = await import("@/features/auth/sign-in-page");
+  return { default: module.SignInPage };
+});
+const TimePage = lazy(async () => {
+  const module = await import("@/features/time/time-page");
+  return { default: module.TimePage };
+});
+const BacklogPage = lazy(async () => {
+  const module = await import("@/features/backlog/backlog-page");
+  return { default: module.BacklogPage };
+});
+const ProjectsPage = lazy(async () => {
+  const module = await import("@/features/projects/projects-page");
+  return { default: module.ProjectsPage };
+});
+const SettingsLayout = lazy(async () => {
+  const module = await import("@/features/settings/settings-layout");
+  return { default: module.SettingsLayout };
+});
+const SettingsGeneralPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-general-page");
+  return { default: module.SettingsGeneralPage };
+});
+const SettingsConnectorsPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-connectors-page");
+  return { default: module.SettingsConnectorsPage };
+});
+const SettingsBacklogPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-backlog-page");
+  return { default: module.SettingsBacklogPage };
+});
+const SettingsProjectsPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-projects-page");
+  return { default: module.SettingsProjectsPage };
+});
+const SettingsExportPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-export-page");
+  return { default: module.SettingsExportPage };
+});
+const SettingsImportReviewPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-import-review-page");
+  return { default: module.SettingsImportReviewPage };
+});
+const SettingsDebugPage = lazy(async () => {
+  const module = await import("@/features/settings/settings-debug-page");
+  return { default: module.SettingsDebugPage };
+});
 
 const RouterDevtools = import.meta.env.DEV
   ? lazy(async () => {
@@ -55,6 +92,10 @@ function AuthGate() {
   return <AppShell />;
 }
 
+function RouteSuspense({ children }: { children: ReactNode }) {
+  return <Suspense fallback={null}>{children}</Suspense>;
+}
+
 const rootRoute = createRootRoute({
   component: RootComponent,
 });
@@ -70,7 +111,11 @@ const indexRoute = createRoute({
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
-  component: SignInPage,
+  component: () => (
+    <RouteSuspense>
+      <SignInPage />
+    </RouteSuspense>
+  ),
 });
 
 const appRoute = createRoute({
@@ -84,7 +129,11 @@ const timeRoute = createRoute({
   path: "/time/$date",
   component: () => {
     const params = timeRoute.useParams();
-    return <TimePage date={params.date === "today" ? todayIsoDate() : params.date} />;
+    return (
+      <RouteSuspense>
+        <TimePage date={params.date === "today" ? todayIsoDate() : params.date} />
+      </RouteSuspense>
+    );
   },
 });
 
@@ -107,19 +156,31 @@ const reviewRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects",
-  component: ProjectsPage,
+  component: () => (
+    <RouteSuspense>
+      <ProjectsPage />
+    </RouteSuspense>
+  ),
 });
 
 const projectDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects/$projectId",
-  component: ProjectsPage,
+  component: () => (
+    <RouteSuspense>
+      <ProjectsPage />
+    </RouteSuspense>
+  ),
 });
 
 const backlogRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/backlog",
-  component: BacklogPage,
+  component: () => (
+    <RouteSuspense>
+      <BacklogPage />
+    </RouteSuspense>
+  ),
 });
 
 const rulesRoute = createRoute({
@@ -131,7 +192,11 @@ const rulesRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
-  component: SettingsLayout,
+  component: () => (
+    <RouteSuspense>
+      <SettingsLayout />
+    </RouteSuspense>
+  ),
 });
 
 const settingsIndexRoute = createRoute({
@@ -143,43 +208,71 @@ const settingsIndexRoute = createRoute({
 const settingsGeneralRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/general",
-  component: SettingsGeneralPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsGeneralPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsConnectorsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/connectors",
-  component: SettingsConnectorsPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsConnectorsPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsBacklogRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/backlog",
-  component: SettingsBacklogPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsBacklogPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsExportRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/export",
-  component: SettingsExportPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsExportPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsImportReviewRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/imports",
-  component: SettingsImportReviewPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsImportReviewPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsDebugRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/debug",
-  component: SettingsDebugPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsDebugPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsProjectsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/projects",
-  component: SettingsProjectsPage,
+  component: () => (
+    <RouteSuspense>
+      <SettingsProjectsPage />
+    </RouteSuspense>
+  ),
 });
 
 const settingsProjectDetailRoute = createRoute({

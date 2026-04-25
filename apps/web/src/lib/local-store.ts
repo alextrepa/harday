@@ -23,7 +23,7 @@ import {
   formatTaskImportName,
   normalizeTaskImportName,
   type ProjectTaskImportResult,
-} from "@/features/projects/project-task-import";
+} from "@/features/projects/project-task-import-utils";
 import type { OutlookCalendarEvent, OutlookConnectionSnapshot } from "@/lib/outlook";
 
 declare global {

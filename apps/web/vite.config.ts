@@ -8,6 +8,18 @@ const INTERNAL_APP_API_HOST = "127.0.0.1";
 const INTERNAL_APP_API_PORT = "8787";
 const apiServerEntry = path.resolve(__dirname, "../api/src/server.ts");
 
+function vendorChunk(id: string) {
+  if (id.includes("/exceljs/")) {
+    return "excel-workbook";
+  }
+
+  if (id.includes("/xlsx/")) {
+    return "excel-parser";
+  }
+
+  return undefined;
+}
+
 function internalAppApiPlugin(): Plugin {
   let apiProcess: ChildProcess | null = null;
   let isStopping = false;
@@ -98,6 +110,12 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
   build: {
     outDir: mode === "desktop" ? "dist-desktop" : "dist",
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: vendorChunk,
+      },
+    },
   },
   resolve: {
     alias: {

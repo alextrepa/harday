@@ -1,6 +1,6 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import type { LocalProject } from "@/lib/local-store";
-import { formatTaskImportName } from "@/features/projects/project-task-import";
+import { formatTaskImportName } from "@/features/projects/project-task-import-utils";
 
 export type ProjectTransferStatus = "active" | "archived";
 
@@ -91,7 +91,8 @@ export function buildProjectTransferRows({
 
 export async function createProjectTransferWorkbook(options: ProjectTransferOptions): Promise<ArrayBuffer> {
   const rows = buildProjectTransferRows(options);
-  const workbook = new ExcelJS.Workbook();
+  const ExcelJSModule = await import("exceljs");
+  const workbook = new ExcelJSModule.default.Workbook();
   const sheet = workbook.addWorksheet("Projects");
 
   sheet.columns = [
@@ -117,7 +118,8 @@ export async function parseProjectTransferWorkbook(
   let workbook: ExcelJS.Workbook;
 
   try {
-    workbook = new ExcelJS.Workbook();
+    const ExcelJSModule = await import("exceljs");
+    workbook = new ExcelJSModule.default.Workbook();
     await workbook.xlsx.load(toArrayBuffer(buffer));
   } catch (error) {
     throw new Error(

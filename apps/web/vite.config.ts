@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 const INTERNAL_APP_API_HOST = "127.0.0.1";
@@ -94,7 +95,7 @@ function internalAppApiPlugin(): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
+  plugins: [react(), tailwindcss(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
   build: {
     outDir: mode === "desktop" ? "dist-desktop" : "dist",
   },

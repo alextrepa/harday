@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { Download, FolderKanban, Upload } from "lucide-react";
+import {
+  RiDownloadLine as Download,
+  RiFolderChartLine as FolderKanban,
+  RiUploadLine as Upload,
+} from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

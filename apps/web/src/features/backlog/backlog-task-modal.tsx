@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Play, Plus, Trash2, X } from "lucide-react";
+import {
+  RiAddLine as Plus,
+  RiAlarmWarningLine as AlertTriangle,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiPlayLine as Play,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {

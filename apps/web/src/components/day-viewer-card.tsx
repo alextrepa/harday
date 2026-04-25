@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  RiArrowLeftSLine as ChevronLeft,
+  RiArrowRightSLine as ChevronRight,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDaysIsoDate, cn } from "@/lib/utils";
@@ -46,7 +49,7 @@ export function DayViewerCard({
   headerActions,
 }: DayViewerCardProps) {
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl py-0">
       <CardContent className="p-0">
         <div className="relative border-b border-[var(--border)] bg-[var(--surface-high)] px-4 py-4 sm:px-5 sm:py-5 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-b before:from-indigo-500/[0.06] before:to-transparent">
           <div className="space-y-3 lg:hidden">

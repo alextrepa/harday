@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArrowLeft, Download, FolderPlus, Pencil, Plus, RotateCcw, Save, X } from "lucide-react";
+import {
+  RiAddLine as Plus,
+  RiArchiveLine as Archive,
+  RiArrowLeftLine as ArrowLeft,
+  RiCloseLine as X,
+  RiDownloadLine as Download,
+  RiFolderAddLine as FolderPlus,
+  RiPencilLine as Pencil,
+  RiRefreshLine as RotateCcw,
+  RiSaveLine as Save,
+} from "@remixicon/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

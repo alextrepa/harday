@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { RiCloseLine as X } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 import { localStore, type LocalTimesheetEntry } from "@/lib/local-store";

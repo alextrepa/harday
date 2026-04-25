@@ -1,20 +1,20 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive,
-  ArchiveRestore,
-  AlertTriangle,
-  ArrowUpDown,
-  Check,
-  ChevronRight,
-  FileText,
-  Maximize2,
-  Pencil,
-  Play,
-  Plus,
-  RotateCcw,
-  Trash2,
-  X,
-} from "lucide-react";
+  RiAddLine as Plus,
+  RiAlarmWarningLine as AlertTriangle,
+  RiArchiveLine as Archive,
+  RiArrowRightSLine as ChevronRight,
+  RiArrowUpDownLine as ArrowUpDown,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiExpandDiagonalLine as Maximize2,
+  RiFileTextLine as FileText,
+  RiInboxArchiveLine as ArchiveRestore,
+  RiPencilLine as Pencil,
+  RiPlayLine as Play,
+  RiRefreshLine as RotateCcw,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import {
   buildBacklogStatusLookup,

@@ -1942,36 +1942,427 @@
     color: var(--text);
   }
 
-  .day-viewer-icon-action {
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: transparent;
-    color: var(--text-tertiary);
+  /* ----------------------------------------------------------------
+     Day viewer — horizontal date strip
+     ---------------------------------------------------------------- */
+
+  .day-viewer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* -- Mobile ---------------------------------------------------- */
+
+  .day-viewer-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+  }
+
+  .day-viewer-date-section-mobile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* -- Desktop strip --------------------------------------------- */
+
+  .day-viewer-strip {
+    display: flex;
+    align-items: stretch;
+  }
+
+  /* Left: arrows + big date */
+  .day-viewer-date-section {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1.5rem 0.9rem 1.25rem;
+    flex-shrink: 0;
+  }
+
+  .day-viewer-arrows {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .day-viewer-arrow {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: color 140ms var(--ease), transform 140ms var(--ease);
+    width: 22px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: color 100ms var(--ease), background 100ms var(--ease);
   }
 
-  .day-viewer-icon-action:hover {
+  .day-viewer-arrow:hover {
     color: var(--text);
-    transform: translateX(1px);
+    background: var(--hover-bg);
+  }
+
+  .day-viewer-date-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .day-viewer-weekday-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sidebar-primary);
+    line-height: 1;
+  }
+
+  .day-viewer-date-big {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text);
+    line-height: 0.95;
+  }
+
+  .day-viewer-today-link {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sidebar-primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    transition: background 100ms var(--ease);
+  }
+
+  .day-viewer-today-link:hover {
+    background: var(--hover-bg);
+  }
+
+  /* Center: seven day columns */
+  .day-viewer-days {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .day-viewer-day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 0.75rem 0.25rem 0.6rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2.5px solid transparent;
+    cursor: pointer;
+    transition: background 80ms var(--ease);
+  }
+
+  .day-viewer-day:hover {
+    background: var(--hover-bg);
+  }
+
+  .day-viewer-day.is-selected {
+    border-bottom-color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day-name {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  .day-viewer-day-name.is-today,
+  .day-viewer-day-name.is-selected {
+    color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day-number {
+    font-family: var(--font-mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .day-viewer-day-hours {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  /* Right: week total + submit */
+  .day-viewer-end {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1.25rem;
+    border-left: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .day-viewer-week-total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+  }
+
+  .day-viewer-week-total-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  .day-viewer-week-total-value {
+    font-family: var(--font-mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    line-height: 1;
   }
 
   .day-viewer-submit-pill {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    min-height: 30px;
-    padding: 0 0.8rem;
+    gap: 0.35rem;
+    height: 30px;
+    padding: 0 0.75rem;
     border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface-low) 84%, transparent);
-    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-tertiary);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: -0.01em;
+    cursor: pointer;
+    transition:
+      background 120ms var(--ease),
+      border-color 120ms var(--ease),
+      color 120ms var(--ease);
+  }
+
+  .day-viewer-submit-pill:hover {
+    background: var(--hover-bg);
+    border-color: var(--border-hover);
+    color: var(--text);
+  }
+
+  .day-viewer-submit-pill span {
+    white-space: nowrap;
+  }
+
+  .day-viewer-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .day-viewer-strip {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .day-viewer-date-block {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem 0.75rem 1rem;
+    flex-shrink: 0;
+    min-width: 160px;
+  }
+
+  .day-viewer-nav-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .day-viewer-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: color 120ms var(--ease), background 120ms var(--ease);
+  }
+
+  .day-viewer-arrow:hover {
+    color: var(--text);
+    background: var(--hover-bg);
+  }
+
+  .day-viewer-weekday-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sidebar-primary);
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+
+  .day-viewer-date-big {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .day-viewer-today-link {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sidebar-primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    transition: background 120ms var(--ease);
+  }
+
+  .day-viewer-today-link:hover {
+    background: var(--hover-bg);
+  }
+
+  .day-viewer-days {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .day-viewer-day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 0.65rem 0.25rem 0.5rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2.5px solid transparent;
+    cursor: pointer;
+    transition: background 100ms var(--ease);
+    position: relative;
+  }
+
+  .day-viewer-day:hover {
+    background: var(--hover-bg);
+  }
+
+  .day-viewer-day.is-selected {
+    border-bottom-color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day-name {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  .day-viewer-day-name.is-today,
+  .day-viewer-day-name.is-selected {
+    color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day-number {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  .day-viewer-day-hours {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  .day-viewer-end {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1.25rem;
+    border-left: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .day-viewer-week-total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+  }
+
+  .day-viewer-week-total-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    line-height: 1;
+  }
+
+  .day-viewer-week-total-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+
+  .day-viewer-submit-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 30px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    cursor: pointer;
     transition:
       background 140ms var(--ease),
       border-color 140ms var(--ease),
@@ -1979,7 +2370,7 @@
   }
 
   .day-viewer-submit-pill:hover {
-    background: color-mix(in srgb, var(--surface-high) 84%, transparent);
+    background: var(--hover-bg);
     border-color: var(--border-hover);
     color: var(--text);
   }

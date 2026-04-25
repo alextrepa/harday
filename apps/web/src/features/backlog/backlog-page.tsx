@@ -6,21 +6,20 @@ import {
   ArrowUpDown,
   Check,
   ChevronRight,
-  CornerDownRight,
   FileText,
   Maximize2,
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  buildBacklogStatusLookup,
   buildBacklogStatusNameLookup,
   buildBacklogStatusOptions,
-  getBacklogStatusName,
-  getImportedBacklogStatusSummary,
 } from "@/features/backlog/backlog-status";
 import {
   getWorkItemLookupKeys,
@@ -29,6 +28,11 @@ import {
 } from "@/features/backlog/work-item-hierarchy";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { BacklogTaskModal } from "@/features/backlog/backlog-task-modal";
+import {
+  applyLoggedTimeToEstimateValues,
+  getWorkItemEstimateBadgeLabel,
+} from "@/features/backlog/work-item-estimates";
+import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source-sync";
 import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { getConnectorsOverview } from "@/lib/app-api";
@@ -44,6 +48,7 @@ import { cn, todayIsoDate } from "@/lib/utils";
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
 const BACKLOG_DRAG_MOUSE_TOLERANCE_PX = 4;
 const BACKLOG_DRAG_TOUCH_TOLERANCE_PX = 8;
+const BACKLOG_TABLE_COLUMN_COUNT = 4;
 
 type BacklogFilter = "active" | "archived";
 type ExpandedViewMode = "edit" | "subtasks";
@@ -78,6 +83,7 @@ type BacklogInlineEditorState = {
   titleDraft: string;
   isTitleEditing: boolean;
   note: string;
+  timeEntryNote: string;
   backlogStatusId: string;
   projectId: string;
   taskId: string;
@@ -92,6 +98,7 @@ const EMPTY_BACKLOG_INLINE_EDITOR_STATE: BacklogInlineEditorState = {
   titleDraft: "",
   isTitleEditing: false,
   note: "",
+  timeEntryNote: "",
   backlogStatusId: "",
   projectId: "",
   taskId: "",
@@ -107,6 +114,7 @@ function buildBacklogInlineEditorState(workItem: LocalWorkItem): BacklogInlineEd
     titleDraft: workItem.title,
     isTitleEditing: false,
     note: workItem.note ?? "",
+    timeEntryNote: "",
     backlogStatusId: workItem.backlogStatusId ?? "",
     projectId: workItem.projectId ?? "",
     taskId: workItem.taskId ?? "",
@@ -194,6 +202,34 @@ function parseEstimateInput(value: string) {
   return Math.round(parsedValue * 10_000) / 10_000;
 }
 
+function formatEstimateInput(value?: number) {
+  return typeof value === "number" ? String(value) : "";
+}
+
+function buildManualTimeEntryNote(note: string, title: string, sourceId?: string) {
+  const trimmedNote = note.trim();
+  return trimmedNote || buildWorkItemTimerComment(title, sourceId);
+}
+
+function sumChildEstimateTotals(childItems: LocalWorkItem[]) {
+  return childItems.reduce(
+    (totals, childItem) => ({
+      originalEstimateHours: totals.originalEstimateHours + (childItem.originalEstimateHours ?? 0),
+      remainingEstimateHours: totals.remainingEstimateHours + (childItem.remainingEstimateHours ?? 0),
+      completedEstimateHours: totals.completedEstimateHours + (childItem.completedEstimateHours ?? 0),
+    }),
+    {
+      originalEstimateHours: 0,
+      remainingEstimateHours: 0,
+      completedEstimateHours: 0,
+    },
+  );
+}
+
+function normalizeEstimateComparisonValue(value?: number) {
+  return value ?? 0;
+}
+
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   if (fromIndex === toIndex) {
     return [...items];
@@ -255,6 +291,7 @@ export function BacklogPage() {
   const backlogSortMenuRef = useRef<HTMLDivElement>(null);
   const expandedNoteModalOverlayRef = useRef<HTMLDivElement>(null);
   const expandedNoteTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const inlineDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const backlogPointerSessionRef = useRef<PendingBacklogPointerSession | null>(null);
   const backlogDragStateRef = useRef<BacklogDragState | null>(null);
   const suppressWorkItemClickUntilRef = useRef(0);
@@ -277,6 +314,7 @@ export function BacklogPage() {
   const [expandedPriorityDraft, setExpandedPriorityDraft] = useState("");
   const [isExpandedTitleEditing, setIsExpandedTitleEditing] = useState(false);
   const [expandedNote, setExpandedNote] = useState("");
+  const [expandedTimeEntryNote, setExpandedTimeEntryNote] = useState("");
   const [expandedBacklogStatusId, setExpandedBacklogStatusId] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState("");
@@ -405,6 +443,10 @@ export function BacklogPage() {
   );
   const backlogStatusOptions = useMemo(
     () => buildBacklogStatusOptions(state.backlogStatuses),
+    [state.backlogStatuses],
+  );
+  const backlogStatusById = useMemo(
+    () => buildBacklogStatusLookup(state.backlogStatuses),
     [state.backlogStatuses],
   );
   const backlogStatusNameById = useMemo(
@@ -740,6 +782,7 @@ export function BacklogPage() {
     setExpandedPriorityDraft("");
     setIsExpandedTitleEditing(false);
     setExpandedNote("");
+    setExpandedTimeEntryNote("");
     setExpandedBacklogStatusId("");
     setExpandedProjectId("");
     setExpandedTaskId("");
@@ -881,6 +924,8 @@ export function BacklogPage() {
   }
 
   function openEditPanel(workItem: LocalWorkItem) {
+    const childItems = isSubtaskItem(workItem) ? [] : getChildItems(workItem);
+    const childEstimateTotals = childItems.length > 0 ? sumChildEstimateTotals(childItems) : null;
     closeExpandedChildItem();
     setExpandedWorkItemId(workItem._id);
     setExpandedViewMode("edit");
@@ -890,17 +935,30 @@ export function BacklogPage() {
     setExpandedPriorityDraft(formatPriorityInput(workItem.priority));
     setIsExpandedTitleEditing(false);
     setExpandedNote(workItem.note ?? "");
+    setExpandedTimeEntryNote("");
     setExpandedBacklogStatusId(workItem.backlogStatusId ?? "");
     setExpandedProjectId(workItem.projectId ?? "");
     setExpandedTaskId(workItem.taskId ?? "");
     setExpandedOriginalEstimateHours(
-      typeof workItem.originalEstimateHours === "number" ? String(workItem.originalEstimateHours) : "",
+      childEstimateTotals
+        ? formatEstimateInput(childEstimateTotals.originalEstimateHours)
+        : typeof workItem.originalEstimateHours === "number"
+          ? String(workItem.originalEstimateHours)
+          : "",
     );
     setExpandedRemainingEstimateHours(
-      typeof workItem.remainingEstimateHours === "number" ? String(workItem.remainingEstimateHours) : "",
+      childEstimateTotals
+        ? formatEstimateInput(childEstimateTotals.remainingEstimateHours)
+        : typeof workItem.remainingEstimateHours === "number"
+          ? String(workItem.remainingEstimateHours)
+          : "",
     );
     setExpandedCompletedEstimateHours(
-      typeof workItem.completedEstimateHours === "number" ? String(workItem.completedEstimateHours) : "",
+      childEstimateTotals
+        ? formatEstimateInput(childEstimateTotals.completedEstimateHours)
+        : typeof workItem.completedEstimateHours === "number"
+          ? String(workItem.completedEstimateHours)
+          : "",
     );
     setExpandedDurationHours("");
     setPendingArchiveWorkItemId(null);
@@ -918,6 +976,11 @@ export function BacklogPage() {
   }
 
   function openExpandedChildEdit(workItem: LocalWorkItem) {
+    if (expandedViewMode === "edit" && expandedWorkItemId) {
+      closeExpandedItem({ preserveSubtasks: true });
+    }
+
+    setExpandedViewMode("subtasks");
     setExpandedChildWorkItemId(workItem._id);
     setExpandedChildEditor(buildBacklogInlineEditorState(workItem));
     setPendingArchiveWorkItemId(null);
@@ -1350,6 +1413,11 @@ export function BacklogPage() {
 
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
+    if (!isDesktopLayout) {
+      handleOpenWorkItemModal(workItem._id);
+      return;
+    }
+
     setStandaloneNoteModalState({
       workItemId: workItem._id,
       note: workItem.note ?? "",
@@ -1451,6 +1519,7 @@ export function BacklogPage() {
 
     localStore.startTimer({
       localDate: todayIsoDate(),
+      workItemId: workItem._id,
       projectId: nextProjectId,
       taskId: nextTaskId,
       note: buildWorkItemTimerComment(nextTitle, workItem.sourceId),
@@ -1501,21 +1570,39 @@ export function BacklogPage() {
       return;
     }
 
+    const hasSubtasks = !isSubtaskItem(expandedWorkItem) && getChildItems(expandedWorkItem).length > 0;
     const timeEntryTitle = expandedTitle.trim() || expandedWorkItem.title;
     const patch = buildExpandedWorkItemPatch(expandedWorkItem, true);
-
+    const nextEstimates = applyLoggedTimeToEstimateValues(
+      {
+        remainingEstimateHours: patch?.remainingEstimateHours ?? expandedWorkItem.remainingEstimateHours,
+        completedEstimateHours: patch?.completedEstimateHours ?? expandedWorkItem.completedEstimateHours,
+      },
+      {
+        projectId: patch?.projectId ?? (expandedProjectId || undefined),
+        taskId: patch?.taskId ?? (expandedTaskId || undefined),
+        durationMsDelta: expandedParsedDurationMs,
+      },
+    );
     if (patch) {
       localStore.updateWorkItem(expandedWorkItem._id, patch);
     }
 
     localStore.saveManualTimeEntry({
       localDate: todayIsoDate(),
-      projectId: expandedProjectId || undefined,
-      taskId: expandedTaskId || undefined,
-      note: buildWorkItemTimerComment(timeEntryTitle, expandedWorkItem.sourceId),
+      workItemId: expandedWorkItem._id,
+      projectId: (patch?.projectId ?? expandedProjectId) || undefined,
+      taskId: (patch?.taskId ?? expandedTaskId) || undefined,
+      note: buildManualTimeEntryNote(expandedTimeEntryNote, timeEntryTitle, expandedWorkItem.sourceId),
       durationMs: expandedParsedDurationMs,
     });
+    syncBacklogWorkItemToSource(expandedWorkItem);
+    if (!hasSubtasks) {
+      setExpandedRemainingEstimateHours(formatEstimateInput(nextEstimates.remainingEstimateHours));
+      setExpandedCompletedEstimateHours(formatEstimateInput(nextEstimates.completedEstimateHours));
+    }
     setExpandedDurationHours("");
+    setExpandedTimeEntryNote("");
   }
 
   function submitExpandedChildTime() {
@@ -1525,19 +1612,37 @@ export function BacklogPage() {
 
     const timeEntryTitle = expandedChildEditor.title.trim() || expandedChildWorkItem.title;
     const patch = buildExpandedChildWorkItemPatch(expandedChildWorkItem, true);
-
+    const nextEstimates = applyLoggedTimeToEstimateValues(
+      {
+        remainingEstimateHours: patch?.remainingEstimateHours ?? expandedChildWorkItem.remainingEstimateHours,
+        completedEstimateHours: patch?.completedEstimateHours ?? expandedChildWorkItem.completedEstimateHours,
+      },
+      {
+        projectId: patch?.projectId ?? (expandedChildEditor.projectId || undefined),
+        taskId: patch?.taskId ?? (expandedChildEditor.taskId || undefined),
+        durationMsDelta: expandedChildParsedDurationMs,
+      },
+    );
     if (patch) {
       localStore.updateWorkItem(expandedChildWorkItem._id, patch);
     }
 
     localStore.saveManualTimeEntry({
       localDate: todayIsoDate(),
-      projectId: expandedChildEditor.projectId || undefined,
-      taskId: expandedChildEditor.taskId || undefined,
-      note: buildWorkItemTimerComment(timeEntryTitle, expandedChildWorkItem.sourceId),
+      workItemId: expandedChildWorkItem._id,
+      projectId: (patch?.projectId ?? expandedChildEditor.projectId) || undefined,
+      taskId: (patch?.taskId ?? expandedChildEditor.taskId) || undefined,
+      note: buildManualTimeEntryNote(expandedChildEditor.timeEntryNote, timeEntryTitle, expandedChildWorkItem.sourceId),
       durationMs: expandedChildParsedDurationMs,
     });
-    setExpandedChildEditor((current) => ({ ...current, durationHours: "" }));
+    syncBacklogWorkItemToSource(expandedChildWorkItem);
+    setExpandedChildEditor((current) => ({
+      ...current,
+      remainingEstimateHours: formatEstimateInput(nextEstimates.remainingEstimateHours),
+      completedEstimateHours: formatEstimateInput(nextEstimates.completedEstimateHours),
+      durationHours: "",
+      timeEntryNote: "",
+    }));
   }
 
   function renderSubtasksSectionHeader(workItem: LocalWorkItem) {
@@ -1620,12 +1725,12 @@ export function BacklogPage() {
           </label>
 
           <label className="field backlog-field-note">
-            <span className="field-label">Note</span>
+            <span className="field-label">Description</span>
             <textarea
               className="field-input entry-note-input"
               value={subtaskNote}
               onChange={(event) => setSubtaskNote(event.target.value)}
-              placeholder="Notes (optional)"
+              placeholder="Description (optional)"
               rows={2}
             />
           </label>
@@ -1660,7 +1765,7 @@ export function BacklogPage() {
 
     return (
       <tr className="entry-edit-row" onClick={(event) => event.stopPropagation()}>
-        <td colSpan={2}>
+        <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
           <div className="entry-edit-dropdown backlog-subtasks-panel">
             {renderSubtasksSectionHeader(workItem)}
             {showComposer ? renderSubtaskComposer(workItem, childItems) : null}
@@ -1675,6 +1780,7 @@ export function BacklogPage() {
     const task = project?.tasks.find((item) => item._id === workItem.taskId);
     const isLogicalChild = forceChild || isSubtaskItem(workItem);
     const childItems = isLogicalChild ? [] : getChildItems(workItem);
+    const childEstimateTotals = !isLogicalChild && childItems.length > 0 ? sumChildEstimateTotals(childItems) : null;
     const hasSubtasks = childItems.length > 0;
     const isEditingRootItem = expandedViewMode === "edit" && expandedWorkItem?._id === workItem._id;
     const isEditingChildItem = expandedChildWorkItem?._id === workItem._id;
@@ -1695,6 +1801,7 @@ export function BacklogPage() {
     const editorTitleDraft = isEditingChildItem ? expandedChildEditor.titleDraft : expandedTitleDraft;
     const isEditorTitleEditing = isEditingChildItem ? expandedChildEditor.isTitleEditing : isExpandedTitleEditing;
     const editorNote = isEditingChildItem ? expandedChildEditor.note : expandedNote;
+    const editorTimeEntryNote = isEditingChildItem ? expandedChildEditor.timeEntryNote : expandedTimeEntryNote;
     const editorBacklogStatusId = isEditingChildItem ? expandedChildEditor.backlogStatusId : expandedBacklogStatusId;
     const editorProjectId = isEditingChildItem ? expandedChildEditor.projectId : expandedProjectId;
     const editorTaskId = isEditingChildItem ? expandedChildEditor.taskId : expandedTaskId;
@@ -1711,7 +1818,6 @@ export function BacklogPage() {
     const editorPriority = isEditingChildItem ? "" : expandedPriority;
     const editorPriorityDraft = isEditingChildItem ? "" : expandedPriorityDraft;
     const importedPriorityValue = isLogicalChild ? undefined : workItem.importedPriority;
-    const importedBacklogStatusSummary = getImportedBacklogStatusSummary(workItem, backlogStatusNameById);
     const canResetInlinePriority =
       !isLogicalChild &&
       !isSamePriorityValue(parsePriorityInput(editorPriorityDraft), importedPriorityValue);
@@ -1745,10 +1851,24 @@ export function BacklogPage() {
     const sourceReference = workItem.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
     const sourceUrl = workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceId : undefined;
     const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
-    const backlogStatusLabel = getBacklogStatusName(workItem.backlogStatusId, backlogStatusNameById);
+    const backlogStatus = workItem.backlogStatusId ? backlogStatusById.get(workItem.backlogStatusId) : undefined;
+    const backlogStatusLabel = backlogStatus?.name;
+    const backlogEstimateBadgeLabel = getWorkItemEstimateBadgeLabel(childEstimateTotals ?? workItem);
     const startTimerTitle = currentTimer
       ? "Stop the current timer first"
       : `Start timer for ${workItem.title}`;
+    const canResetOriginalEstimate =
+      childEstimateTotals !== null &&
+      normalizeEstimateComparisonValue(parseEstimateInput(editorOriginalEstimateHours) ?? undefined) !==
+        childEstimateTotals.originalEstimateHours;
+    const canResetRemainingEstimate =
+      childEstimateTotals !== null &&
+      normalizeEstimateComparisonValue(parseEstimateInput(editorRemainingEstimateHours) ?? undefined) !==
+        childEstimateTotals.remainingEstimateHours;
+    const canResetCompletedEstimate =
+      childEstimateTotals !== null &&
+      normalizeEstimateComparisonValue(parseEstimateInput(editorCompletedEstimateHours) ?? undefined) !==
+        childEstimateTotals.completedEstimateHours;
     const hasEstimateSyncIssue = hasWorkItemEstimateSyncIssue(workItem);
     const editorStartTimerTitle = isArchived
       ? "Archived tasks cannot start timers"
@@ -1832,6 +1952,14 @@ export function BacklogPage() {
 
         setExpandedNote(value);
       };
+      const setInlineTimeEntryNote = (value: string) => {
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({ ...current, timeEntryNote: value }));
+          return;
+        }
+
+        setExpandedTimeEntryNote(value);
+      };
       const setInlineBacklogStatusId = (value: string) => {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({ ...current, backlogStatusId: value }));
@@ -1880,6 +2008,51 @@ export function BacklogPage() {
 
         setExpandedCompletedEstimateHours(value);
       };
+      const resetInlineOriginalEstimate = () => {
+        if (!childEstimateTotals) {
+          return;
+        }
+
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({
+            ...current,
+            originalEstimateHours: formatEstimateInput(childEstimateTotals.originalEstimateHours),
+          }));
+          return;
+        }
+
+        setExpandedOriginalEstimateHours(formatEstimateInput(childEstimateTotals.originalEstimateHours));
+      };
+      const resetInlineRemainingEstimate = () => {
+        if (!childEstimateTotals) {
+          return;
+        }
+
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({
+            ...current,
+            remainingEstimateHours: formatEstimateInput(childEstimateTotals.remainingEstimateHours),
+          }));
+          return;
+        }
+
+        setExpandedRemainingEstimateHours(formatEstimateInput(childEstimateTotals.remainingEstimateHours));
+      };
+      const resetInlineCompletedEstimate = () => {
+        if (!childEstimateTotals) {
+          return;
+        }
+
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({
+            ...current,
+            completedEstimateHours: formatEstimateInput(childEstimateTotals.completedEstimateHours),
+          }));
+          return;
+        }
+
+        setExpandedCompletedEstimateHours(formatEstimateInput(childEstimateTotals.completedEstimateHours));
+      };
       const setInlineDurationHours = (value: string) => {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({ ...current, durationHours: value }));
@@ -1918,7 +2091,7 @@ export function BacklogPage() {
           className={cn("entry-edit-row backlog-inline-editor-row", isLogicalChild && "backlog-row-child")}
           onClick={(event) => event.stopPropagation()}
         >
-          <td colSpan={2}>
+          <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
             <div className={cn("entry-edit-dropdown backlog-inline-editor", isLogicalChild && "entry-edit-dropdown-child")}>
               <div
                 className="backlog-editor-header"
@@ -1932,9 +2105,9 @@ export function BacklogPage() {
                 }}
               >
                 <div className="backlog-editor-heading">
-                  <div className="backlog-inline-title">
+                  <div className={cn("backlog-inline-title", isLogicalChild && "is-child")}>
                     {isEditorTitleEditing ? (
-                      <div className="backlog-inline-edit-shell">
+                      <div className={cn("backlog-inline-edit-shell", isLogicalChild && "is-child")}>
                         {!isLogicalChild ? (
                           <input
                             className="field-input backlog-inline-priority-input"
@@ -1965,8 +2138,8 @@ export function BacklogPage() {
                           aria-label={isLogicalChild ? "Subtask name" : "Task name"}
                           autoFocus
                         />
-                        <div className="backlog-inline-edit-actions">
-                          {!isLogicalChild && canResetInlinePriority ? (
+                        {!isLogicalChild && canResetInlinePriority ? (
+                          <div className="backlog-inline-edit-actions">
                             <button
                               type="button"
                               className="backlog-inline-reset-button"
@@ -1974,37 +2147,17 @@ export function BacklogPage() {
                             >
                               Reset to imported
                             </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="backlog-time-inline-action"
-                            aria-label={`Save ${isLogicalChild ? "subtask" : "task"} name`}
-                            disabled={!canSaveEditorTitle}
-                            onClick={saveInlineTitleEdit}
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className="backlog-time-inline-action"
-                            aria-label={`Cancel ${isLogicalChild ? "subtask" : "task"} name changes`}
-                            onClick={cancelInlineTitleEdit}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : (
-                      <div className="backlog-inline-title-display">
+                      <div className={cn("backlog-inline-title-display", isLogicalChild && "is-child")}>
                         {!isLogicalChild ? <span className="backlog-priority-pill">{editorPriority}</span> : null}
                         <div className="backlog-inline-title-main">
                           {showConnectorIcon ? (
                             <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
                           ) : null}
                           <span className="backlog-inline-title-text">{editorTitle}</span>
-                          {backlogStatusLabel ? (
-                            <span className="backlog-status-pill">{backlogStatusLabel}</span>
-                          ) : null}
                         </div>
                       </div>
                     )}
@@ -2013,6 +2166,7 @@ export function BacklogPage() {
                     <div
                       className={cn(
                         "backlog-inline-meta",
+                        isLogicalChild && "is-child",
                         !isLogicalChild && "has-priority",
                         showConnectorIcon && "has-source-icon",
                       )}
@@ -2034,84 +2188,91 @@ export function BacklogPage() {
                     </div>
                   ) : null}
                 </div>
-                <div className="backlog-editor-actions">
-                  {!isEditorTitleEditing ? (
-                    <button
-                      type="button"
-                      className="backlog-task-inline-action"
-                      aria-label={`Edit ${isLogicalChild ? "subtask" : "task"} name`}
-                      onClick={beginInlineTitleEdit}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {!isArchived ? (
-                    <button
-                      type="button"
-                      className={cn("backlog-task-inline-action", "backlog-task-archive", isDeletePending && "is-confirming")}
-                      aria-label={isDeletePending ? `Confirm delete ${workItem.title}` : `Delete ${workItem.title}`}
-                      onClick={() => handleDeleteWorkItem(workItem._id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {isDeletePending ? <span>Delete</span> : null}
-                    </button>
-                  ) : null}
-                  {isArchived ? (
-                    <button
-                      type="button"
-                      className={cn("backlog-task-inline-action", "backlog-task-archive", "is-restore")}
-                      aria-label={`Unarchive ${workItem.title}`}
-                      onClick={() => handleUnarchiveWorkItem(workItem._id)}
-                    >
-                      <ArchiveRestore className="h-3.5 w-3.5" />
-                      <span>Restore</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className={cn(
-                        "backlog-task-inline-action",
-                        "backlog-task-archive",
-                        isArchivePending && "is-confirming",
+                <div className="backlog-editor-trailing">
+                  <div className="backlog-editor-actions">
+                    <span className="backlog-editor-action-slot">
+                      {isEditorTitleEditing ? (
+                        <button
+                          type="button"
+                          className="backlog-task-inline-action"
+                          aria-label={`Save ${isLogicalChild ? "subtask" : "task"} name`}
+                          disabled={!canSaveEditorTitle}
+                          onClick={saveInlineTitleEdit}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="backlog-task-inline-action"
+                          aria-label={`Edit ${isLogicalChild ? "subtask" : "task"} name`}
+                          onClick={beginInlineTitleEdit}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
                       )}
-                      aria-label={isArchivePending ? "Confirm archive task" : "Archive task"}
-                      onClick={() => handleArchiveWorkItem(workItem._id)}
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                      {isArchivePending ? <span>Confirm</span> : null}
-                    </button>
-                  )}
+                    </span>
+                    <span className="backlog-editor-action-slot">
+                      {isEditorTitleEditing ? (
+                        <button
+                          type="button"
+                          className="backlog-task-inline-action"
+                          aria-label={`Cancel ${isLogicalChild ? "subtask" : "task"} name changes`}
+                          onClick={cancelInlineTitleEdit}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : !isArchived ? (
+                        <button
+                          type="button"
+                          className={cn("backlog-task-inline-action", "backlog-task-archive", isDeletePending && "is-confirming")}
+                          aria-label={isDeletePending ? `Confirm delete ${workItem.title}` : `Delete ${workItem.title}`}
+                          onClick={() => handleDeleteWorkItem(workItem._id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {isDeletePending ? <span>Delete</span> : null}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={cn("backlog-task-inline-action", "backlog-task-archive", "is-restore")}
+                          aria-label={`Unarchive ${workItem.title}`}
+                          onClick={() => handleUnarchiveWorkItem(workItem._id)}
+                        >
+                          <ArchiveRestore className="h-3.5 w-3.5" />
+                          <span>Restore</span>
+                        </button>
+                      )}
+                    </span>
+                    <span className="backlog-editor-action-slot">
+                      {!isEditorTitleEditing && !isArchived ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "backlog-task-inline-action",
+                            "backlog-task-archive",
+                            isArchivePending && "is-confirming",
+                          )}
+                          aria-label={isArchivePending ? "Confirm archive task" : "Archive task"}
+                          onClick={() => handleArchiveWorkItem(workItem._id)}
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                          {isArchivePending ? <span>Confirm</span> : null}
+                        </button>
+                      ) : (
+                        <span className="backlog-editor-action-placeholder" aria-hidden="true" />
+                      )}
+                    </span>
+                  </div>
+                  {backlogEstimateBadgeLabel ? (
+                    <span className="hours-badge backlog-estimate-badge backlog-editor-estimate-badge">
+                      {backlogEstimateBadgeLabel}
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
               <div className="entry-edit-dropdown-grid">
-                <label className="field backlog-field-project">
-                  <span className="field-label">Status</span>
-                  <SearchableSelect
-                    value={editorBacklogStatusId}
-                    options={backlogStatusOptions}
-                    onChange={setInlineBacklogStatusId}
-                    placeholder="No status"
-                    clearLabel="No status"
-                    emptyMessage="No matching statuses"
-                    ariaLabel="Backlog status"
-                  />
-                  {workItem.source !== "manual" ? (
-                    <div className="backlog-field-meta">
-                      <span className="field-help">Synced status: {importedBacklogStatusSummary}</span>
-                      {canResetInlineBacklogStatus ? (
-                        <button
-                          type="button"
-                          className="backlog-inline-reset-button"
-                          onClick={() => setInlineBacklogStatusId(workItem.importedBacklogStatusId ?? "")}
-                        >
-                          Reset to synced
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </label>
-
                 <label className="field backlog-field-project">
                   <span className="field-label">Project</span>
                   <SearchableSelect
@@ -2139,64 +2300,147 @@ export function BacklogPage() {
                   />
                 </label>
 
-                <label className="field backlog-field-project">
-                  <span className="field-label">Original</span>
-                  <input
-                    className="field-input"
-                    type="text"
-                    inputMode="decimal"
-                    value={editorOriginalEstimateHours}
-                    onChange={(event) => setInlineOriginalEstimateHours(event.target.value)}
-                    placeholder="0"
-                    aria-label="Original estimate"
-                  />
-                </label>
+                {isEditorTitleEditing ? (
+                  <>
+                    <label className="field backlog-field-status">
+                      <span className="field-label">Status</span>
+                      <SearchableSelect
+                        value={editorBacklogStatusId}
+                        options={backlogStatusOptions}
+                        onChange={setInlineBacklogStatusId}
+                        placeholder="No status"
+                        clearLabel="No status"
+                        emptyMessage="No matching statuses"
+                        ariaLabel="Backlog status"
+                      />
+                      {workItem.source !== "manual" && canResetInlineBacklogStatus ? (
+                        <div className="backlog-field-meta">
+                          <button
+                            type="button"
+                            className="backlog-inline-reset-button"
+                            onClick={() => setInlineBacklogStatusId(workItem.importedBacklogStatusId ?? "")}
+                          >
+                            Reset to synced
+                          </button>
+                        </div>
+                      ) : null}
+                    </label>
 
-                <label className="field backlog-field-project">
-                  <span className="field-label">Remaining</span>
-                  <input
-                    className="field-input"
-                    type="text"
-                    inputMode="decimal"
-                    value={editorRemainingEstimateHours}
-                    onChange={(event) => setInlineRemainingEstimateHours(event.target.value)}
-                    placeholder="0"
-                    aria-label="Remaining estimate"
-                  />
-                </label>
+                    <div className="backlog-field-estimates">
+                      <label className="field backlog-field-estimate">
+                        <span className="field-label">Original</span>
+                        <div className="backlog-estimate-field-shell">
+                          <input
+                            className="field-input backlog-estimate-field-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={editorOriginalEstimateHours}
+                            onChange={(event) => setInlineOriginalEstimateHours(event.target.value)}
+                            placeholder="0"
+                            aria-label="Original estimate"
+                          />
+                          {canResetOriginalEstimate ? (
+                            <button
+                              type="button"
+                              className="backlog-estimate-reset-field"
+                              aria-label="Reset original estimate to subtask total"
+                              title="Reset original estimate to subtask total"
+                              onClick={resetInlineOriginalEstimate}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </label>
 
-                <label className="field backlog-field-project">
-                  <span className="field-label">Completed</span>
-                  <input
-                    className="field-input"
-                    type="text"
-                    inputMode="decimal"
-                    value={editorCompletedEstimateHours}
-                    onChange={(event) => setInlineCompletedEstimateHours(event.target.value)}
-                    placeholder="0"
-                    aria-label="Completed estimate"
-                  />
-                </label>
+                      <label className="field backlog-field-estimate">
+                        <span className="field-label">Remaining</span>
+                        <div className="backlog-estimate-field-shell">
+                          <input
+                            className="field-input backlog-estimate-field-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={editorRemainingEstimateHours}
+                            onChange={(event) => setInlineRemainingEstimateHours(event.target.value)}
+                            placeholder="0"
+                            aria-label="Remaining estimate"
+                          />
+                          {canResetRemainingEstimate ? (
+                            <button
+                              type="button"
+                              className="backlog-estimate-reset-field"
+                              aria-label="Reset remaining estimate to subtask total"
+                              title="Reset remaining estimate to subtask total"
+                              onClick={resetInlineRemainingEstimate}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </label>
 
-                {!isArchived ? (
-                  <label className="field entry-field-note">
+                      <label className="field backlog-field-estimate">
+                        <span className="field-label">Completed</span>
+                        <div className="backlog-estimate-field-shell">
+                          <input
+                            className="field-input backlog-estimate-field-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={editorCompletedEstimateHours}
+                            onChange={(event) => setInlineCompletedEstimateHours(event.target.value)}
+                            placeholder="0"
+                            aria-label="Completed estimate"
+                          />
+                          {canResetCompletedEstimate ? (
+                            <button
+                              type="button"
+                              className="backlog-estimate-reset-field"
+                              aria-label="Reset completed estimate to subtask total"
+                              title="Reset completed estimate to subtask total"
+                              onClick={resetInlineCompletedEstimate}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </label>
+                    </div>
+                  </>
+                ) : null}
+
+                {!isArchived && isEditorTitleEditing ? (
+                  <label className="field entry-field-description">
                     <span className="backlog-note-label">
-                      <span className="field-label">Note</span>
+                      <span className="field-label">Description</span>
                       <button
                         type="button"
                         className="backlog-note-expand"
-                        aria-label={`Expand note editor for ${editorTitle.trim() || workItem.title}`}
-                        title="Expand note editor"
+                        aria-label={`Expand description editor for ${editorTitle.trim() || workItem.title}`}
+                        title="Expand description editor"
                         onClick={() => openExpandedNoteModal(isEditingChildItem ? "child" : "root")}
                       >
                         <Maximize2 className="h-3.5 w-3.5" />
                       </button>
                     </span>
                     <textarea
+                      ref={inlineDescriptionTextareaRef}
                       className="field-input entry-note-input"
                       value={editorNote}
                       onChange={(event) => setInlineNote(event.target.value)}
-                      placeholder="Notes (optional)"
+                      placeholder="Description (optional)"
+                      rows={2}
+                    />
+                  </label>
+                ) : null}
+
+                {!isArchived ? (
+                  <label className="field entry-field-note">
+                    <span className="field-label">Note</span>
+                    <textarea
+                      className="field-input entry-note-input"
+                      value={editorTimeEntryNote}
+                      onChange={(event) => setInlineTimeEntryNote(event.target.value)}
+                      placeholder="Time entry note (optional)"
                       rows={2}
                     />
                   </label>
@@ -2305,12 +2549,33 @@ export function BacklogPage() {
         <td className="backlog-priority-cell">
           {!isLogicalChild ? <span className="backlog-priority-value">{workItem.priority ?? ""}</span> : null}
         </td>
-        <td className="backlog-task-cell">
+        <td className="backlog-task-cell" colSpan={isLogicalChild ? 2 : 1}>
           <div className={cn("backlog-task-row", isLogicalChild && "is-child")}>
-            {isLogicalChild ? <CornerDownRight className="backlog-subtask-icon" /> : null}
             <div className="backlog-task-main">
               <div className="backlog-task-title-row">
                 <div className="backlog-task-title-content">
+                  {!isLogicalChild ? (
+                    showSubtasksPill ? (
+                      <button
+                        type="button"
+                        className={cn("backlog-task-subtasks-pill", isRootExpanded && "is-active")}
+                        aria-label={`${isRootExpanded ? "Hide" : "Show"} subtasks for ${workItem.title}`}
+                        data-no-backlog-drag="true"
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleToggleSubtasks(workItem);
+                          event.currentTarget.blur();
+                        }}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <span className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder" aria-hidden="true" />
+                    )
+                  ) : null}
                   {showConnectorIcon ? (
                     <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
                   ) : null}
@@ -2327,26 +2592,7 @@ export function BacklogPage() {
                       <AlertTriangle className="h-3.5 w-3.5" />
                     </span>
                   ) : null}
-                  {backlogStatusLabel ? <span className="backlog-status-pill">{backlogStatusLabel}</span> : null}
                 </div>
-                {isMobileLayout && showSubtasksPill ? (
-                  <button
-                    type="button"
-                    className={cn("backlog-task-subtasks-pill", isRootExpanded && "is-active")}
-                    aria-label={`${isRootExpanded ? "Hide" : "Show"} subtasks for ${workItem.title}`}
-                    data-no-backlog-drag="true"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleToggleSubtasks(workItem);
-                      event.currentTarget.blur();
-                    }}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : null}
               </div>
               {sourceMetaParts.length > 0 || sourceReference ? (
                 sourceUrl ? (
@@ -2354,18 +2600,38 @@ export function BacklogPage() {
                     href={sourceUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="backlog-task-meta backlog-task-meta-link"
+                    className={cn(
+                      "backlog-task-meta",
+                      "backlog-task-meta-link",
+                      !isLogicalChild && "backlog-task-meta-indented",
+                      showConnectorIcon && "has-source-icon",
+                    )}
                     data-no-backlog-drag="true"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {sourceMetaLabel}
                   </a>
                 ) : (
-                  <span className="backlog-task-meta">{sourceMetaLabel}</span>
+                  <span
+                    className={cn(
+                      "backlog-task-meta",
+                      !isLogicalChild && "backlog-task-meta-indented",
+                      showConnectorIcon && "has-source-icon",
+                    )}
+                  >
+                    {sourceMetaLabel}
+                  </span>
                 )
               ) : null}
               {timeEntryMetaParts.length > 0 ? (
-                <span className="backlog-task-meta backlog-task-meta-secondary">
+                <span
+                  className={cn(
+                    "backlog-task-meta",
+                    "backlog-task-meta-secondary",
+                    !isLogicalChild && "backlog-task-meta-indented",
+                    showConnectorIcon && "has-source-icon",
+                  )}
+                >
                   {timeEntryMetaParts.join(" · ")}
                 </span>
               ) : null}
@@ -2373,114 +2639,116 @@ export function BacklogPage() {
                 <span className="backlog-task-note">{workItem.note}</span>
               ) : null}
             </div>
+          </div>
+        </td>
+        {!isLogicalChild ? (
+          <td className="backlog-status-cell">
+            {backlogStatusLabel ? (
+              <div className="backlog-status-cell-content">
+                <span
+                  className="status-dot backlog-status-dot"
+                  style={{ background: backlogStatus?.color }}
+                />
+                <span className="backlog-status-cell-label">{backlogStatusLabel}</span>
+              </div>
+            ) : null}
+          </td>
+        ) : null}
+        <td className="entry-hours-cell backlog-estimate-cell">
+          <div className="entry-hours-content backlog-estimate-content">
             {!isMobileLayout ? (
-              <div className="backlog-task-aside">
-                <>
-                  {!isArchived ? (
+              <div className={cn("entry-row-actions backlog-entry-row-actions", isArchivePending && "is-confirming")}>
+                {!isArchived ? (
+                  <button
+                    type="button"
+                    className="entry-row-action entry-row-action-play"
+                    aria-label={`Start timer for ${workItem.title}`}
+                    title={startTimerTitle}
+                    disabled={!canStartTimer}
+                    data-no-backlog-drag="true"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleStartWorkItemTimer(workItem);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {!isArchived ? (
+                  <button
+                    type="button"
+                    className="entry-row-action"
+                    aria-label={`Edit description for ${workItem.title}`}
+                    title={`Edit description for ${workItem.title}`}
+                    data-no-backlog-drag="true"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleOpenWorkItemNote(workItem);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {isArchived ? (
+                  <button
+                    type="button"
+                    className="entry-row-action backlog-entry-row-action-restore"
+                    aria-label={`Unarchive ${workItem.title}`}
+                    title={`Unarchive ${workItem.title}`}
+                    data-no-backlog-drag="true"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleUnarchiveWorkItem(workItem._id);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <span className="entry-row-action-slot">
                     <button
                       type="button"
-                      className="backlog-task-note-action"
-                      aria-label={`Open notes for ${workItem.title}`}
-                      title={`Open notes for ${workItem.title}`}
-                      data-no-backlog-drag="true"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleOpenWorkItemNote(workItem);
-                      }}
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {!isArchived ? (
-                    <button
-                      type="button"
-                      className="backlog-task-start"
-                      aria-label={`Start timer for ${workItem.title}`}
-                      title={startTimerTitle}
-                      disabled={!canStartTimer}
-                      data-no-backlog-drag="true"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleStartWorkItemTimer(workItem);
-                      }}
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {isArchived ? (
-                    <button
-                      type="button"
-                      className="backlog-task-archive is-restore"
-                      aria-label={`Unarchive ${workItem.title}`}
-                      data-no-backlog-drag="true"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleUnarchiveWorkItem(workItem._id);
-                      }}
-                    >
-                      <ArchiveRestore className="h-3.5 w-3.5" />
-                      <span>Restore</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className={cn(
-                        "backlog-task-archive",
-                        isArchivePending && "is-confirming",
-                      )}
+                      className={cn("entry-row-action", "entry-row-action-delete", isArchivePending && "is-confirming")}
                       aria-label={isArchivePending ? "Confirm archive task" : "Archive task"}
+                      title={isArchivePending ? "Confirm archive task" : "Archive task"}
                       data-no-backlog-drag="true"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleArchiveWorkItem(workItem._id);
-                      }}
-                    >
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleArchiveWorkItem(workItem._id);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
                       <Archive className="h-3.5 w-3.5" />
                       {isArchivePending ? <span>Confirm</span> : null}
                     </button>
-                  )}
-                  {showSubtasksPill ? (
-                    <button
-                      type="button"
-                      className={cn("backlog-task-subtasks-pill", isRootExpanded && "is-active")}
-                      aria-label={`${isRootExpanded ? "Hide" : "Show"} subtasks for ${workItem.title}`}
-                      data-no-backlog-drag="true"
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleToggleSubtasks(workItem);
-                        event.currentTarget.blur();
-                      }}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </>
+                  </span>
+                )}
               </div>
             ) : null}
+            {backlogEstimateBadgeLabel ? (
+              <span className="hours-badge backlog-estimate-badge">{backlogEstimateBadgeLabel}</span>
+            ) : null}
             {isMobileLayout && !isArchived ? (
-              <div className="backlog-task-aside backlog-task-mobile-actions">
-                <button
-                  type="button"
-                  className="backlog-task-start backlog-task-action-pill"
-                  aria-label={`Start timer for ${workItem.title}`}
-                  title={startTimerTitle}
-                  disabled={!canStartTimer}
-                  data-no-backlog-drag="true"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleStartWorkItemTimer(workItem);
-                  }}
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  <span>Start Timer</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                className="backlog-task-start backlog-task-action-pill backlog-estimate-mobile-action"
+                aria-label={`Start timer for ${workItem.title}`}
+                title={startTimerTitle}
+                disabled={!canStartTimer}
+                data-no-backlog-drag="true"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleStartWorkItemTimer(workItem);
+                }}
+              >
+                <Play className="h-3.5 w-3.5" />
+                <span>Start Timer</span>
+              </button>
             ) : null}
           </div>
         </td>
@@ -2513,6 +2781,17 @@ export function BacklogPage() {
     .filter(Boolean)
     .join(" · ");
   const draggedWorkItemTimeEntryMetaParts = [draggedWorkItemProject?.name, draggedWorkItemTask?.name].filter(Boolean);
+  const draggedWorkItemStatus = draggedWorkItem?.backlogStatusId ? backlogStatusById.get(draggedWorkItem.backlogStatusId) : undefined;
+  const draggedWorkItemEstimateBadgeLabel = useMemo(() => {
+    if (!draggedWorkItem) {
+      return null;
+    }
+
+    const draggedChildItems = isSubtaskItem(draggedWorkItem) ? [] : getChildItems(draggedWorkItem);
+    return getWorkItemEstimateBadgeLabel(
+      draggedChildItems.length > 0 ? sumChildEstimateTotals(draggedChildItems) : draggedWorkItem,
+    );
+  }, [draggedWorkItem, getChildItems]);
 
   return (
     <div className="space-y-4">
@@ -2612,12 +2891,14 @@ export function BacklogPage() {
                   </div>
                 </div>
               </th>
+              <th className="backlog-status-heading" aria-hidden="true" />
+              <th className="backlog-estimate-heading" aria-hidden="true" />
             </tr>
           </thead>
           <tbody className="entries-table-scroll-region">
             {isCreatingItem ? (
               <tr className="entry-edit-row" onClick={(event) => event.stopPropagation()}>
-                <td colSpan={2}>
+                <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
                   <div className="entry-edit-dropdown entry-create-dropdown">
                     <div className="entry-create-label">New task</div>
                     <div className="entry-edit-dropdown-grid">
@@ -2678,12 +2959,12 @@ export function BacklogPage() {
                       </label>
 
                       <label className="field backlog-field-note">
-                        <span className="field-label">Note</span>
+                        <span className="field-label">Description</span>
                         <textarea
                           className="field-input entry-note-input"
                           value={newNote}
                           onChange={(event) => setNewNote(event.target.value)}
-                          placeholder="Notes (optional)"
+                          placeholder="Description (optional)"
                           rows={2}
                         />
                       </label>
@@ -2695,7 +2976,7 @@ export function BacklogPage() {
 
             {visibleRootItems.length === 0 ? (
               <tr className="entry-empty-row">
-                <td colSpan={2}>
+                <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
                   <div className="entry-table-empty">
                     {activeFilter === "active"
                       ? "No active tasks yet."
@@ -2741,6 +3022,13 @@ export function BacklogPage() {
                 <div className="backlog-task-main">
                   <div className="backlog-task-title-row">
                     <div className="backlog-task-title-content">
+                      {draggedWorkItemChildCount > 0 ? (
+                        <span className="backlog-task-subtasks-indicator" aria-hidden="true">
+                          <ChevronRight className="h-4 w-4" />
+                        </span>
+                      ) : (
+                        <span className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder" aria-hidden="true" />
+                      )}
                       {draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook" ? (
                         <ConnectorSourceIcon svg={connectorIconsBySource[draggedWorkItem.source]} />
                       ) : null}
@@ -2763,14 +3051,25 @@ export function BacklogPage() {
                     </span>
                   ) : null}
                 </div>
-                {draggedWorkItemChildCount > 0 ? (
-                  <div className="backlog-task-aside backlog-task-drag-preview-aside">
-                    <span className="backlog-task-subtasks-indicator" aria-hidden="true">
-                      <ChevronRight className="h-4 w-4" />
-                    </span>
-                  </div>
-                ) : null}
               </div>
+            </div>
+            <div className="backlog-status-cell backlog-task-drag-preview-status">
+              {draggedWorkItemStatus ? (
+                <div className="backlog-status-cell-content">
+                  <span
+                    className="status-dot backlog-status-dot"
+                    style={{ background: draggedWorkItemStatus.color }}
+                  />
+                  <span className="backlog-status-cell-label">{draggedWorkItemStatus.name}</span>
+                </div>
+              ) : null}
+            </div>
+            <div className="entry-hours-cell backlog-estimate-cell backlog-task-drag-preview-estimate">
+              {draggedWorkItemEstimateBadgeLabel ? (
+                <div className="entry-hours-content">
+                  <span className="hours-badge backlog-estimate-badge">{draggedWorkItemEstimateBadgeLabel}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2818,7 +3117,7 @@ export function BacklogPage() {
               <button
                 type="button"
                 className="time-entry-modal-close"
-                aria-label="Close expanded note editor"
+                aria-label="Close expanded description editor"
                 onClick={closeExpandedNoteModal}
               >
                 <X className="h-4 w-4" />
@@ -2830,7 +3129,7 @@ export function BacklogPage() {
                 className="field-input entry-note-input backlog-note-modal-input"
                 value={expandedNoteModalValue}
                 onChange={(event) => handleExpandedNoteModalChange(event.target.value)}
-                placeholder="Notes (optional)"
+                placeholder="Description (optional)"
                 rows={18}
               />
             </div>

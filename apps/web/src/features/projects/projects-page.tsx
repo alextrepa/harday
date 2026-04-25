@@ -947,8 +947,8 @@ export function ProjectsPage() {
   }, [state.projects, state.timesheetEntries]);
 
   // Derive selected project from URL
-  const selectedProjectId = pathname.startsWith("/settings/projects/")
-    ? decodeURIComponent(pathname.slice("/settings/projects/".length))
+  const selectedProjectId = pathname.startsWith("/projects/")
+    ? decodeURIComponent(pathname.slice("/projects/".length))
     : null;
 
   const selectedProject = selectedProjectId
@@ -957,11 +957,11 @@ export function ProjectsPage() {
 
   // Auto-select the first available project if the current URL does not resolve.
   useEffect(() => {
-    if (!pathname.startsWith("/settings/projects")) return;
+    if (pathname !== "/projects" && !pathname.startsWith("/projects/")) return;
     const firstProject = activeProjects[0] ?? archivedProjects[0];
     if (!firstProject || selectedProject) return;
     void navigate({
-      to: "/settings/projects/$projectId",
+      to: "/projects/$projectId",
       params: { projectId: firstProject._id },
       replace: true,
     });
@@ -1001,7 +1001,7 @@ export function ProjectsPage() {
       });
       closeProjectModal();
       void navigate({
-        to: "/settings/projects/$projectId",
+        to: "/projects/$projectId",
         params: { projectId: nextId },
       });
       return;
@@ -1049,7 +1049,7 @@ export function ProjectsPage() {
               return (
                 <Link
                   key={project._id}
-                  to="/settings/projects/$projectId"
+                  to="/projects/$projectId"
                   params={{ projectId: project._id }}
                   className={cn(
                     "settings-sidebar-item",
@@ -1087,7 +1087,7 @@ export function ProjectsPage() {
                       )}
                     >
                       <Link
-                        to="/settings/projects/$projectId"
+                        to="/projects/$projectId"
                         params={{ projectId: project._id }}
                         className="contents"
                         title={project.name}

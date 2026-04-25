@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { SendHorizontal } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { DayViewerCard } from "@/components/day-viewer-card";
+import { SubmitTimesheetModal } from "@/features/time/submit-timesheet-modal";
 import { TimerPanel } from "@/features/timer/timer-panel";
 import { TimeEntryModal } from "@/features/timer/time-entry-modal";
 import { useLocalState } from "@/lib/local-hooks";
@@ -21,6 +23,7 @@ export function TimePage({ date }: { date: string }) {
   const today = todayIsoDate();
   const weekDates = useMemo(() => getIsoWeekDates(date), [date]);
   const currentTimer = state.timers[0] ?? null;
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const modalEntryId = search.entry && search.entry !== "new" ? search.entry : undefined;
   const modalTimerId = search.timer;
   const modalOpen = search.entry === "new" || Boolean(modalEntryId) || Boolean(modalTimerId);
@@ -89,6 +92,17 @@ export function TimePage({ date }: { date: string }) {
         totalValue={formatDuration(weekTotalMs)}
         getDayValue={(day) => formatDuration(totalsByDate.get(day) ?? 0)}
         onSelectDate={goToDate}
+        headerActions={
+          <button
+            type="button"
+            className="day-viewer-submit-pill"
+            aria-label="Submit timesheet"
+            onClick={() => setIsSubmitModalOpen(true)}
+          >
+            <SendHorizontal className="h-4 w-4" />
+            <span>Submit</span>
+          </button>
+        }
       />
 
       <TimerPanel date={date} onOpenEntry={openModal} />
@@ -96,6 +110,7 @@ export function TimePage({ date }: { date: string }) {
       {modalOpen ? (
         <TimeEntryModal date={date} entryId={modalEntryId} timerId={modalTimerId} onClose={closeModal} />
       ) : null}
+      {isSubmitModalOpen ? <SubmitTimesheetModal weekDates={weekDates} onClose={() => setIsSubmitModalOpen(false)} /> : null}
     </div>
   );
 }

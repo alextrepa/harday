@@ -16,6 +16,7 @@ import { SettingsGeneralPage } from "@/features/settings/settings-general-page";
 import { SettingsConnectorsPage } from "@/features/settings/settings-connectors-page";
 import { SettingsBacklogPage } from "@/features/settings/settings-backlog-page";
 import { SettingsExportPage } from "@/features/settings/settings-export-page";
+import { SettingsProjectsPage } from "@/features/settings/settings-projects-page";
 import { SettingsImportReviewPage } from "@/features/settings/settings-import-review-page";
 import { SettingsDebugPage } from "@/features/settings/settings-debug-page";
 import { TimePage } from "@/features/time/time-page";
@@ -106,22 +107,13 @@ const reviewRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects",
-  component: () => <Navigate to="/settings/projects" replace />,
+  component: ProjectsPage,
 });
 
 const projectDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects/$projectId",
-  component: () => {
-    const params = projectDetailRoute.useParams();
-    return (
-      <Navigate
-        to="/settings/projects/$projectId"
-        params={{ projectId: params.projectId }}
-        replace
-      />
-    );
-  },
+  component: ProjectsPage,
 });
 
 const backlogRoute = createRoute({
@@ -185,15 +177,24 @@ const settingsDebugRoute = createRoute({
 });
 
 const settingsProjectsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/settings/projects",
-  component: ProjectsPage,
+  getParentRoute: () => settingsRoute,
+  path: "/projects",
+  component: SettingsProjectsPage,
 });
 
 const settingsProjectDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/settings/projects/$projectId",
-  component: ProjectsPage,
+  getParentRoute: () => settingsRoute,
+  path: "/projects/$projectId",
+  component: () => {
+    const params = settingsProjectDetailRoute.useParams();
+    return (
+      <Navigate
+        to="/projects/$projectId"
+        params={{ projectId: params.projectId }}
+        replace
+      />
+    );
+  },
 });
 
 const routeTree = rootRoute.addChildren([
@@ -206,13 +207,13 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectDetailRoute,
     rulesRoute,
-    settingsProjectsRoute,
-    settingsProjectDetailRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsGeneralRoute,
       settingsConnectorsRoute,
       settingsBacklogRoute,
+      settingsProjectsRoute,
+      settingsProjectDetailRoute,
       settingsExportRoute,
       settingsImportReviewRoute,
       settingsDebugRoute,

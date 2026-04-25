@@ -318,6 +318,7 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
           }
 
           const payload = connectorSyncRequestSchema.parse(await readJsonBody(request));
+          const isSourceWriteOnly = payload.trigger === "source_write";
           const shouldAutoSyncToBacklog = connection.autoSync && payload.trigger === "auto";
 
           try {
@@ -339,7 +340,13 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
             }
 
             const autoSyncItems = shouldAutoSyncToBacklog ? collectAutoSyncItems(fetched.items) : [];
-            const stageResult = shouldAutoSyncToBacklog
+            const stageResult = isSourceWriteOnly
+              ? {
+                  queuedCount: 0,
+                  updatedCount: 0,
+                  skippedCount: 0,
+                }
+              : shouldAutoSyncToBacklog
               ? {
                   queuedCount: autoSyncItems.length,
                   updatedCount: 0,
@@ -355,7 +362,7 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
               connectorSyncResultSchema.parse({
                 connection: summary,
                 mode: shouldAutoSyncToBacklog ? "backlog" : "review",
-                items: autoSyncItems,
+                items: isSourceWriteOnly ? [] : autoSyncItems,
                 stagedCount: stageResult.queuedCount,
                 updatedCount: stageResult.updatedCount,
                 skippedCount: stageResult.skippedCount,

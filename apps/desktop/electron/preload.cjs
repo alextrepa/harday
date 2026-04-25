@@ -1,3 +1,5 @@
-const { contextBridge } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("timetrackerDesktop", {});
+contextBridge.exposeInMainWorld("timetrackerDesktop", {
+  bootstrapLocalState: ipcRenderer.sendSync("timetracker:get-bootstrap-local-state"),
+});

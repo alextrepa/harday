@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
 import {
   buildTimesheetExportRows,
+  detectTimesheetImportConflicts,
   createTimesheetExportWorkbook,
+  parseTimesheetImportWorkbook,
   downloadWorkbookFile,
 } from "./settings-export";
 
@@ -146,6 +148,94 @@ describe("createTimesheetExportWorkbook", () => {
     const contentTypes = XLSX.CFB.find(workbookArchive, "/[Content_Types].xml");
     expect(contentTypes).toBeTruthy();
     expect(new TextDecoder().decode(contentTypes!.content)).not.toContain("/xl/metadata.xml");
+  });
+});
+
+describe("parseTimesheetImportWorkbook", () => {
+  it("parses workbook rows from the Time Logs sheet", async () => {
+    const workbookBytes = await createTimesheetExportWorkbook({
+      entries,
+      projects,
+      startDate: "2026-04-10",
+      endDate: "2026-04-11",
+    });
+
+    await expect(parseTimesheetImportWorkbook(workbookBytes)).resolves.toEqual([
+      {
+        date: "2026-04-10",
+        project: "Project Mercury",
+        task: "Feature Work",
+        note: "Polish export UX",
+        hours: 1.5,
+      },
+      {
+        date: "2026-04-11",
+        project: "Project Gemini",
+        task: "",
+        note: "",
+        hours: 0.75,
+      },
+    ]);
+  });
+
+  it("parses exported rows that do not have an assigned project or task", async () => {
+    const workbookBytes = await createTimesheetExportWorkbook({
+      entries,
+      projects,
+      startDate: "2026-04-12",
+      endDate: "2026-04-12",
+    });
+
+    await expect(parseTimesheetImportWorkbook(workbookBytes)).resolves.toEqual([
+      {
+        date: "2026-04-12",
+        project: "",
+        task: "",
+        note: "Outside selected range",
+        hours: 0.5,
+      },
+    ]);
+  });
+
+  it("fails when the workbook does not expose the expected columns", async () => {
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["foo", "bar"],
+      ["2026-04-10", "Project Mercury"],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, sheet, "Time Logs");
+    const workbookBytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+
+    await expect(parseTimesheetImportWorkbook(workbookBytes)).rejects.toThrow(
+      "The Time Logs sheet must contain the columns date, project, task, note, and hours.",
+    );
+  });
+});
+
+describe("detectTimesheetImportConflicts", () => {
+  it("flags potential conflicts when date, project, and task already exist", () => {
+    expect(
+      detectTimesheetImportConflicts({
+        rows: [
+          {
+            date: "2026-04-10",
+            project: "Project Mercury",
+            task: "Feature Work",
+            note: "Imported note",
+            hours: 2,
+          },
+          {
+            date: "2026-04-11",
+            project: "Project Gemini",
+            task: "",
+            note: "",
+            hours: 1,
+          },
+        ],
+        entries,
+        projects,
+      }).map((row) => row.potentialConflict),
+    ).toEqual([true, true]);
   });
 });
 

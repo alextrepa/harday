@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ListTodo, Play, Settings, Square, Timer, X } from "lucide-react";
+import { FolderKanban, ListTodo, Play, Settings, Square, Timer, X } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -14,6 +14,7 @@ import { useApplyTheme } from "@/lib/use-theme";
 const navItems = [
   { to: "/time/$date", params: { date: "today" }, label: "Time", icon: Timer },
   { to: "/backlog", label: "Backlog", icon: ListTodo },
+  { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -22,6 +23,10 @@ const AUTO_SYNC_POLL_INTERVAL_MS = 30_000;
 function isNavItemActive(pathname: string, to: (typeof navItems)[number]["to"]) {
   if (to === "/time/$date") {
     return pathname.startsWith("/time/") || pathname.startsWith("/review/");
+  }
+
+  if (to === "/projects") {
+    return pathname === "/projects" || pathname.startsWith("/projects/");
   }
 
   if (to === "/settings") {

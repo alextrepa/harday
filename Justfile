@@ -31,11 +31,12 @@ help:
 init: install
     echo >&2 "[1/1] Project initialized for local development"
 
-[doc("Starts the web app locally")]
+[doc("Starts the web app locally. Use -p/--port to override the port (default: 5173)")]
 [group("common")]
-start:
-    echo >&2 "[1/1] Starting the web app on http://{{WEB_HOST}}:{{WEB_PORT}}"
-    {{PNPM}} --filter @timetracker/web dev --host {{WEB_HOST}} --port {{WEB_PORT}}
+[arg("port", short="p", long="port")]
+start port=WEB_PORT:
+    echo >&2 "[1/1] Starting the web app on http://{{WEB_HOST}}:{{port}}"
+    {{PNPM}} --filter @timetracker/web dev --host {{WEB_HOST}} --port {{port}}
 
 [doc("Stops locally managed services")]
 [group("common")]

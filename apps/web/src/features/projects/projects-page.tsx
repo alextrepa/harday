@@ -234,22 +234,30 @@ function ProjectFormModal({
               value={draft.code}
               onChange={(event) => onChange((current) => ({ ...current, code: event.target.value }))}
             />
-            <Input
-              aria-label="Project color"
-              type="color"
-              value={draft.color}
-              onChange={(event) => onChange((current) => ({ ...current, color: event.target.value }))}
-            />
+            <label className="project-color-picker">
+              <span
+                className="project-color-picker-swatch"
+                style={{ backgroundColor: draft.color }}
+                aria-hidden="true"
+              />
+              <input
+                className="project-color-picker-input"
+                aria-label="Project color"
+                type="color"
+                value={draft.color}
+                onChange={(event) => onChange((current) => ({ ...current, color: event.target.value }))}
+              />
+            </label>
           </div>
         </div>
 
         <div className="time-entry-modal-actions project-form-modal-actions">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button className="gap-2" disabled={!draft.name.trim()} onClick={onSubmit}>
             {mode === "create" ? <FolderPlus className="h-4 w-4" /> : <Save className="h-4 w-4" />}
             {submitLabel}
-          </Button>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
           </Button>
         </div>
       </div>

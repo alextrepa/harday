@@ -172,7 +172,7 @@ export const connectorSyncWorkItemSchema = z.object({
 export type ConnectorSyncWorkItem = z.infer<typeof connectorSyncWorkItemSchema>;
 
 export const connectorSyncRequestSchema = z.object({
-  trigger: z.enum(["manual", "auto"]).default("manual"),
+  trigger: z.enum(["manual", "auto", "source_write"]).default("manual"),
   workItems: z.array(connectorSyncWorkItemSchema).max(1000).default([]),
 });
 export type ConnectorSyncRequest = z.infer<typeof connectorSyncRequestSchema>;

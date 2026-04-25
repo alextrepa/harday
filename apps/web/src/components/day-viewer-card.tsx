@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +32,7 @@ interface DayViewerCardProps {
   totalValue: string;
   getDayValue: (localDate: string) => string;
   onSelectDate: (localDate: string) => void;
+  headerActions?: ReactNode;
 }
 
 export function DayViewerCard({
@@ -41,6 +43,7 @@ export function DayViewerCard({
   totalValue,
   getDayValue,
   onSelectDate,
+  headerActions,
 }: DayViewerCardProps) {
   return (
     <Card className="overflow-hidden">
@@ -69,7 +72,7 @@ export function DayViewerCard({
             </div>
           </div>
 
-          <div className="hidden items-center gap-4 lg:flex">
+          <div className="hidden items-center justify-between gap-4 lg:flex">
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => onSelectDate(addDaysIsoDate(date, -1))}>
                 <ChevronLeft className="h-4 w-4" />
@@ -88,6 +91,8 @@ export function DayViewerCard({
                 </Button>
               ) : null}
             </div>
+
+            {headerActions ? <div className="flex items-center">{headerActions}</div> : null}
           </div>
         </div>
 

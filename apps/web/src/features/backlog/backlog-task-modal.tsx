@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ListTree, Play, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, Play, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   buildBacklogStatusNameLookup,
   buildBacklogStatusOptions,
-  getImportedBacklogStatusSummary,
 } from "@/features/backlog/backlog-status";
 import { getDirectChildWorkItems, isSubtaskItem } from "@/features/backlog/work-item-hierarchy";
 import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
+import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source-sync";
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
+import { getConnectorsOverview } from "@/lib/app-api";
 import { useLocalProjects, useLocalState, useLocalWorkItems } from "@/lib/local-hooks";
 import { type LocalWorkItem, localStore } from "@/lib/local-store";
 import { cn, todayIsoDate } from "@/lib/utils";
@@ -18,6 +19,20 @@ interface BacklogTaskModalProps {
   workItemId?: string;
   parentWorkItemId?: string;
   onClose: () => void;
+}
+
+function ConnectorSourceIcon({ svg }: { svg: string | undefined }) {
+  if (!svg) {
+    return null;
+  }
+
+  return (
+    <span
+      className="backlog-task-source-icon inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
 }
 
 function formatPriorityInput(priority?: number) {
@@ -58,6 +73,11 @@ function parseEstimateInput(value: string) {
   return Math.round(parsedValue * 10_000) / 10_000;
 }
 
+function buildManualTimeEntryNote(note: string, title: string, sourceId?: string) {
+  const trimmedNote = note.trim();
+  return trimmedNote || buildWorkItemTimerComment(title, sourceId);
+}
+
 function collectBlockedParentIds(workItem: LocalWorkItem, workItems: LocalWorkItem[]) {
   const blockedParentIds = new Set<string>([workItem._id]);
   const queue = [workItem];
@@ -89,6 +109,7 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
   const overlayRef = useRef<HTMLDivElement>(null);
   const currentTimer = state.timers[0] ?? null;
   const isCreateSubtaskMode = Boolean(parentWorkItemId && !workItemId);
+  const [connectorIconsBySource, setConnectorIconsBySource] = useState<Record<string, string>>({});
 
   const workItem = useMemo(
     () => (workItemId ? workItems.find((item) => item._id === workItemId) ?? null : null),
@@ -101,6 +122,7 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
 
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
+  const [timeEntryNote, setTimeEntryNote] = useState("");
   const [priority, setPriority] = useState("");
   const [originalEstimateHours, setOriginalEstimateHours] = useState("");
   const [remainingEstimateHours, setRemainingEstimateHours] = useState("");
@@ -220,10 +242,6 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     !originalEstimateError &&
     !remainingEstimateError &&
     !completedEstimateError;
-  const subtaskCount = useMemo(
-    () => (workItem && !isSubtaskItem(workItem) ? getDirectChildWorkItems(workItem, workItems).length : 0),
-    [workItem, workItems],
-  );
 
   const selectedProject = useMemo(
     () => projects.find((project) => project._id === projectId),
@@ -255,18 +273,6 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       ? workItem.sourceId
       : undefined;
   const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
-  const importedPriorityValue = !isSubtaskDraft ? workItem?.importedPriority : undefined;
-  const parsedPriorityDraft = !isSubtaskDraft ? parsePriorityInput(priority) : undefined;
-  const canResetToImportedPriority =
-    !isSubtaskDraft &&
-    workItem != null &&
-    !isSamePriorityValue(parsedPriorityDraft, importedPriorityValue);
-  const importedBacklogStatusSummary = workItem
-    ? getImportedBacklogStatusSummary(workItem, backlogStatusNameById)
-    : "empty";
-  const canResetToImportedBacklogStatus =
-    !!workItem && backlogStatusId !== (workItem.importedBacklogStatusId ?? "");
-  const importedPriorityLabel = formatPriorityInput(importedPriorityValue) || "empty";
   const hasEstimateSyncIssue = Boolean(
     workItem?.estimateSync?.originalEstimateHours?.conflict ||
       workItem?.estimateSync?.remainingEstimateHours?.conflict ||
@@ -275,6 +281,25 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       workItem?.estimateSync?.remainingEstimateHours?.error ||
       workItem?.estimateSync?.completedEstimateHours?.error,
   );
+  const showConnectorIcon =
+    workItem?.source !== "manual" &&
+    workItem?.source !== "outlook" &&
+    Boolean(workItem?.source && connectorIconsBySource[workItem.source]);
+
+  useEffect(() => {
+    void getConnectorsOverview()
+      .then((overview) => {
+        const nextIcons = Object.fromEntries(
+          overview.plugins
+            .filter((plugin) => plugin.iconSvg)
+            .map((plugin) => [plugin.id, plugin.iconSvg as string]),
+        );
+        setConnectorIconsBySource(nextIcons);
+      })
+      .catch(() => {
+        setConnectorIconsBySource({});
+      });
+  }, []);
 
   useEffect(() => {
     if (isCreateSubtaskMode) {
@@ -285,6 +310,7 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
 
       setTitle("");
       setNote("");
+      setTimeEntryNote("");
       setPriority("");
       setOriginalEstimateHours("");
       setRemainingEstimateHours("");
@@ -306,6 +332,7 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
 
     setTitle(workItem.title);
     setNote(workItem.note ?? "");
+    setTimeEntryNote("");
     setPriority(formatPriorityInput(workItem.priority));
     setOriginalEstimateHours(formatEstimateInput(workItem.originalEstimateHours));
     setRemainingEstimateHours(formatEstimateInput(workItem.remainingEstimateHours));
@@ -465,12 +492,15 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
 
     localStore.saveManualTimeEntry({
       localDate: todayIsoDate(),
+      workItemId: workItem._id,
       projectId: projectId || undefined,
       taskId: taskId || undefined,
-      note: buildWorkItemTimerComment(nextTitle, workItem.sourceId),
+      note: buildManualTimeEntryNote(timeEntryNote, nextTitle, workItem.sourceId),
       durationMs: parsedDurationMs,
     });
+    syncBacklogWorkItemToSource(workItem);
     setDurationHours("");
+    setTimeEntryNote("");
   }
 
   function handleStartTimer() {
@@ -487,6 +517,7 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
 
     localStore.startTimer({
       localDate: todayIsoDate(),
+      workItemId: workItem._id,
       projectId: projectId || undefined,
       taskId: taskId || undefined,
       note: buildWorkItemTimerComment(nextTitle, workItem.sourceId),
@@ -651,12 +682,12 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
             </label>
 
             <label className="field entry-field-note">
-              <span className="field-label">Note</span>
+              <span className="field-label">Description</span>
               <textarea
                 className="field-input entry-note-input"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="Notes (optional)"
+                placeholder="Description (optional)"
                 rows={2}
               />
             </label>
@@ -689,17 +720,30 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     <div ref={overlayRef} className="time-entry-modal-overlay">
       <div className="time-entry-modal">
         <div className="time-entry-modal-header">
-          <span className="time-entry-modal-title">{isSubtaskDraft ? "Edit subtask" : "Edit task"}</span>
-          <div className="time-entry-modal-header-actions">
-            {!isSubtaskDraft && subtaskCount > 0 ? (
-              <span
-                className="backlog-task-subtasks-indicator"
-                aria-label={`${subtaskCount} ${subtaskCount === 1 ? "subtask" : "subtasks"}`}
-              >
-                <ListTree className="h-3.5 w-3.5" />
-                <span>{subtaskCount}</span>
-              </span>
+          <div className="backlog-modal-header-content">
+            <div className="backlog-modal-readonly-title-row">
+              {showConnectorIcon ? (
+                <ConnectorSourceIcon svg={workItem ? connectorIconsBySource[workItem.source] : undefined} />
+              ) : null}
+              <span className="backlog-modal-readonly-title">{title}</span>
+            </div>
+            {sourceMetaParts.length > 0 || sourceReference ? (
+              sourceUrl ? (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="backlog-task-meta backlog-task-meta-link"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {sourceMetaLabel}
+                </a>
+              ) : (
+                <span className="backlog-task-meta">{sourceMetaLabel}</span>
+              )
             ) : null}
+          </div>
+          <div className="time-entry-modal-header-actions">
             <button
               type="button"
               className="time-entry-modal-close"
@@ -712,92 +756,6 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
         </div>
 
         <div className="time-entry-modal-form">
-          {!isSubtaskDraft ? (
-            <div className="backlog-priority-title-row backlog-field-title-full">
-              <label className="field backlog-field-priority">
-                <span className="field-label">Priority</span>
-                <input
-                  className="field-input"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value)}
-                  placeholder="0"
-                  aria-label="Task priority"
-                />
-                {editingWorkItem.source !== "manual" ? (
-                  <div className="backlog-imported-priority-meta">
-                    <span className="field-help">Imported priority: {importedPriorityLabel}</span>
-                    {canResetToImportedPriority ? (
-                      <button
-                        type="button"
-                        className="backlog-imported-priority-reset"
-                        onClick={() => setPriority(formatPriorityInput(importedPriorityValue))}
-                      >
-                        Reset to imported
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </label>
-
-              <label className="field backlog-field-title-inline">
-                <span className="field-label">Task</span>
-                <input
-                  className="field-input"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      saveAndClose();
-                    }
-                  }}
-                  placeholder="Task name"
-                  aria-label="Task name"
-                  autoFocus
-                />
-              </label>
-            </div>
-          ) : (
-            <label className="field backlog-field-title-full">
-              <span className="field-label">{dynamicSubtaskLabel === "subtask" ? "Subtask" : "Task"}</span>
-              <input
-                className="field-input"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    saveAndClose();
-                  }
-                }}
-                placeholder={dynamicSubtaskLabel === "subtask" ? "Subtask name" : "Task name"}
-                aria-label={dynamicSubtaskLabel === "subtask" ? "Subtask name" : "Task name"}
-                autoFocus
-              />
-            </label>
-          )}
-
-          {sourceMetaParts.length > 0 || sourceReference ? (
-            <div className="backlog-field-title-full">
-              {sourceUrl ? (
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="backlog-task-meta backlog-task-meta-link"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {sourceMetaLabel}
-                </a>
-              ) : (
-                <span className="backlog-task-meta">{sourceMetaLabel}</span>
-              )}
-            </div>
-          ) : null}
-
           {hasEstimateSyncIssue ? (
             <div className="backlog-field-title-full">
               <span className="backlog-task-meta flex items-center gap-2 text-amber-300">
@@ -806,50 +764,6 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
               </span>
             </div>
           ) : null}
-
-          <label className="field backlog-field-parent">
-            <span className="field-label">Parent task</span>
-            <SearchableSelect
-              value={parentTaskId}
-              options={parentTaskOptions}
-              onChange={setParentTaskId}
-              placeholder={isCreateSubtaskMode ? "Select parent task" : "No parent"}
-              clearLabel={isCreateSubtaskMode ? undefined : "No parent"}
-              emptyMessage="No matching parent tasks"
-              ariaLabel="Parent task"
-              disabled={!canChangeParentTask}
-            />
-            {!canChangeParentTask ? (
-              <span className="field-help">Tasks with subtasks cannot be nested under another task.</span>
-            ) : null}
-          </label>
-
-          <label className="field backlog-field-project">
-            <span className="field-label">Status</span>
-            <SearchableSelect
-              value={backlogStatusId}
-              options={backlogStatusOptions}
-              onChange={setBacklogStatusId}
-              placeholder="No status"
-              clearLabel="No status"
-              emptyMessage="No matching statuses"
-              ariaLabel="Backlog status"
-            />
-            {editingWorkItem.source !== "manual" ? (
-              <div className="backlog-field-meta">
-                <span className="field-help">Synced status: {importedBacklogStatusSummary}</span>
-                {canResetToImportedBacklogStatus ? (
-                  <button
-                    type="button"
-                    className="backlog-imported-priority-reset"
-                    onClick={() => setBacklogStatusId(editingWorkItem.importedBacklogStatusId ?? "")}
-                  >
-                    Reset to synced
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </label>
 
           <label className="field backlog-field-project">
             <span className="field-label">Project</span>
@@ -878,56 +792,14 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
             />
           </label>
 
-          <label className="field backlog-field-project">
-            <span className="field-label">Original</span>
-            <input
-              className="field-input"
-              type="text"
-              inputMode="decimal"
-              value={originalEstimateHours}
-              onChange={(event) => setOriginalEstimateHours(event.target.value)}
-              placeholder="0"
-              aria-label="Original estimate"
-            />
-            {originalEstimateError ? <span className="field-error">{originalEstimateError}</span> : null}
-          </label>
-
-          <label className="field backlog-field-project">
-            <span className="field-label">Remaining</span>
-            <input
-              className="field-input"
-              type="text"
-              inputMode="decimal"
-              value={remainingEstimateHours}
-              onChange={(event) => setRemainingEstimateHours(event.target.value)}
-              placeholder="0"
-              aria-label="Remaining estimate"
-            />
-            {remainingEstimateError ? <span className="field-error">{remainingEstimateError}</span> : null}
-          </label>
-
-          <label className="field backlog-field-project">
-            <span className="field-label">Completed</span>
-            <input
-              className="field-input"
-              type="text"
-              inputMode="decimal"
-              value={completedEstimateHours}
-              onChange={(event) => setCompletedEstimateHours(event.target.value)}
-              placeholder="0"
-              aria-label="Completed estimate"
-            />
-            {completedEstimateError ? <span className="field-error">{completedEstimateError}</span> : null}
-          </label>
-
           {!isArchived ? (
             <label className="field entry-field-note">
               <span className="field-label">Note</span>
               <textarea
                 className="field-input entry-note-input"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Notes (optional)"
+                value={timeEntryNote}
+                onChange={(event) => setTimeEntryNote(event.target.value)}
+                placeholder="Time entry note (optional)"
                 rows={2}
               />
             </label>
@@ -1003,28 +875,6 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
             </div>
             {durationError ? <span className="field-error">{durationError}</span> : null}
           </div>
-        </div>
-
-        <div className="time-entry-modal-actions">
-          <Button type="button" onClick={saveAndClose} disabled={!canSaveTask}>
-            Save
-          </Button>
-          <Button
-            type="button"
-            variant={isDeletePending ? "danger" : "outline"}
-            className="gap-1.5"
-            onClick={handleDeleteWorkItem}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {isDeletePending ? "Confirm delete" : "Delete"}
-          </Button>
-          <Button
-            type="button"
-            variant={isArchivePending ? "danger" : "outline"}
-            onClick={handleArchive}
-          >
-            {isArchived ? "Restore" : isArchivePending ? "Confirm archive" : "Archive"}
-          </Button>
         </div>
       </div>
     </div>

@@ -719,13 +719,16 @@
     align-items: start;
   }
 
-  .backlog-settings-status-create,
+  .backlog-settings-status-create {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
   .backlog-settings-source-row {
     grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
   }
 
   .backlog-settings-status-row {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   }
 
   .backlog-settings-status-list,
@@ -1320,14 +1323,24 @@
 
   .time-entry-modal-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 0.75rem;
   }
 
   .time-entry-modal-header-actions {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    flex: 0 0 auto;
+  }
+
+  .backlog-modal-header-content {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   .time-entry-modal-title {
@@ -1368,6 +1381,239 @@
 
   .time-entry-modal-actions > button {
     flex: 1;
+  }
+
+  .submit-timesheet-modal {
+    width: min(860px, calc(100vw - 3rem));
+    max-width: none;
+    max-height: calc(100vh - 3rem);
+    background: var(--popup-bg);
+    backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-md);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    box-shadow: var(--shadow-lg);
+    animation: modal-enter 0.15s ease;
+    overflow: hidden;
+  }
+
+  .submit-timesheet-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .submit-timesheet-modal-title-wrap {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .submit-timesheet-modal-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  .submit-timesheet-modal-subtitle {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .submit-timesheet-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.9rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+
+  .submit-timesheet-group-main {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .submit-timesheet-toolbar-copy,
+  .submit-timesheet-group-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .submit-timesheet-toolbar-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .submit-timesheet-toolbar-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-lowest);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .submit-timesheet-toolbar-label,
+  .submit-timesheet-group-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .submit-timesheet-toolbar-value,
+  .submit-timesheet-group-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .submit-timesheet-toolbar-actions,
+  .submit-timesheet-group-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+  }
+
+  .submit-timesheet-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--foreground);
+    flex-shrink: 0;
+  }
+
+  .submit-timesheet-groups {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding-right: 0.25rem;
+    overscroll-behavior: contain;
+  }
+
+  .submit-timesheet-group {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    overflow: hidden;
+  }
+
+  .submit-timesheet-group-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-high) 72%, transparent);
+  }
+
+  .submit-timesheet-entry-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .submit-timesheet-entry {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .submit-timesheet-entry:first-child {
+    border-top: none;
+  }
+
+  .submit-timesheet-entry:hover,
+  .submit-timesheet-entry.is-selected {
+    background: color-mix(in srgb, var(--surface-high) 78%, transparent);
+  }
+
+  .submit-timesheet-entry-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+  }
+
+  .submit-timesheet-entry-primary {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .submit-timesheet-entry-project,
+  .submit-timesheet-entry-hours {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .submit-timesheet-entry-project,
+  .submit-timesheet-entry-secondary,
+  .submit-timesheet-entry-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .submit-timesheet-entry-secondary {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .submit-timesheet-entry-note {
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+
+  .submit-timesheet-entry-hours {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .submit-timesheet-empty {
+    border: 1px dashed var(--border-hover);
+    border-radius: var(--radius);
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface-high) 62%, transparent);
+  }
+
+  .submit-timesheet-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+    flex: 0 0 auto;
   }
 
   .backlog-note-modal-overlay {
@@ -1586,6 +1832,52 @@
   .entries-header-add:hover {
     background: color-mix(in srgb, var(--surface-low) 80%, white 20%);
     color: var(--text);
+  }
+
+  .day-viewer-icon-action {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 140ms var(--ease), transform 140ms var(--ease);
+  }
+
+  .day-viewer-icon-action:hover {
+    color: var(--text);
+    transform: translateX(1px);
+  }
+
+  .day-viewer-submit-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 30px;
+    padding: 0 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-low) 84%, transparent);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    transition:
+      background 140ms var(--ease),
+      border-color 140ms var(--ease),
+      color 140ms var(--ease);
+  }
+
+  .day-viewer-submit-pill:hover {
+    background: color-mix(in srgb, var(--surface-high) 84%, transparent);
+    border-color: var(--border-hover);
+    color: var(--text);
+  }
+
+  .day-viewer-submit-pill span {
+    white-space: nowrap;
   }
 
   .entries-header-add.is-open {
@@ -1816,6 +2108,12 @@
     white-space: nowrap;
   }
 
+  .entry-submitted-status {
+    color: var(--text-tertiary);
+    font-size: 0.72rem;
+    text-transform: lowercase;
+  }
+
   .entry-hours-cell {
     text-align: right;
     width: 6.5rem;
@@ -1872,7 +2170,7 @@
     height: 1.35rem;
     padding: 0 0.35rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--surface-highest) 88%, transparent);
+    background: transparent;
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
@@ -1881,15 +2179,14 @@
   }
 
   .backlog-filter-tab.toggle-item-active .backlog-filter-count {
-    background: color-mix(in srgb, var(--success) 14%, var(--surface-highest));
+    background: transparent;
   }
 
   :root {
     --backlog-priority-column-width: 2.9rem;
-  }
-
-  .backlog-table th:last-child {
-    text-align: left;
+    --backlog-status-column-width: 9rem;
+    --backlog-estimate-column-width: 8.5rem;
+    --backlog-header-trailing-width: calc(var(--backlog-status-column-width) + var(--backlog-estimate-column-width));
   }
 
   .backlog-priority-heading,
@@ -1928,8 +2225,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    width: calc(100% + var(--backlog-priority-column-width));
+    width: calc(100% + var(--backlog-priority-column-width) + var(--backlog-header-trailing-width));
     margin-left: calc(-1 * var(--backlog-priority-column-width));
+    margin-right: calc(-1 * var(--backlog-header-trailing-width));
   }
 
   .backlog-header-actions {
@@ -2022,6 +2320,76 @@
     padding-bottom: 0.8rem !important;
   }
 
+  .backlog-status-heading,
+  .backlog-status-cell {
+    width: var(--backlog-status-column-width);
+    white-space: nowrap;
+  }
+
+  .backlog-estimate-heading,
+  .backlog-estimate-cell {
+    width: var(--backlog-estimate-column-width);
+  }
+
+  .backlog-status-heading,
+  .backlog-estimate-heading {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .backlog-estimate-heading {
+    text-align: right !important;
+  }
+
+  .backlog-status-cell,
+  .backlog-estimate-cell {
+    padding-top: 0.8rem !important;
+    padding-bottom: 0.8rem !important;
+  }
+
+  .backlog-status-cell-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .backlog-status-dot {
+    background: var(--text-tertiary);
+  }
+
+  .backlog-status-cell-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .backlog-task-status-inline {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .backlog-estimate-cell .entry-hours-content {
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  .backlog-estimate-badge {
+    justify-content: center;
+  }
+
+  .backlog-editor-estimate-badge {
+    min-width: 0;
+    margin-right: 0.15rem;
+  }
+
   .backlog-task-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2056,7 +2424,6 @@
 
   .backlog-row-child td {
     background: var(--surface-low);
-    box-shadow: inset 1px 0 0 color-mix(in srgb, white 72%, transparent);
     border-bottom-color: color-mix(in srgb, var(--border) 30%, transparent) !important;
   }
 
@@ -2067,6 +2434,11 @@
 
   .backlog-row-child .backlog-task-cell {
     padding-left: 0 !important;
+    box-shadow: inset 1px 0 0 color-mix(in srgb, white 72%, transparent);
+  }
+
+  .entries-table tbody tr.entry-row-expanded:not(.backlog-row-child) .backlog-priority-cell {
+    box-shadow: inset 1px 0 0 color-mix(in srgb, white 72%, transparent);
   }
 
   .backlog-row-child.entry-edit-row > td {
@@ -2080,20 +2452,16 @@
   .backlog-task-row.is-child {
     position: relative;
     padding-left: 0;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
   }
 
   .backlog-task-row.is-child::before {
     display: none;
   }
 
-  .backlog-subtask-icon {
-    width: 14px;
-    height: 14px;
-    color: color-mix(in srgb, var(--text) 72%, transparent);
-    flex-shrink: 0;
-    margin-top: 2px;
+  .backlog-task-row.is-child .backlog-task-main {
+    padding-left: calc(14px + 0.85rem);
   }
 
   .backlog-task-row.is-child .backlog-task-title {
@@ -2130,9 +2498,16 @@
   .backlog-task-title-content,
   .backlog-inline-title-display {
     display: inline-flex;
-    align-items: center;
     gap: 0.45rem;
     min-width: 0;
+  }
+
+  .backlog-task-title-content {
+    align-items: flex-start;
+  }
+
+  .backlog-inline-title-display {
+    align-items: center;
   }
 
   .backlog-task-title-row .backlog-task-title {
@@ -2160,22 +2535,6 @@
     text-decoration: line-through;
   }
 
-  .backlog-status-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.35rem;
-    padding: 0.1rem 0.5rem;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
-    background: color-mix(in srgb, var(--accent) 14%, var(--surface-lowest));
-    color: color-mix(in srgb, var(--accent) 68%, white 32%);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.1;
-    white-space: nowrap;
-  }
-
   .backlog-task-note,
   .backlog-task-meta {
     color: var(--text-tertiary);
@@ -2186,6 +2545,14 @@
   .backlog-task-note,
   .backlog-task-meta {
     word-break: break-word;
+  }
+
+  .backlog-task-meta-indented {
+    padding-left: calc(1rem + 0.45rem);
+  }
+
+  .backlog-task-meta-indented.has-source-icon {
+    padding-left: calc(1rem + 0.45rem + 14px + 0.45rem);
   }
 
   .backlog-task-meta-secondary {
@@ -2217,7 +2584,6 @@
     padding-top: 0.15rem;
   }
 
-  .backlog-task-start,
   .backlog-task-note-action,
   .backlog-task-archive {
     display: inline-flex;
@@ -2242,6 +2608,29 @@
       width 140ms var(--ease);
   }
 
+  .backlog-task-start {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    height: 24px;
+    width: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      color 140ms var(--ease),
+      border-color 140ms var(--ease),
+      background 140ms var(--ease),
+      opacity 140ms var(--ease),
+      width 140ms var(--ease);
+  }
+
   .entries-table tbody tr:hover .backlog-task-start,
   .entries-table tbody tr:focus-within .backlog-task-start,
   .entries-table tbody tr.backlog-row-edit-expanded .backlog-task-start,
@@ -2254,10 +2643,6 @@
   .backlog-task-archive.is-confirming {
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .backlog-task-start {
-    color: var(--text-secondary);
   }
 
   .backlog-task-note-action {
@@ -2338,6 +2723,8 @@
     background: transparent;
     color: var(--text-tertiary);
     flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 0.12rem;
   }
 
   .backlog-task-subtasks-pill {
@@ -2349,6 +2736,10 @@
 
   .backlog-task-subtasks-indicator {
     pointer-events: none;
+  }
+
+  .backlog-task-subtasks-placeholder {
+    opacity: 0;
   }
 
   .backlog-task-subtasks-pill svg,
@@ -2436,13 +2827,19 @@
 
   .backlog-task-drag-preview-grid {
     display: grid;
-    grid-template-columns: var(--backlog-priority-column-width) minmax(0, 1fr);
+    grid-template-columns:
+      var(--backlog-priority-column-width)
+      minmax(0, 1fr)
+      var(--backlog-status-column-width)
+      var(--backlog-estimate-column-width);
     align-items: stretch;
     width: 100%;
   }
 
   .backlog-task-drag-preview-priority,
-  .backlog-task-drag-preview-cell {
+  .backlog-task-drag-preview-cell,
+  .backlog-task-drag-preview-status,
+  .backlog-task-drag-preview-estimate {
     padding-top: 0.8rem !important;
     padding-bottom: 0.8rem !important;
   }
@@ -2455,6 +2852,12 @@
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--indigo) 8%, transparent), transparent 40%),
       var(--surface-lowest);
+  }
+
+  .backlog-task-drag-preview-status,
+  .backlog-task-drag-preview-estimate {
+    border-left: 1px solid color-mix(in srgb, var(--indigo) 22%, transparent);
+    background: var(--surface-lowest);
   }
 
   .backlog-task-drag-preview .backlog-task-aside,
@@ -2623,16 +3026,43 @@
     display: grid;
     grid-template-columns: var(--backlog-priority-column-width) minmax(0, 1fr);
     align-items: start;
-    gap: 0.35rem;
+    gap: 1rem;
     min-width: 0;
     width: 100%;
+  }
+
+  .backlog-inline-title-display .backlog-priority-pill {
+    justify-self: center;
   }
 
   .backlog-inline-title-main {
     display: inline-flex;
     align-items: flex-start;
-    gap: 0.35rem;
+    gap: 0.45rem;
     min-width: 0;
+  }
+
+  .backlog-inline-title-display.is-child {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backlog-modal-readonly-title-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
+  .backlog-modal-readonly-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .backlog-inline-title.is-child {
+    padding-left: 0.85rem;
   }
 
   .backlog-inline-meta {
@@ -2641,12 +3071,16 @@
     box-sizing: border-box;
   }
 
+  .backlog-inline-meta.is-child {
+    padding-left: 0.85rem;
+  }
+
   .backlog-inline-meta.has-priority {
-    padding-left: calc(var(--backlog-priority-column-width) + 0.35rem);
+    padding-left: calc(var(--backlog-priority-column-width) + 1rem);
   }
 
   .backlog-inline-meta.has-priority.has-source-icon {
-    padding-left: calc(var(--backlog-priority-column-width) + 0.35rem + 14px + 0.35rem);
+    padding-left: calc(var(--backlog-priority-column-width) + 1rem + 14px + 0.45rem);
   }
 
   .backlog-field-meta {
@@ -2708,6 +3142,63 @@
     width: 100%;
   }
 
+  .backlog-inline-edit-shell.is-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .backlog-field-status {
+    grid-column: span 2;
+  }
+
+  .backlog-field-estimates {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    align-items: start;
+    min-width: 0;
+  }
+
+  .backlog-field-estimate {
+    min-width: 0;
+  }
+
+  .backlog-estimate-field-shell {
+    position: relative;
+  }
+
+  .backlog-field-estimate .field-input,
+  .backlog-estimate-field-input {
+    width: 100%;
+  }
+
+  .backlog-estimate-field-input {
+    padding-right: 2rem;
+  }
+
+  .backlog-estimate-reset-field {
+    position: absolute;
+    top: 50%;
+    right: 0.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    transform: translateY(-50%);
+    cursor: pointer;
+    transition: color 140ms var(--ease);
+  }
+
+  .backlog-estimate-reset-field:hover,
+  .backlog-estimate-reset-field:focus-visible {
+    color: var(--text-secondary);
+    outline: none;
+  }
+
   .backlog-inline-title-input {
     min-width: 0;
     font-size: 13px;
@@ -2716,13 +3207,14 @@
   }
 
   .backlog-inline-priority-input {
-    width: 2.6rem;
-    min-width: 2.6rem;
-    padding-left: 0.35rem;
-    padding-right: 0.35rem;
+    width: 2rem;
+    min-width: 2rem;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
     text-align: right;
     font-family: var(--font-mono);
-    justify-self: end;
+    justify-self: center;
+    margin-left: 0.2rem;
   }
 
   .backlog-inline-edit-actions {
@@ -2739,7 +3231,7 @@
   }
 
   .backlog-inline-editor .backlog-editor-header {
-    margin-left: calc(0.2rem - 1rem);
+    margin-left: -1rem;
   }
 
   .backlog-editor-header-modal {
@@ -2759,8 +3251,30 @@
     align-items: center;
     justify-content: flex-end;
     gap: 0.45rem;
-    flex-wrap: wrap;
     flex: 0 0 auto;
+  }
+
+  .backlog-editor-trailing {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.9rem;
+    flex: 0 0 auto;
+  }
+
+  .backlog-editor-action-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+  }
+
+  .backlog-editor-action-placeholder {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
   }
 
   .backlog-task-inline-action,
@@ -2807,6 +3321,40 @@
     padding: 0;
   }
 
+  .backlog-editor-actions .backlog-task-inline-action {
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .backlog-editor-actions .backlog-task-inline-action:hover {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .backlog-editor-actions .backlog-task-inline-action span {
+    display: none;
+  }
+
+  .backlog-editor-actions .backlog-task-inline-action.backlog-task-archive,
+  .backlog-editor-actions .backlog-task-inline-action.backlog-task-archive.is-restore,
+  .backlog-editor-actions .backlog-task-inline-action.backlog-task-archive.is-confirming {
+    width: 24px;
+    min-width: 24px;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .backlog-editor-actions .backlog-task-inline-action.backlog-task-archive.is-confirming {
+    color: var(--danger);
+  }
+
   .backlog-field-note {
     grid-column: 1 / -1;
   }
@@ -2851,6 +3399,10 @@
   .backlog-inline-editor {
     border-top: 0;
     padding-top: 1rem;
+  }
+
+  .backlog-inline-editor-row:not(.backlog-row-child) .backlog-inline-editor {
+    box-shadow: inset 1px 0 0 color-mix(in srgb, white 72%, transparent);
   }
 
   .inline-hours-input-shell {
@@ -2973,11 +3525,13 @@
     opacity: 0;
     pointer-events: none;
     transform: translate(4px, -50%);
+    z-index: 2;
     transition: opacity 140ms var(--ease), transform 140ms var(--ease);
   }
 
   .entries-table tbody tr:hover .entry-row-actions,
   .entries-table tbody tr:focus-within .entry-row-actions,
+  .entry-row-actions:hover,
   .entry-row-actions.is-confirming {
     opacity: 1;
     pointer-events: auto;
@@ -3195,6 +3749,10 @@
 
   .entry-field-span-2 {
     grid-column: span 2;
+  }
+
+  .entry-field-description {
+    grid-column: 1 / -1;
   }
 
   .entry-field-note {
@@ -3576,6 +4134,59 @@
     gap: 0.35rem;
   }
 
+  .backlog-status-heading,
+  .backlog-status-cell {
+    display: none;
+  }
+
+  .backlog-priority-heading,
+  .backlog-priority-cell {
+    display: none;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    border-right: 0;
+    overflow: hidden;
+  }
+
+  .backlog-task-status-inline {
+    display: none;
+  }
+
+  .backlog-estimate-heading,
+  .backlog-estimate-cell {
+    width: 7.5rem;
+  }
+
+  :root {
+    --backlog-estimate-column-width: 7.5rem;
+    --backlog-header-trailing-width: var(--backlog-estimate-column-width);
+  }
+
+  .backlog-estimate-badge {
+    min-width: 0;
+  }
+
+  .backlog-task-heading-content {
+    width: calc(100% + var(--backlog-header-trailing-width));
+    min-width: 0;
+    margin-left: 0;
+    margin-right: calc(-1 * var(--backlog-header-trailing-width));
+    gap: 0.5rem;
+  }
+
+  .backlog-task-heading-content > span:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .backlog-header-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
   /* Below the desktop breakpoint, task rows use always-visible pills and
      tapping the row toggles the inline subtask list instead of opening edit. */
   .entries-table tbody tr:hover .backlog-task-archive,
@@ -3595,6 +4206,33 @@
     display: none;
   }
 
+  .submit-timesheet-modal {
+    width: min(100vw - 1.5rem, 860px);
+    max-height: calc(100vh - 1.5rem);
+    padding: 1rem;
+  }
+
+  .submit-timesheet-toolbar,
+  .submit-timesheet-group-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .submit-timesheet-toolbar-actions,
+  .submit-timesheet-group-actions {
+    justify-content: flex-start;
+  }
+
+  .submit-timesheet-entry {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  .submit-timesheet-entry-hours {
+    grid-column: 2;
+    margin-left: calc(15px + 0.9rem);
+  }
+
   .backlog-editor-actions .backlog-task-archive,
   .backlog-editor-actions .backlog-task-inline-action {
     display: inline-flex;
@@ -3608,9 +4246,26 @@
   }
 
   .backlog-task-mobile-actions {
+    display: flex;
     width: 100%;
+    justify-self: stretch;
     margin-top: 0.15rem;
     justify-content: flex-end;
+  }
+
+  .backlog-task-mobile-actions .backlog-task-start.backlog-task-action-pill {
+    margin-left: auto;
+  }
+
+  .backlog-estimate-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.45rem;
+  }
+
+  .backlog-estimate-mobile-action {
+    align-self: flex-end;
   }
 
   .backlog-task-start.backlog-task-action-pill,
@@ -3795,15 +4450,15 @@
     padding-top: 0;
   }
   .backlog-task-row.is-child {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
   .backlog-task-row.is-child .backlog-task-main {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
   }
   .backlog-task-row.is-child .backlog-task-aside {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 2;
   }
   .backlog-subtasks-header {
@@ -3825,6 +4480,7 @@
     align-items: stretch;
   }
   .entry-field-span-2,
+  .entry-field-description,
   .entry-field-note,
   .entry-field-hours {
     grid-column: span 1;
@@ -3832,11 +4488,17 @@
   .backlog-field-title,
   .backlog-field-title-full,
   .backlog-field-parent,
+  .backlog-field-status,
+  .backlog-field-estimates,
   .backlog-field-project,
   .backlog-field-task,
   .backlog-inline-title,
   .backlog-field-note {
     grid-column: span 1;
+  }
+
+  .backlog-field-estimates {
+    grid-template-columns: 1fr;
   }
 
   .entry-form-actions-row .btn,

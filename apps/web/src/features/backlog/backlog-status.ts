@@ -1,6 +1,10 @@
 import type { SearchableSelectOption } from "@/components/ui/searchable-select";
 import type { LocalBacklogStatus, LocalWorkItem } from "@/lib/local-store";
 
+export function buildBacklogStatusLookup(statuses: LocalBacklogStatus[]) {
+  return new Map(statuses.map((status) => [status._id, status] as const));
+}
+
 export function buildBacklogStatusNameLookup(statuses: LocalBacklogStatus[]) {
   return new Map(statuses.map((status) => [status._id, status.name] as const));
 }

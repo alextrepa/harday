@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
+import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import";
 
 export interface TimesheetExportRow {
   date: string;
@@ -7,6 +8,18 @@ export interface TimesheetExportRow {
   task: string;
   note: string;
   hours: number;
+}
+
+export interface TimesheetImportRow {
+  date: string;
+  project: string;
+  task: string;
+  note: string;
+  hours: number;
+}
+
+export interface TimesheetImportReviewRow extends TimesheetImportRow {
+  potentialConflict: boolean;
 }
 
 interface TimesheetExportOptions {
@@ -17,12 +30,30 @@ interface TimesheetExportOptions {
 }
 
 const workbookMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const expectedImportHeaders = ["date", "project", "task", "note", "hours"] as const;
+
 function roundDecimalHours(durationMs: number) {
   return Math.round((durationMs / (60 * 60 * 1000)) * 100) / 100;
 }
 
 function resolveProject(projects: LocalProject[], projectId?: string) {
   return projects.find((project) => project._id === projectId);
+}
+
+function normalizeImportCell(value: unknown) {
+  return formatTaskImportName(String(value ?? ""));
+}
+
+function normalizeImportKey(values: {
+  date: string;
+  project: string;
+  task: string;
+}) {
+  return [
+    values.date.trim(),
+    normalizeTaskImportName(values.project),
+    normalizeTaskImportName(values.task),
+  ].join("::");
 }
 
 export function buildTimesheetExportRows({
@@ -56,6 +87,94 @@ export function buildTimesheetExportRows({
         hours: roundDecimalHours(entry.durationMs),
       };
     });
+}
+
+export async function parseTimesheetImportWorkbook(buffer: ArrayBuffer | Uint8Array): Promise<TimesheetImportRow[]> {
+  let workbook: ExcelJS.Workbook;
+
+  try {
+    workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(toArrayBuffer(buffer));
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message
+        ? `Unable to read Excel file: ${error.message}`
+        : "Unable to read Excel file.",
+    );
+  }
+
+  const sheet = workbook.getWorksheet("Time Logs") ?? workbook.worksheets[0];
+  if (!sheet) {
+    throw new Error("The workbook does not contain any worksheets.");
+  }
+
+  const headerRow = sheet.getRow(1);
+  const headers = expectedImportHeaders.map((_, index) => normalizeImportCell(headerRow.getCell(index + 1).value));
+  if (headers.join("|") !== expectedImportHeaders.join("|")) {
+    throw new Error("The Time Logs sheet must contain the columns date, project, task, note, and hours.");
+  }
+
+  const rows: TimesheetImportRow[] = [];
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    const date = normalizeImportCell(row.getCell(1).value);
+    const project = normalizeImportCell(row.getCell(2).value);
+    const task = normalizeImportCell(row.getCell(3).value);
+    const note = String(row.getCell(4).value ?? "").trim();
+    const hoursValue = row.getCell(5).value;
+    const hours =
+      typeof hoursValue === "number"
+        ? hoursValue
+        : Number(String(hoursValue ?? "").trim());
+
+    const isBlankRow = !date && !project && !task && !note && (!Number.isFinite(hours) || hours === 0);
+    if (isBlankRow) {
+      continue;
+    }
+
+    if (!date || !Number.isFinite(hours) || hours <= 0 || (!project && task)) {
+      throw new Error(`Row ${rowNumber} is invalid. Date and a positive hours value are required. A task also requires a project.`);
+    }
+
+    rows.push({
+      date,
+      project,
+      task,
+      note,
+      hours: Math.round(hours * 100) / 100,
+    });
+  }
+
+  return rows;
+}
+
+export function detectTimesheetImportConflicts(options: {
+  rows: TimesheetImportRow[];
+  entries: LocalTimesheetEntry[];
+  projects: LocalProject[];
+}): TimesheetImportReviewRow[] {
+  const existingKeys = new Set(
+    options.entries.map((entry) => {
+      const project = resolveProject(options.projects, entry.projectId);
+      const task = project?.tasks.find((item) => item._id === entry.taskId);
+      return normalizeImportKey({
+        date: entry.localDate,
+        project: project?.name ?? "",
+        task: task?.name ?? "",
+      });
+    }),
+  );
+
+  return options.rows.map((row) => ({
+    ...row,
+    potentialConflict: existingKeys.has(
+      normalizeImportKey({
+        date: row.date,
+        project: row.project,
+        task: row.task,
+      }),
+    ),
+  }));
 }
 
 function toArrayBuffer(workbookBytes: ArrayBuffer | Uint8Array) {

@@ -12,13 +12,16 @@ import { getConnectorBacklogStatuses } from "@/lib/app-api";
 import { useLocalState } from "@/lib/local-hooks";
 import { localStore } from "@/lib/local-store";
 
+const DEFAULT_NEW_BACKLOG_STATUS_COLOR = "#64748b";
+
 export function SettingsBacklogPage() {
   const state = useLocalState();
   const [sourceStatuses, setSourceStatuses] = useState<
     Awaited<ReturnType<typeof getConnectorBacklogStatuses>>["items"]
   >([]);
-  const [statusDrafts, setStatusDrafts] = useState<Record<string, string>>({});
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, { name: string; color: string }>>({});
   const [newStatusName, setNewStatusName] = useState("");
+  const [newStatusColor, setNewStatusColor] = useState(DEFAULT_NEW_BACKLOG_STATUS_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -81,7 +84,10 @@ export function SettingsBacklogPage() {
       const nextDrafts = { ...current };
       for (const status of state.backlogStatuses) {
         if (!(status._id in nextDrafts)) {
-          nextDrafts[status._id] = status.name;
+          nextDrafts[status._id] = {
+            name: status.name,
+            color: status.color,
+          };
         }
       }
 
@@ -114,8 +120,9 @@ export function SettingsBacklogPage() {
 
   function handleAddStatus() {
     try {
-      localStore.addBacklogStatus(newStatusName);
+      localStore.addBacklogStatus(newStatusName, newStatusColor);
       setNewStatusName("");
+      setNewStatusColor(DEFAULT_NEW_BACKLOG_STATUS_COLOR);
       setError(null);
       setMessage("Backlog status added.");
     } catch (nextError) {
@@ -125,7 +132,7 @@ export function SettingsBacklogPage() {
 
   function handleSaveStatus(statusId: string) {
     try {
-      localStore.updateBacklogStatus(statusId, statusDrafts[statusId] ?? "");
+      localStore.updateBacklogStatus(statusId, statusDrafts[statusId] ?? { name: "", color: DEFAULT_NEW_BACKLOG_STATUS_COLOR });
       setError(null);
       setMessage("Backlog status updated.");
     } catch (nextError) {
@@ -183,6 +190,13 @@ export function SettingsBacklogPage() {
               placeholder="Add an app status"
               autoComplete="off"
             />
+            <Input
+              aria-label="New backlog status color"
+              type="color"
+              value={newStatusColor}
+              onChange={(event) => setNewStatusColor(event.target.value)}
+              className="w-14 p-1"
+            />
             <Button onClick={handleAddStatus} disabled={newStatusName.trim().length === 0}>
               Add status
             </Button>
@@ -196,22 +210,45 @@ export function SettingsBacklogPage() {
             <div className="backlog-settings-status-list">
               {state.backlogStatuses.map((status) => (
                 <div key={status._id} className="backlog-settings-status-row">
+                  <span
+                    className="status-dot"
+                    aria-hidden="true"
+                    style={{ background: statusDrafts[status._id]?.color ?? status.color }}
+                  />
                   <Input
-                    value={statusDrafts[status._id] ?? status.name}
+                    value={statusDrafts[status._id]?.name ?? status.name}
                     onChange={(event) =>
                       setStatusDrafts((current) => ({
                         ...current,
-                        [status._id]: event.target.value,
+                        [status._id]: {
+                          name: event.target.value,
+                          color: current[status._id]?.color ?? status.color,
+                        },
                       }))
                     }
                     autoComplete="off"
+                  />
+                  <Input
+                    aria-label={`${status.name} color`}
+                    type="color"
+                    value={statusDrafts[status._id]?.color ?? status.color}
+                    onChange={(event) =>
+                      setStatusDrafts((current) => ({
+                        ...current,
+                        [status._id]: {
+                          name: current[status._id]?.name ?? status.name,
+                          color: event.target.value,
+                        },
+                      }))
+                    }
+                    className="w-14 p-1"
                   />
                   <Button
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
                     onClick={() => handleSaveStatus(status._id)}
-                    disabled={(statusDrafts[status._id] ?? status.name).trim().length === 0}
+                    disabled={(statusDrafts[status._id]?.name ?? status.name).trim().length === 0}
                   >
                     <Save className="h-3.5 w-3.5" />
                     Save

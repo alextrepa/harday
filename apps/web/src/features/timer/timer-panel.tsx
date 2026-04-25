@@ -340,6 +340,14 @@ export function TimerPanel({
     if (expandedEntryId && !closeExpandedEntry()) {
       return;
     }
+
+    if (typeof window !== "undefined" && !window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches) {
+      resetExpandedEntry();
+      setPendingDeleteEntryId(null);
+      onOpenEntry?.({});
+      return;
+    }
+
     setPendingDeleteEntryId(null);
     setIsCreatingEntry(true);
   }
@@ -635,6 +643,9 @@ export function TimerPanel({
                           </div>
                           {task?.name && <span className="entry-task-name">{task.name}</span>}
                           {entry.note && <span className="entry-note-text">{entry.note}</span>}
+                          {"submittedAt" in entry && entry.submittedAt ? (
+                            <span className="entry-submitted-status">submitted</span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="entry-hours-cell">

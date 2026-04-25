@@ -3,7 +3,15 @@ const { stat } = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { app, BrowserWindow, nativeImage, net, protocol, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, nativeImage, net, protocol, shell } = require("electron");
+const { loadDesktopBootstrapLocalState } = require("./local-state-bootstrap.cjs");
+
+const DESKTOP_USER_DATA_DIRNAME = "HarDay";
+const stableUserDataPath =
+  process.env.TIMETRACKER_USER_DATA_PATH ?? path.join(app.getPath("appData"), DESKTOP_USER_DATA_DIRNAME);
+if (app.getPath("userData") !== stableUserDataPath) {
+  app.setPath("userData", stableUserDataPath);
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -34,11 +42,19 @@ const internalAppApiEntryPath = app.isPackaged
   ? path.join(internalAppApiRuntimeRoot, "apps/api/src/server.ts")
   : path.resolve(__dirname, "../../api/src/server.ts");
 
-let quitAfterShutdown = false;
 let internalAppApiServer = null;
 let internalAppApiStartPromise = null;
 let internalAppApiStopPromise = null;
 let internalAppApiModulePromise = null;
+let desktopBootstrapLocalState = null;
+
+ipcMain.on("timetracker:get-bootstrap-local-state", (event) => {
+  desktopBootstrapLocalState ??= loadDesktopBootstrapLocalState({
+    appDataPath: app.getPath("appData"),
+    currentUserDataPath: app.getPath("userData"),
+  });
+  event.returnValue = desktopBootstrapLocalState;
+});
 
 async function resolveAssetPath(requestPath) {
   const normalizedPath = requestPath === "/" ? "/index.html" : requestPath;
@@ -216,10 +232,6 @@ async function stopInternalAppApi() {
   return await internalAppApiStopPromise;
 }
 
-function shouldWaitForShutdown() {
-  return Boolean(internalAppApiServer || internalAppApiStartPromise || internalAppApiStopPromise);
-}
-
 async function resolveRendererUrl() {
   if (process.env.TIMETRACKER_DESKTOP_RENDERER_URL) {
     return process.env.TIMETRACKER_DESKTOP_RENDERER_URL;
@@ -301,16 +313,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
-});
-
-app.on("before-quit", (event) => {
-  if (quitAfterShutdown || !shouldWaitForShutdown()) {
-    return;
-  }
-
-  event.preventDefault();
-  quitAfterShutdown = true;
-  void Promise.allSettled([stopInternalAppApi()]).finally(() => {
-    app.quit();
-  });
 });

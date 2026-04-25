@@ -1,5 +1,9 @@
 import { useMemo, useState, type ChangeEvent } from "react";
-import { Download, FileSpreadsheet, Upload } from "lucide-react";
+import {
+  RiDownloadLine as Download,
+  RiFileExcel2Line as FileSpreadsheet,
+  RiUploadLine as Upload,
+} from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

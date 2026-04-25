@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { FolderKanban, ListTodo, Play, Settings, Square, Timer, X } from "lucide-react";
+import {
+  RiCloseLine as X,
+  RiFolderChartLine as FolderKanban,
+  RiListCheck3 as ListTodo,
+  RiPlayLine as Play,
+  RiSettings3Line as Settings,
+  RiStopLine as Square,
+  RiTimerLine as Timer,
+} from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";

@@ -9,7 +9,19 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { RiArrowDownSLine as ChevronDown } from "@remixicon/react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 
 export interface SearchableSelectOption {
@@ -74,7 +86,7 @@ export function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const optionRefs = useRef<Array<HTMLElement | null>>([]);
   const listboxId = useId();
   const selectedOption = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
   const selectedLabel = selectedOption?.label ?? "";
@@ -295,51 +307,59 @@ export function SearchableSelect({
       className={cn("searchable-select", className)}
       data-open={isOpen ? "true" : "false"}
     >
-      <input
-        ref={inputRef}
-        type="text"
-        role="combobox"
-        className={cn("field-input searchable-select-input", inputClassName)}
-        value={inputValue}
-        placeholder={placeholder}
-        disabled={disabled}
-        aria-label={ariaLabel}
-        aria-expanded={isOpen}
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        aria-activedescendant={highlightedIndex >= 0 ? `${listboxId}-option-${highlightedIndex}` : undefined}
-        onFocus={(event) => {
-          openMenu();
-          event.currentTarget.select();
-        }}
-        onClick={() => openMenu()}
-        onBlur={(event) => {
-          const nextTarget = event.relatedTarget;
-          if (
-            nextTarget instanceof Node &&
-            (containerRef.current?.contains(nextTarget) || popoverRef.current?.contains(nextTarget))
-          ) {
-            return;
-          }
+      <InputGroup
+        className={cn("searchable-select-input-group", disabled && "opacity-50")}
+        data-disabled={disabled ? "true" : undefined}
+      >
+        <InputGroupInput
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          className={cn("searchable-select-input", inputClassName)}
+          value={inputValue}
+          placeholder={placeholder}
+          disabled={disabled}
+          aria-label={ariaLabel}
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={highlightedIndex >= 0 ? `${listboxId}-option-${highlightedIndex}` : undefined}
+          onFocus={(event) => {
+            openMenu();
+            event.currentTarget.select();
+          }}
+          onClick={() => openMenu()}
+          onBlur={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (
+              nextTarget instanceof Node &&
+              (containerRef.current?.contains(nextTarget) || popoverRef.current?.contains(nextTarget))
+            ) {
+              return;
+            }
 
-          closeMenu();
-        }}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setIsOpen(true);
-          setIsTyping(true);
-          setHighlightedIndex(-1);
-        }}
-        onKeyDown={handleKeyDown}
-      />
-      <ChevronDown className="searchable-select-icon h-4 w-4" aria-hidden="true" />
+            closeMenu();
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setIsOpen(true);
+            setIsTyping(true);
+            setHighlightedIndex(-1);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+        <InputGroupAddon align="inline-end" aria-hidden="true">
+          <ChevronDown className="searchable-select-icon" />
+        </InputGroupAddon>
+      </InputGroup>
 
       {isOpen
         ? createPortal(
-            <div
+            <Command
               ref={popoverRef}
               className="searchable-select-popover"
               data-side={popoverLayout?.side ?? "bottom"}
+              shouldFilter={false}
               role="listbox"
               id={listboxId}
               style={{
@@ -348,35 +368,41 @@ export function SearchableSelect({
               }}
             >
               {visibleOptions.length > 0 ? (
-                visibleOptions.map((option, index) => (
-                  <button
-                    key={`${option.value || "empty"}-${option.label}`}
-                    ref={(element) => {
-                      optionRefs.current[index] = element;
-                    }}
-                    type="button"
-                    id={`${listboxId}-option-${index}`}
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={option.value === value}
-                    className={cn(
-                      "searchable-select-option",
-                      highlightedIndex === index && "is-active",
-                      option.value === "" && "is-clear",
-                    )}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      commitSelection(option.value);
-                    }}
-                  >
-                    <span>{option.label}</span>
-                  </button>
-                ))
+                <CommandList>
+                  <CommandGroup>
+                    {visibleOptions.map((option, index) => (
+                      <CommandItem
+                        key={`${option.value || "empty"}-${option.label}`}
+                        ref={(element) => {
+                          optionRefs.current[index] = element;
+                        }}
+                        id={`${listboxId}-option-${index}`}
+                        role="option"
+                        tabIndex={-1}
+                        value={`${option.value || "empty"}-${option.label}`}
+                        data-checked={option.value === value ? "true" : undefined}
+                        aria-selected={option.value === value}
+                        className={cn(
+                          "searchable-select-option",
+                          highlightedIndex === index && "is-active",
+                          option.value === "" && "is-clear",
+                        )}
+                        onMouseEnter={() => setHighlightedIndex(index)}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          commitSelection(option.value);
+                        }}
+                        onSelect={() => commitSelection(option.value)}
+                      >
+                        <span>{option.label}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
               ) : (
-                <div className="searchable-select-empty">{emptyMessage}</div>
+                <CommandEmpty className="searchable-select-empty">{emptyMessage}</CommandEmpty>
               )}
-            </div>,
+            </Command>,
             document.body,
           )
         : null}

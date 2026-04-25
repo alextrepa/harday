@@ -1,4 +1,8 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import {
+  RiComputerLine as Monitor,
+  RiMoonLine as Moon,
+  RiSunLine as Sun,
+} from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { useUserPreferences } from "@/lib/local-hooks";
 import { localStore, type ThemeMode } from "@/lib/local-store";

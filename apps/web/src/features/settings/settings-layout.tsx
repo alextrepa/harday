@@ -1,5 +1,13 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Bug, Download, FolderKanban, Inbox, ListTodo, Plug, Settings } from "lucide-react";
+import {
+  RiBugLine as Bug,
+  RiDownloadLine as Download,
+  RiFolderChartLine as FolderKanban,
+  RiInboxLine as Inbox,
+  RiListCheck3 as ListTodo,
+  RiPlugLine as Plug,
+  RiSettings3Line as Settings,
+} from "@remixicon/react";
 import { cn } from "@/lib/utils";
 
 const settingsTabs = [

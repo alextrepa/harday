@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/select";
 import { useLocalProjects, useLocalRules, useLocalState } from "@/lib/local-hooks";
 import { localStore } from "@/lib/local-store";
 
@@ -36,7 +36,7 @@ export function RulesPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Project</Label>
-                <Select
+                <NativeSelect
                   value={draft.targetProjectId}
                   onChange={(event) => setDraft((current) => ({ ...current, targetProjectId: event.target.value }))}
                 >
@@ -46,7 +46,7 @@ export function RulesPage() {
                       {project.name}
                     </option>
                   ))}
-                </Select>
+                </NativeSelect>
               </div>
               <div className="space-y-2">
                 <Label>Domain</Label>

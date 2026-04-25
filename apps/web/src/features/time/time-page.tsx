@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { SendHorizontal } from "lucide-react";
+import { RiSendPlaneLine as SendHorizontal } from "@remixicon/react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { DayViewerCard } from "@/components/day-viewer-card";
 import { SubmitTimesheetModal } from "@/features/time/submit-timesheet-modal";

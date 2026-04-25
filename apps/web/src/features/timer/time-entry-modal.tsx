@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Save, Square, Trash2, X } from "lucide-react";
+import {
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiPlayLine as Play,
+  RiSaveLine as Save,
+  RiStopLine as Square,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatDurationHoursInput, normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";

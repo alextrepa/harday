@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Check, Play, Plus, Trash2, X } from "lucide-react";
+import {
+  RiAddLine as Plus,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiPlayLine as Play,
+} from "@remixicon/react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatDurationHoursInput, normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import type { LocalTimesheetEntry } from "@/lib/local-store";

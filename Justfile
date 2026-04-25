@@ -129,6 +129,25 @@ desktop-make:
     echo >&2 "[1/1] Creating the desktop app distributable for this host"
     {{PNPM}} make:desktop
 
+[doc("Creates desktop distributables. Flags: --mac/-m and --windows/-w. No flags builds both.")]
+[group("app")]
+[script]
+make *flags:
+    set -eu
+    flags="{{flags}}"
+    make_mac=0
+    make_windows=0
+    if [ -z "$flags" ]; then make_mac=1; make_windows=1; fi
+    for flag in $flags; do
+      case "$flag" in
+        --mac|-m) make_mac=1 ;;
+        --windows|-w) make_windows=1 ;;
+        *) echo >&2 "Unknown make flag: $flag"; echo >&2 "Usage: just make [--mac|-m] [--windows|-w]"; exit 2 ;;
+      esac
+    done
+    if [ "$make_mac" -eq 1 ]; then echo >&2 "[mac] Creating the desktop app distributable"; {{PNPM}} make:desktop:mac; fi
+    if [ "$make_windows" -eq 1 ]; then echo >&2 "[windows] Creating the desktop app distributable"; {{PNPM}} make:desktop:win; fi
+
 [doc("Runs shared package tests")]
 [group("app")]
 test:

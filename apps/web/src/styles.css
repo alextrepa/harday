@@ -3669,6 +3669,17 @@
       transform 140ms var(--ease);
   }
 
+  .backlog-entry-row-actions .entry-row-action-play {
+    height: 30px;
+    width: 30px;
+    flex-basis: 30px;
+  }
+
+  .backlog-entry-row-actions .entry-row-action-play svg {
+    width: 17px;
+    height: 17px;
+  }
+
   .entry-row-action:hover {
     color: var(--text-secondary);
   }

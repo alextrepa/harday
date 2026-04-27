@@ -11,12 +11,12 @@ import {
   RiAlarmWarningLine as AlertTriangle,
   RiArchiveLine as Archive,
   RiArrowRightSLine as ChevronRight,
-  RiArrowUpDownLine as ArrowUpDown,
   RiCheckLine as Check,
   RiCloseLine as X,
   RiDeleteBinLine as Trash2,
   RiExpandDiagonalLine as Maximize2,
   RiFileTextLine as FileText,
+  RiFilter3Line as Filter,
   RiInboxArchiveLine as ArchiveRestore,
   RiPencilLine as Pencil,
   RiPlayLine as Play,
@@ -174,16 +174,12 @@ const BACKLOG_FILTERS: { value: BacklogFilter; label: string }[] = [
 ];
 
 const BACKLOG_SORT_MODES: { value: "custom" | "priority"; label: string }[] = [
-  { value: "custom", label: "Custom" },
   { value: "priority", label: "Priority" },
+  { value: "custom", label: "Custom" },
 ];
 
 function isPrioritySortMode(mode: BacklogSortMode) {
   return mode === "priority_asc" || mode === "priority_desc";
-}
-
-function getPrioritySortDirection(mode: BacklogSortMode) {
-  return mode === "priority_desc" ? "desc" : "asc";
 }
 
 function getBacklogSortModeLabel(mode: BacklogSortMode) {
@@ -3309,37 +3305,7 @@ export function BacklogPage() {
   }, [draggedWorkItem, getChildItems]);
 
   return (
-    <div className="space-y-4">
-      <section className="backlog-signals" aria-label="Filter tasks">
-        <div className="toggle-group backlog-filter-tabs" role="tablist">
-          {BACKLOG_FILTERS.map((filter) => {
-            const isActive = activeFilter === filter.value;
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={cn(
-                  "toggle-item backlog-filter-tab",
-                  isActive && "toggle-item-active",
-                )}
-                onClick={() => {
-                  setActiveFilter(filter.value);
-                  setPendingArchiveWorkItemId(null);
-                  resetExpandedItem();
-                }}
-              >
-                <span className="backlog-filter-label">{filter.label}</span>
-                <span className="backlog-filter-count">
-                  {filterCounts[filter.value]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
+    <div className="backlog-page-stack">
       <div className="entries-table-scroll-shell entries-table-scroll-shell-backlog">
         <table className="entries-table backlog-table entries-table-header-table animate-in">
           <thead>
@@ -3361,28 +3327,57 @@ export function BacklogPage() {
                           "entries-header-add backlog-sort-trigger",
                           isSortMenuOpen && "is-open",
                         )}
-                        aria-label={`Change backlog sorting. Current mode: ${getBacklogSortModeLabel(backlogSortMode)}`}
-                        title={`Sort backlog by ${getBacklogSortModeLabel(backlogSortMode)}`}
+                        aria-label={`Filter backlog. Showing ${activeFilter} items ordered by ${getBacklogSortModeLabel(backlogSortMode)}`}
+                        title="Filter backlog"
                         onClick={() => setIsSortMenuOpen((current) => !current)}
                       >
-                        <ArrowUpDown className="backlog-sort-trigger-icon" />
+                        <Filter className="backlog-sort-trigger-icon" />
                       </button>
                       {isSortMenuOpen ? (
                         <div
                           className="backlog-sort-menu"
                           role="menu"
-                          aria-label="Backlog sort mode"
+                          aria-label="Backlog filters"
                         >
+                          <div className="backlog-filter-menu-group" role="group" aria-label="Status">
+                            <span className="backlog-filter-menu-label">Status</span>
+                            {BACKLOG_FILTERS.map((filter) => {
+                              const isActive = activeFilter === filter.value;
+                              return (
+                                <button
+                                  key={filter.value}
+                                  type="button"
+                                  role="menuitemradio"
+                                  aria-checked={isActive}
+                                  className={cn(
+                                    "backlog-sort-option",
+                                    isActive && "is-active",
+                                  )}
+                                  onClick={() => {
+                                    setActiveFilter(filter.value);
+                                    setPendingArchiveWorkItemId(null);
+                                    resetExpandedItem();
+                                  }}
+                                >
+                                  <span className="backlog-filter-option-copy">
+                                    <span>{filter.label}</span>
+                                    <span className="backlog-filter-count">
+                                      {filterCounts[filter.value]}
+                                    </span>
+                                  </span>
+                                  {isActive ? <Check className="h-3.5 w-3.5" /> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="backlog-filter-menu-divider" />
+                          <div className="backlog-filter-menu-group" role="group" aria-label="Order">
+                            <span className="backlog-filter-menu-label">Order</span>
                           {BACKLOG_SORT_MODES.map((sortMode) => {
                             const isActive =
                               sortMode.value === "priority"
                                 ? isPrioritySortMode(backlogSortMode)
                                 : backlogSortMode === sortMode.value;
-                            const label =
-                              sortMode.value === "priority" &&
-                              isPrioritySortMode(backlogSortMode)
-                                ? `${sortMode.label} ${getPrioritySortDirection(backlogSortMode) === "asc" ? "↑" : "↓"}`
-                                : sortMode.label;
 
                             return (
                               <button
@@ -3396,28 +3391,22 @@ export function BacklogPage() {
                                 )}
                                 onClick={() => {
                                   if (sortMode.value === "priority") {
-                                    localStore.setBacklogSortMode(
-                                      isPrioritySortMode(backlogSortMode)
-                                        ? backlogSortMode === "priority_asc"
-                                          ? "priority_desc"
-                                          : "priority_asc"
-                                        : "priority_asc",
-                                    );
+                                    localStore.setBacklogSortMode("priority_asc");
                                   } else {
                                     localStore.setBacklogSortMode(
                                       sortMode.value,
                                     );
                                   }
-                                  setIsSortMenuOpen(false);
                                 }}
                               >
-                                <span>{label}</span>
+                                <span>{sortMode.label}</span>
                                 {isActive ? (
                                   <Check className="h-3.5 w-3.5" />
                                 ) : null}
                               </button>
                             );
                           })}
+                          </div>
                         </div>
                       ) : null}
                     </div>

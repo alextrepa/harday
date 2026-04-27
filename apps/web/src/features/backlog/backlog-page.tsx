@@ -49,14 +49,19 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BacklogTaskModal } from "@/features/backlog/backlog-task-modal";
 import {
+  backlogCommands,
+  buildBacklogWorkItemPatch,
+  formatBacklogEstimateInput,
+  formatBacklogPriorityInput,
+  parseBacklogEstimateInput,
+  parseBacklogPriorityInput,
+  type BacklogWorkItemDraft,
+} from "@/features/backlog/backlog-commands";
+import {
   applyLoggedTimeToEstimateValues,
   getWorkItemEstimateBadgeLabel,
 } from "@/features/backlog/work-item-estimates";
-import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source-sync";
-import {
-  buildWorkItemTimerComment,
-  parseWorkItemReference,
-} from "@/features/backlog/work-item-timer-comment";
+import { parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
 import {
   normalizeHoursInput,
   parseHoursInput,
@@ -73,7 +78,7 @@ import {
   type BacklogSortMode,
   type LocalWorkItem,
 } from "@/lib/local-store";
-import { cn, todayIsoDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
 const BACKLOG_DRAG_MOUSE_TOLERANCE_PX = 4;
@@ -197,54 +202,11 @@ function getBacklogSortModeLabel(mode: BacklogSortMode) {
   }
 }
 
-function formatPriorityInput(priority?: number) {
-  return typeof priority === "number" ? String(priority) : "";
-}
-
 function isSamePriorityValue(
   left: number | undefined | null,
   right: number | undefined,
 ) {
   return left === right;
-}
-
-function parsePriorityInput(value: string) {
-  if (value.trim() === "") {
-    return undefined;
-  }
-
-  const parsedValue = Number(value);
-  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
-    return null;
-  }
-
-  return parsedValue;
-}
-
-function parseEstimateInput(value: string) {
-  if (value.trim() === "") {
-    return undefined;
-  }
-
-  const parsedValue = Number(value);
-  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
-    return null;
-  }
-
-  return Math.round(parsedValue * 10_000) / 10_000;
-}
-
-function formatEstimateInput(value?: number) {
-  return typeof value === "number" ? String(value) : "";
-}
-
-function buildManualTimeEntryNote(
-  note: string,
-  title: string,
-  sourceId?: string,
-) {
-  const trimmedNote = note.trim();
-  return trimmedNote || buildWorkItemTimerComment(title, sourceId);
 }
 
 function sumChildEstimateTotals(childItems: LocalWorkItem[]) {
@@ -946,102 +908,39 @@ export function BacklogPage() {
     resetNewItem();
   }
 
-  function buildExpandedWorkItemPatch(
-    workItem: LocalWorkItem,
-    preserveTitle = false,
-  ) {
-    const title = expandedTitle.trim();
-    if (!title && !preserveTitle) {
-      return null;
-    }
-
-    const priority = parsePriorityInput(expandedPriority);
-    if (priority === null) {
-      return null;
-    }
-    const originalEstimateHours = parseEstimateInput(
-      expandedOriginalEstimateHours,
-    );
-    const remainingEstimateHours = parseEstimateInput(
-      expandedRemainingEstimateHours,
-    );
-    const completedEstimateHours = parseEstimateInput(
-      expandedCompletedEstimateHours,
-    );
-    if (
-      originalEstimateHours === null ||
-      remainingEstimateHours === null ||
-      completedEstimateHours === null
-    ) {
-      return null;
-    }
-
+  function buildExpandedWorkItemDraft(): BacklogWorkItemDraft {
     return {
-      title: title || workItem.title,
-      note: expandedNote.trim() || undefined,
-      priority,
-      backlogStatusId: expandedBacklogStatusId || undefined,
-      projectId: expandedProjectId || undefined,
-      taskId: expandedTaskId || undefined,
-      originalEstimateHours,
-      remainingEstimateHours,
-      completedEstimateHours,
+      title: expandedTitle,
+      note: expandedNote,
+      priority: expandedPriority,
+      backlogStatusId: expandedBacklogStatusId,
+      projectId: expandedProjectId,
+      taskId: expandedTaskId,
+      originalEstimateHours: expandedOriginalEstimateHours,
+      remainingEstimateHours: expandedRemainingEstimateHours,
+      completedEstimateHours: expandedCompletedEstimateHours,
     };
   }
 
   function commitExpandedEdits(workItem: LocalWorkItem) {
-    const patch = buildExpandedWorkItemPatch(workItem);
-    if (!patch) {
-      return;
-    }
-
-    localStore.updateWorkItem(workItem._id, patch);
+    backlogCommands.saveDraft(workItem, buildExpandedWorkItemDraft());
   }
 
-  function buildExpandedChildWorkItemPatch(
-    workItem: LocalWorkItem,
-    preserveTitle = false,
-  ) {
-    const title = expandedChildEditor.title.trim();
-    if (!title && !preserveTitle) {
-      return null;
-    }
-    const originalEstimateHours = parseEstimateInput(
-      expandedChildEditor.originalEstimateHours,
-    );
-    const remainingEstimateHours = parseEstimateInput(
-      expandedChildEditor.remainingEstimateHours,
-    );
-    const completedEstimateHours = parseEstimateInput(
-      expandedChildEditor.completedEstimateHours,
-    );
-    if (
-      originalEstimateHours === null ||
-      remainingEstimateHours === null ||
-      completedEstimateHours === null
-    ) {
-      return null;
-    }
-
+  function buildExpandedChildWorkItemDraft(): BacklogWorkItemDraft {
     return {
-      title: title || workItem.title,
-      note: expandedChildEditor.note.trim() || undefined,
-      backlogStatusId: expandedChildEditor.backlogStatusId || undefined,
-      projectId: expandedChildEditor.projectId || undefined,
-      taskId: expandedChildEditor.taskId || undefined,
-      originalEstimateHours,
-      remainingEstimateHours,
-      completedEstimateHours,
+      title: expandedChildEditor.title,
+      note: expandedChildEditor.note,
+      backlogStatusId: expandedChildEditor.backlogStatusId,
+      projectId: expandedChildEditor.projectId,
+      taskId: expandedChildEditor.taskId,
+      originalEstimateHours: expandedChildEditor.originalEstimateHours,
+      remainingEstimateHours: expandedChildEditor.remainingEstimateHours,
+      completedEstimateHours: expandedChildEditor.completedEstimateHours,
     };
   }
 
   function commitExpandedChildEdits(workItem: LocalWorkItem) {
-    const patch = buildExpandedChildWorkItemPatch(workItem);
-    if (!patch) {
-      return;
-    }
-
-    localStore.updateWorkItem(workItem._id, patch);
+    backlogCommands.saveDraft(workItem, buildExpandedChildWorkItemDraft());
   }
 
   function closeExpandedItem(options?: { preserveSubtasks?: boolean }) {
@@ -1074,8 +973,8 @@ export function BacklogPage() {
     setExpandedViewMode("edit");
     setExpandedTitle(workItem.title);
     setExpandedTitleDraft(workItem.title);
-    setExpandedPriority(formatPriorityInput(workItem.priority));
-    setExpandedPriorityDraft(formatPriorityInput(workItem.priority));
+    setExpandedPriority(formatBacklogPriorityInput(workItem.priority));
+    setExpandedPriorityDraft(formatBacklogPriorityInput(workItem.priority));
     setIsExpandedTitleEditing(false);
     setExpandedNote(workItem.note ?? "");
     setExpandedTimeEntryNote("");
@@ -1084,21 +983,21 @@ export function BacklogPage() {
     setExpandedTaskId(workItem.taskId ?? "");
     setExpandedOriginalEstimateHours(
       childEstimateTotals
-        ? formatEstimateInput(childEstimateTotals.originalEstimateHours)
+        ? formatBacklogEstimateInput(childEstimateTotals.originalEstimateHours)
         : typeof workItem.originalEstimateHours === "number"
           ? String(workItem.originalEstimateHours)
           : "",
     );
     setExpandedRemainingEstimateHours(
       childEstimateTotals
-        ? formatEstimateInput(childEstimateTotals.remainingEstimateHours)
+        ? formatBacklogEstimateInput(childEstimateTotals.remainingEstimateHours)
         : typeof workItem.remainingEstimateHours === "number"
           ? String(workItem.remainingEstimateHours)
           : "",
     );
     setExpandedCompletedEstimateHours(
       childEstimateTotals
-        ? formatEstimateInput(childEstimateTotals.completedEstimateHours)
+        ? formatBacklogEstimateInput(childEstimateTotals.completedEstimateHours)
         : typeof workItem.completedEstimateHours === "number"
           ? String(workItem.completedEstimateHours)
           : "",
@@ -1158,7 +1057,7 @@ export function BacklogPage() {
       return;
     }
 
-    localStore.addSubtask(parent._id, {
+    backlogCommands.addSubtask(parent._id, {
       title,
       note: subtaskNote.trim() || undefined,
       projectId: subtaskProjectId || undefined,
@@ -1649,7 +1548,7 @@ export function BacklogPage() {
     setPendingDeleteWorkItemId(null);
 
     if (pendingArchiveWorkItemId === workItemId) {
-      localStore.archiveWorkItem(workItemId);
+      backlogCommands.archive(workItemId);
       setPendingArchiveWorkItemId(null);
       if (expandedWorkItemId === workItemId) {
         resetExpandedItem();
@@ -1663,7 +1562,7 @@ export function BacklogPage() {
   }
 
   function handleUnarchiveWorkItem(workItemId: string) {
-    localStore.restoreWorkItem(workItemId);
+    backlogCommands.restore(workItemId);
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
   }
@@ -1672,7 +1571,7 @@ export function BacklogPage() {
     setPendingArchiveWorkItemId(null);
 
     if (pendingDeleteWorkItemId === workItemId) {
-      localStore.deleteWorkItem(workItemId);
+      backlogCommands.delete(workItemId);
       setPendingDeleteWorkItemId(null);
       if (expandedWorkItemId === workItemId) {
         resetExpandedItem();
@@ -1694,31 +1593,15 @@ export function BacklogPage() {
       taskId?: string;
     },
   ) {
-    const nextTitle = overrides?.title?.trim() || workItem.title;
-    const nextNote = overrides?.note?.trim() || undefined;
-    const nextProjectId = overrides?.projectId || workItem.projectId;
-    const nextTaskId = overrides?.taskId || workItem.taskId;
-
     if (currentTimer || workItem.status === "archived") {
       return;
     }
 
-    if (overrides) {
-      localStore.updateWorkItem(workItem._id, {
-        title: nextTitle,
-        note: nextNote,
-        projectId: nextProjectId,
-        taskId: nextTaskId,
-      });
-    }
-
-    localStore.startTimer({
-      localDate: todayIsoDate(),
-      workItemId: workItem._id,
-      projectId: nextProjectId,
-      taskId: nextTaskId,
-      note: buildWorkItemTimerComment(nextTitle, workItem.sourceId),
-      accumulatedDurationMs: 0,
+    backlogCommands.startTimer(workItem, {
+      title: overrides?.title ?? workItem.title,
+      note: overrides?.note ?? workItem.note,
+      projectId: overrides?.projectId ?? workItem.projectId,
+      taskId: overrides?.taskId ?? workItem.taskId,
     });
   }
 
@@ -1741,7 +1624,7 @@ export function BacklogPage() {
     }
 
     if (expandedWorkItem && !isSubtaskItem(expandedWorkItem)) {
-      const parsedPriority = parsePriorityInput(expandedPriorityDraft);
+      const parsedPriority = parseBacklogPriorityInput(expandedPriorityDraft);
       if (parsedPriority === null) {
         return;
       }
@@ -1773,8 +1656,10 @@ export function BacklogPage() {
     const hasSubtasks =
       !isSubtaskItem(expandedWorkItem) &&
       getChildItems(expandedWorkItem).length > 0;
-    const timeEntryTitle = expandedTitle.trim() || expandedWorkItem.title;
-    const patch = buildExpandedWorkItemPatch(expandedWorkItem, true);
+    const draft = buildExpandedWorkItemDraft();
+    const patch = buildBacklogWorkItemPatch(expandedWorkItem, draft, {
+      preserveTitle: true,
+    });
     const nextEstimates = applyLoggedTimeToEstimateValues(
       {
         remainingEstimateHours:
@@ -1790,29 +1675,16 @@ export function BacklogPage() {
         durationMsDelta: expandedParsedDurationMs,
       },
     );
-    if (patch) {
-      localStore.updateWorkItem(expandedWorkItem._id, patch);
-    }
-
-    localStore.saveManualTimeEntry({
-      localDate: todayIsoDate(),
-      workItemId: expandedWorkItem._id,
-      projectId: (patch?.projectId ?? expandedProjectId) || undefined,
-      taskId: (patch?.taskId ?? expandedTaskId) || undefined,
-      note: buildManualTimeEntryNote(
-        expandedTimeEntryNote,
-        timeEntryTitle,
-        expandedWorkItem.sourceId,
-      ),
+    backlogCommands.logTime(expandedWorkItem, draft, {
+      timeEntryNote: expandedTimeEntryNote,
       durationMs: expandedParsedDurationMs,
     });
-    syncBacklogWorkItemToSource(expandedWorkItem);
     if (!hasSubtasks) {
       setExpandedRemainingEstimateHours(
-        formatEstimateInput(nextEstimates.remainingEstimateHours),
+        formatBacklogEstimateInput(nextEstimates.remainingEstimateHours),
       );
       setExpandedCompletedEstimateHours(
-        formatEstimateInput(nextEstimates.completedEstimateHours),
+        formatBacklogEstimateInput(nextEstimates.completedEstimateHours),
       );
     }
     setExpandedDurationHours("");
@@ -1828,9 +1700,10 @@ export function BacklogPage() {
       return;
     }
 
-    const timeEntryTitle =
-      expandedChildEditor.title.trim() || expandedChildWorkItem.title;
-    const patch = buildExpandedChildWorkItemPatch(expandedChildWorkItem, true);
+    const draft = buildExpandedChildWorkItemDraft();
+    const patch = buildBacklogWorkItemPatch(expandedChildWorkItem, draft, {
+      preserveTitle: true,
+    });
     const nextEstimates = applyLoggedTimeToEstimateValues(
       {
         remainingEstimateHours:
@@ -1847,30 +1720,16 @@ export function BacklogPage() {
         durationMsDelta: expandedChildParsedDurationMs,
       },
     );
-    if (patch) {
-      localStore.updateWorkItem(expandedChildWorkItem._id, patch);
-    }
-
-    localStore.saveManualTimeEntry({
-      localDate: todayIsoDate(),
-      workItemId: expandedChildWorkItem._id,
-      projectId:
-        (patch?.projectId ?? expandedChildEditor.projectId) || undefined,
-      taskId: (patch?.taskId ?? expandedChildEditor.taskId) || undefined,
-      note: buildManualTimeEntryNote(
-        expandedChildEditor.timeEntryNote,
-        timeEntryTitle,
-        expandedChildWorkItem.sourceId,
-      ),
+    backlogCommands.logTime(expandedChildWorkItem, draft, {
+      timeEntryNote: expandedChildEditor.timeEntryNote,
       durationMs: expandedChildParsedDurationMs,
     });
-    syncBacklogWorkItemToSource(expandedChildWorkItem);
     setExpandedChildEditor((current) => ({
       ...current,
-      remainingEstimateHours: formatEstimateInput(
+      remainingEstimateHours: formatBacklogEstimateInput(
         nextEstimates.remainingEstimateHours,
       ),
-      completedEstimateHours: formatEstimateInput(
+      completedEstimateHours: formatBacklogEstimateInput(
         nextEstimates.completedEstimateHours,
       ),
       durationHours: "",
@@ -2090,7 +1949,7 @@ export function BacklogPage() {
     const canResetInlinePriority =
       !isLogicalChild &&
       !isSamePriorityValue(
-        parsePriorityInput(editorPriorityDraft),
+        parseBacklogPriorityInput(editorPriorityDraft),
         importedPriorityValue,
       );
     const canResetInlineBacklogStatus =
@@ -2111,10 +1970,10 @@ export function BacklogPage() {
     );
     const canSaveEditorTitle =
       editorTitleDraft.trim().length > 0 &&
-      (isLogicalChild || parsePriorityInput(editorPriorityDraft) !== null) &&
-      parseEstimateInput(editorOriginalEstimateHours) !== null &&
-      parseEstimateInput(editorRemainingEstimateHours) !== null &&
-      parseEstimateInput(editorCompletedEstimateHours) !== null;
+      (isLogicalChild || parseBacklogPriorityInput(editorPriorityDraft) !== null) &&
+      parseBacklogEstimateInput(editorOriginalEstimateHours) !== null &&
+      parseBacklogEstimateInput(editorRemainingEstimateHours) !== null &&
+      parseBacklogEstimateInput(editorCompletedEstimateHours) !== null;
     const canStartEditorTimer = Boolean(!currentTimer && !isArchived);
     const editorTimeFeedback = !hasEditorTimeDraft
       ? null
@@ -2164,17 +2023,17 @@ export function BacklogPage() {
     const canResetOriginalEstimate =
       childEstimateTotals !== null &&
       normalizeEstimateComparisonValue(
-        parseEstimateInput(editorOriginalEstimateHours) ?? undefined,
+        parseBacklogEstimateInput(editorOriginalEstimateHours) ?? undefined,
       ) !== childEstimateTotals.originalEstimateHours;
     const canResetRemainingEstimate =
       childEstimateTotals !== null &&
       normalizeEstimateComparisonValue(
-        parseEstimateInput(editorRemainingEstimateHours) ?? undefined,
+        parseBacklogEstimateInput(editorRemainingEstimateHours) ?? undefined,
       ) !== childEstimateTotals.remainingEstimateHours;
     const canResetCompletedEstimate =
       childEstimateTotals !== null &&
       normalizeEstimateComparisonValue(
-        parseEstimateInput(editorCompletedEstimateHours) ?? undefined,
+        parseBacklogEstimateInput(editorCompletedEstimateHours) ?? undefined,
       ) !== childEstimateTotals.completedEstimateHours;
     const hasEstimateSyncIssue = hasWorkItemEstimateSyncIssue(workItem);
     const editorStartTimerTitle = isArchived
@@ -2349,7 +2208,7 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            originalEstimateHours: formatEstimateInput(
+            originalEstimateHours: formatBacklogEstimateInput(
               childEstimateTotals.originalEstimateHours,
             ),
           }));
@@ -2357,7 +2216,7 @@ export function BacklogPage() {
         }
 
         setExpandedOriginalEstimateHours(
-          formatEstimateInput(childEstimateTotals.originalEstimateHours),
+          formatBacklogEstimateInput(childEstimateTotals.originalEstimateHours),
         );
       };
       const resetInlineRemainingEstimate = () => {
@@ -2368,7 +2227,7 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            remainingEstimateHours: formatEstimateInput(
+            remainingEstimateHours: formatBacklogEstimateInput(
               childEstimateTotals.remainingEstimateHours,
             ),
           }));
@@ -2376,7 +2235,7 @@ export function BacklogPage() {
         }
 
         setExpandedRemainingEstimateHours(
-          formatEstimateInput(childEstimateTotals.remainingEstimateHours),
+          formatBacklogEstimateInput(childEstimateTotals.remainingEstimateHours),
         );
       };
       const resetInlineCompletedEstimate = () => {
@@ -2387,7 +2246,7 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            completedEstimateHours: formatEstimateInput(
+            completedEstimateHours: formatBacklogEstimateInput(
               childEstimateTotals.completedEstimateHours,
             ),
           }));
@@ -2395,7 +2254,7 @@ export function BacklogPage() {
         }
 
         setExpandedCompletedEstimateHours(
-          formatEstimateInput(childEstimateTotals.completedEstimateHours),
+          formatBacklogEstimateInput(childEstimateTotals.completedEstimateHours),
         );
       };
       const setInlineDurationHours = (value: string) => {
@@ -2522,7 +2381,7 @@ export function BacklogPage() {
                               className="backlog-inline-reset-button"
                               onClick={() =>
                                 setExpandedPriorityDraft(
-                                  formatPriorityInput(importedPriorityValue),
+                                  formatBacklogPriorityInput(importedPriorityValue),
                                 )
                               }
                             >

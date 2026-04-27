@@ -20,19 +20,26 @@
     "typecheck": "corepack pnpm -r typecheck"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.0.0-beta.30",
+    "@crxjs/vite-plugin": "^2.4.0",
+    "@types/node": "^22.13.10",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
-    "@vitejs/plugin-react": "^4.3.4",
-    "@types/node": "^22.13.10",
-    "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.3",
-    "tailwindcss": "^3.4.17",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.12",
+    "tailwindcss": "^4.2.4",
     "typescript": "^5.8.2",
-    "vite": "^6.2.0",
-    "vitest": "^3.0.8"
+    "vite": "^8.0.10",
+    "vitest": "^4.1.5"
   },
   "pnpm": {
+    "overrides": {
+      "@crxjs/vite-plugin>rollup": "2.80.0",
+      "@tootallnate/once": "3.0.1",
+      "tar": "7.5.13",
+      "tmp": "0.2.5",
+      "uuid": "14.0.0"
+    },
     "onlyBuiltDependencies": [
       "electron",
       "electron-winstaller"

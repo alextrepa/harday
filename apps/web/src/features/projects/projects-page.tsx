@@ -1046,7 +1046,7 @@ function ProjectDetail({
     try {
       const { extractTaskNamesFromWorkbook } =
         await import("@/features/projects/project-task-import");
-      const workbook = extractTaskNamesFromWorkbook(await file.arrayBuffer());
+      const workbook = await extractTaskNamesFromWorkbook(await file.arrayBuffer());
       if (workbook.taskNames.length === 0) {
         throw new Error(
           "No usable task names were found in column C of the first worksheet.",

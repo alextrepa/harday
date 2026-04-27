@@ -13,10 +13,6 @@ function vendorChunk(id: string) {
     return "excel-workbook";
   }
 
-  if (id.includes("/xlsx/")) {
-    return "excel-parser";
-  }
-
   return undefined;
 }
 

@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
 import type { LocalProject } from "@/lib/local-store";
 import { DEFAULT_PROJECT_ICON } from "@/lib/project-icons";
@@ -85,17 +85,23 @@ describe("project workbook round-trip", () => {
       projectIds: ["project-1", "project-2"],
     });
 
-    const workbook = XLSX.read(workbookBytes, { type: "array" });
-    expect(workbook.SheetNames).toEqual(["Projects"]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(workbookBytes);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Projects"]);
 
-    const sheet = workbook.Sheets.Projects;
+    const sheet = workbook.getWorksheet("Projects");
     expect(sheet).toBeTruthy();
 
-    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet!, {
-      header: 1,
-      blankrows: false,
-      raw: true,
-    });
+    const rows: unknown[][] = [];
+    for (let rowNumber = 1; rowNumber <= sheet!.rowCount; rowNumber += 1) {
+      const row = sheet!.getRow(rowNumber);
+      rows.push(
+        Array.from({ length: 6 }, (_, index) => {
+          const value = row.getCell(index + 1).value;
+          return value ?? "";
+        }),
+      );
+    }
 
     expect(rows).toEqual([
       ["project", "code", "color", "status", "task", "task_status"],

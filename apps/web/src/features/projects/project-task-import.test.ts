@@ -1,15 +1,16 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractTaskNamesFromWorkbook } from "./project-task-import";
 
-function buildWorkbookBuffer(...sheets: Array<{ name: string; rows: unknown[][] }>) {
-  const workbook = XLSX.utils.book_new();
+async function buildWorkbookBuffer(...sheets: Array<{ name: string; rows: unknown[][] }>) {
+  const workbook = new ExcelJS.Workbook();
 
   for (const sheet of sheets) {
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(sheet.rows), sheet.name);
+    const worksheet = workbook.addWorksheet(sheet.name);
+    worksheet.addRows(sheet.rows);
   }
 
-  return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  return workbook.xlsx.writeBuffer();
 }
 
 function installMockWindow() {
@@ -38,8 +39,8 @@ function installMockWindow() {
 }
 
 describe("extractTaskNamesFromWorkbook", () => {
-  it("reads column C from the first worksheet, skipping blanks and the header row", () => {
-    const buffer = buildWorkbookBuffer(
+  it("reads column C from the first worksheet, skipping blanks and the header row", async () => {
+    const buffer = await buildWorkbookBuffer(
       {
         name: "Import",
         rows: [
@@ -55,7 +56,7 @@ describe("extractTaskNamesFromWorkbook", () => {
       },
     );
 
-    expect(extractTaskNamesFromWorkbook(buffer)).toEqual({
+    await expect(extractTaskNamesFromWorkbook(buffer)).resolves.toEqual({
       taskNames: ["Suivi projet / gestion", "Billet 101"],
       blankCount: 1,
       headerCount: 1,

@@ -118,5 +118,6 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
       "@timetracker/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
     },
+    dedupe: ["react", "react-dom", "react/jsx-runtime"],
   },
 }));

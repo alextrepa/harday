@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package-macos:
@@ -28,12 +28,19 @@ jobs:
       - name: Package macOS app
         run: corepack pnpm make:desktop
 
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: harday-macos
-          path: apps/desktop/out/make/*.dmg
-          if-no-files-found: error
+      - name: Publish macOS DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dmg_path="apps/desktop/out/make/HarDay.dmg"
+          release_tag="desktop-macos-${GITHUB_RUN_NUMBER}"
+
+          test -f "$dmg_path"
+          gh release create "$release_tag" "$dmg_path#HarDay.dmg" \
+            --title "HarDay macOS desktop ${GITHUB_RUN_NUMBER}" \
+            --notes "Manual macOS desktop build from ${GITHUB_SHA}." \
+            --prerelease
 
   package-windows:
     name: Package Windows desktop

@@ -9,10 +9,12 @@ const copyTargets = [
   {
     from: path.resolve(repoRoot, "apps/api"),
     to: path.join(outputRoot, "apps/api"),
+    excludePackageNodeModules: true,
   },
   {
     from: path.resolve(repoRoot, "packages/shared"),
     to: path.join(outputRoot, "packages/shared"),
+    excludePackageNodeModules: true,
   },
   {
     from: path.resolve(repoRoot, "node_modules/zod"),
@@ -32,5 +34,7 @@ for (const target of copyTargets) {
   cpSync(target.from, target.to, {
     recursive: true,
     force: true,
+    dereference: true,
+    filter: (source) => !target.excludePackageNodeModules || path.basename(source) !== "node_modules",
   });
 }

@@ -32,7 +32,7 @@ describe("run-forge-command", () => {
       error: undefined,
     });
 
-    runScript(["package", "host"]);
+    runScript(["package", "win32"]);
 
     const forgeInvocation = spawnSyncMock.mock.calls.at(-1);
     const options = forgeInvocation?.[2] as { env?: NodeJS.ProcessEnv } | undefined;

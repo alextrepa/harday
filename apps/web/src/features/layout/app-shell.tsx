@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  RiArrowDownSLine as ChevronDown,
+  RiCheckLine as Check,
   RiCloseLine as X,
   RiFolderChartLine as FolderKanban,
   RiListCheck3 as ListTodo,
@@ -9,14 +18,22 @@ import {
   RiStopLine as Square,
   RiTimerLine as Timer,
 } from "@remixicon/react";
-import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
-import { localStore } from "@/lib/local-store";
+import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
 import { isDesktopShell } from "@/lib/runtime";
 import { cn, getIsoWeekDates, todayIsoDate } from "@/lib/utils";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
+import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile";
 import { useApplyTheme } from "@/lib/use-theme";
 
 const navItems = [
@@ -28,7 +45,10 @@ const navItems = [
 
 const AUTO_SYNC_POLL_INTERVAL_MS = 30_000;
 
-function isNavItemActive(pathname: string, to: (typeof navItems)[number]["to"]) {
+function isNavItemActive(
+  pathname: string,
+  to: (typeof navItems)[number]["to"],
+) {
   if (to === "/time/$date") {
     return pathname.startsWith("/time/") || pathname.startsWith("/review/");
   }
@@ -42,10 +62,6 @@ function isNavItemActive(pathname: string, to: (typeof navItems)[number]["to"]) 
   }
 
   return pathname === to;
-}
-
-function isCompactTimerActive(pathname: string) {
-  return pathname.startsWith("/time/") || pathname.startsWith("/review/");
 }
 
 function formatDurationShort(durationMs: number) {
@@ -97,7 +113,10 @@ function ConnectorAutoSyncScheduler() {
                 return true;
               }
 
-              return now - connection.lastSyncAt >= connection.autoSyncIntervalMinutes * 60_000;
+              return (
+                now - connection.lastSyncAt >=
+                connection.autoSyncIntervalMinutes * 60_000
+              );
             })
             .map((connection) => ({
               pluginId: group.plugin.id,
@@ -110,7 +129,11 @@ function ConnectorAutoSyncScheduler() {
             break;
           }
 
-          await syncConnectorConnection(dueConnection.pluginId, dueConnection.connection.id, { trigger: "auto" });
+          await syncConnectorConnection(
+            dueConnection.pluginId,
+            dueConnection.connection.id,
+            { trigger: "auto" },
+          );
         }
       } catch (error) {
         console.error("Connector auto sync failed.", error);
@@ -158,8 +181,14 @@ function QuickTimerPopup({
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
@@ -183,7 +212,10 @@ function QuickTimerPopup({
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
       const target = event.target as Node;
-      if (anchorRef.current?.contains(target) || popupRef.current?.contains(target)) {
+      if (
+        anchorRef.current?.contains(target) ||
+        popupRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -222,7 +254,9 @@ function QuickTimerPopup({
 
   function handleTaskChange(nextTaskId: string) {
     if (!currentTimer) return;
-    localStore.updateTimer(currentTimer._id, { taskId: nextTaskId || undefined });
+    localStore.updateTimer(currentTimer._id, {
+      taskId: nextTaskId || undefined,
+    });
   }
 
   function handleNoteChange(nextNote: string) {
@@ -275,7 +309,9 @@ function QuickTimerPopup({
           onChange={handleTaskChange}
           placeholder={projectId ? "No task" : "Pick a project first"}
           clearLabel={projectId ? "No task" : undefined}
-          emptyMessage={projectId ? "No matching tasks" : "Pick a project first"}
+          emptyMessage={
+            projectId ? "No matching tasks" : "Pick a project first"
+          }
           ariaLabel="Task"
           disabled={!projectId || availableTasks.length === 0}
         />
@@ -294,13 +330,18 @@ function QuickTimerPopup({
 
       {/* Actions */}
       <div className="quick-timer-popup-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={handleCancel}
+        >
+          <X className="h-3.5 w-3.5" />
+          Cancel
+        </Button>
         <Button size="sm" className="gap-1.5" onClick={handleSave}>
           <Square className="h-3.5 w-3.5" />
           Stop timer
-        </Button>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleCancel}>
-          <X className="h-3.5 w-3.5" />
-          Cancel
         </Button>
       </div>
     </div>
@@ -323,7 +364,10 @@ function DayTotalsPopup({
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
       const target = event.target as Node;
-      if (anchorRef.current?.contains(target) || popupRef.current?.contains(target)) {
+      if (
+        anchorRef.current?.contains(target) ||
+        popupRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -348,14 +392,23 @@ function DayTotalsPopup({
   }, [onClose]);
 
   return (
-    <div ref={popupRef} className="day-totals-popup" role="dialog" aria-label="Current time totals">
+    <div
+      ref={popupRef}
+      className="day-totals-popup"
+      role="dialog"
+      aria-label="Current time totals"
+    >
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Week total</span>
-        <span className="day-totals-popup-value">{formatDurationShort(weekTotalMs)}</span>
+        <span className="day-totals-popup-value">
+          {formatDurationShort(weekTotalMs)}
+        </span>
       </div>
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Day total</span>
-        <span className="day-totals-popup-value">{formatDurationShort(dayTotalMs)}</span>
+        <span className="day-totals-popup-value">
+          {formatDurationShort(dayTotalMs)}
+        </span>
       </div>
     </div>
   );
@@ -395,7 +448,8 @@ function GlobalTimerBar() {
   }, [currentTimer]);
 
   const runningDurationMs = currentTimer
-    ? currentTimer.accumulatedDurationMs + Math.max(0, now - currentTimer.startedAt)
+    ? currentTimer.accumulatedDurationMs +
+      Math.max(0, now - currentTimer.startedAt)
     : 0;
 
   const todayTotalMs = useMemo(() => {
@@ -426,9 +480,15 @@ function GlobalTimerBar() {
   const timerProject = currentTimer
     ? projects.find((p) => p._id === currentTimer.projectId)
     : null;
-  const timerTask = timerProject?.tasks.find((t) => t._id === currentTimer?.taskId);
-  const timerProjectLabel = timerProject?.code?.trim() || timerProject?.name;
-  const timerMeta = [timerProjectLabel, timerTask?.name].filter(Boolean).join(" \u00B7 ");
+  const timerTask = timerProject?.tasks.find(
+    (t) => t._id === currentTimer?.taskId,
+  );
+  const timerProjectLabel = timerProject
+    ? timerProject.code?.trim() || getLocalProjectDisplayName(timerProject)
+    : undefined;
+  const timerMeta = [timerProjectLabel, timerTask?.name]
+    .filter(Boolean)
+    .join(" \u00B7 ");
 
   function handlePlayClick() {
     localStore.startTimer({ localDate: todayIsoDate() });
@@ -464,7 +524,10 @@ function GlobalTimerBar() {
       {currentTimer ? (
         <div
           ref={quickTimerAnchorRef}
-          className={cn("quick-timer-popup-anchor", isDesktopShell && "desktop-no-drag")}
+          className={cn(
+            "quick-timer-popup-anchor",
+            isDesktopShell && "desktop-no-drag",
+          )}
         >
           {timerMeta ? (
             <span className="global-timer-meta">{timerMeta}</span>
@@ -479,7 +542,9 @@ function GlobalTimerBar() {
             }}
           >
             <span className="status-dot status-dot-pulse" />
-            <span className="stat-pill-value">{formatDurationShort(runningDurationMs)}</span>
+            <span className="stat-pill-value">
+              {formatDurationShort(runningDurationMs)}
+            </span>
           </div>
           {popupOpen ? (
             <QuickTimerPopup
@@ -492,7 +557,10 @@ function GlobalTimerBar() {
       ) : (
         <>
           <button
-            className={cn("quick-timer-secondary-btn", isDesktopShell && "desktop-no-drag")}
+            className={cn(
+              "quick-timer-secondary-btn",
+              isDesktopShell && "desktop-no-drag",
+            )}
             onClick={handleNewEntryClick}
             title="New entry"
             type="button"
@@ -500,7 +568,10 @@ function GlobalTimerBar() {
             <span className="quick-timer-btn-label">New entry</span>
           </button>
           <button
-            className={cn("quick-timer-play-btn", isDesktopShell && "desktop-no-drag")}
+            className={cn(
+              "quick-timer-play-btn",
+              isDesktopShell && "desktop-no-drag",
+            )}
             onClick={handlePlayClick}
             title="Start timer"
             type="button"
@@ -512,7 +583,10 @@ function GlobalTimerBar() {
       )}
       <div
         ref={dayTotalsAnchorRef}
-        className={cn("day-totals-popup-anchor", isDesktopShell && "desktop-no-drag")}
+        className={cn(
+          "day-totals-popup-anchor",
+          isDesktopShell && "desktop-no-drag",
+        )}
       >
         <button
           type="button"
@@ -522,7 +596,9 @@ function GlobalTimerBar() {
           aria-expanded={dayTotalsOpen}
         >
           <span className="stat-pill-label">Today</span>
-          <span className="stat-pill-value">{formatDurationShort(todayTotalMs)}</span>
+          <span className="stat-pill-value">
+            {formatDurationShort(todayTotalMs)}
+          </span>
         </button>
 
         {dayTotalsOpen ? (
@@ -534,7 +610,6 @@ function GlobalTimerBar() {
           />
         ) : null}
       </div>
-
     </div>
   );
 }
@@ -542,90 +617,158 @@ function GlobalTimerBar() {
 /* ── App Shell ─────────────────────────────────────────────────────── */
 
 export function AppShell() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const navigate = useNavigate();
   const visibleNavItems = navItems;
+  const activeNavItem =
+    visibleNavItems.find((item) => isNavItemActive(pathname, item.to)) ??
+    visibleNavItems[0];
+  const ActiveNavIcon = activeNavItem.icon;
+  const isTimeActive = isNavItemActive(pathname, "/time/$date");
+  const isBacklogActive = isNavItemActive(pathname, "/backlog");
+  const [showMobileModeToggle, setShowMobileModeToggle] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches,
+  );
+  const mobileModeValue = isTimeActive
+    ? ["time"]
+    : isBacklogActive
+      ? ["backlog"]
+      : [];
 
   useApplyTheme();
 
-  const renderCompactToggle = (extraClass?: string) => (
-    <div
-      className={cn(
-        "harday-nav-compact-toggle",
-        extraClass,
-        isDesktopShell && "desktop-no-drag",
-      )}
-      role="navigation"
-      aria-label="Primary navigation"
-    >
-      <Link
-        to="/time/$date"
-        params={{ date: "today" }}
-        aria-label="Open timer"
-        aria-current={isCompactTimerActive(pathname) ? "page" : undefined}
-        className={cn(
-          "harday-nav-compact-toggle-link",
-          isCompactTimerActive(pathname) && "is-active",
-        )}
-      >
-        <Timer className="h-3.5 w-3.5" />
-      </Link>
-      <Link
-        to="/backlog"
-        aria-label="Open backlog"
-        aria-current={pathname.startsWith("/backlog") ? "page" : undefined}
-        className={cn(
-          "harday-nav-compact-toggle-link",
-          pathname.startsWith("/backlog") && "is-active",
-        )}
-      >
-        <ListTodo className="h-3.5 w-3.5" />
-      </Link>
-    </div>
-  );
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT}px)`,
+    );
+    const handleViewportChange = () => {
+      setShowMobileModeToggle(mediaQuery.matches);
+    };
+
+    handleViewportChange();
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () =>
+      mediaQuery.removeEventListener("change", handleViewportChange);
+  }, []);
 
   return (
-    <div className={cn("flex min-h-screen flex-col bg-background", isDesktopShell && "desktop-shell-app")}>
+    <div
+      className={cn(
+        "flex min-h-screen flex-col bg-background",
+        isDesktopShell && "desktop-shell-app",
+      )}
+    >
       <ConnectorAutoSyncScheduler />
       {/* Top sticky nav */}
-      <nav className={cn("harday-nav", isDesktopShell && "desktop-shell-nav desktop-drag-region")}>
-        {isDesktopShell ? (
-          <div className="desktop-shell-brand desktop-no-drag">
-            <BrandLogo linked />
-            {renderCompactToggle("harday-nav-compact-toggle-with-brand")}
-          </div>
-        ) : null}
-        <div className={cn("harday-nav-inner", isDesktopShell && "desktop-shell-nav-inner")}>
-          {renderCompactToggle("harday-nav-compact-toggle-inline")}
-
-          <div className={cn("harday-nav-main", isDesktopShell && "desktop-shell-nav-main")}>
-            {isDesktopShell ? null : (
-              <div className={cn("harday-nav-brand", "desktop-no-drag")}>
-                <BrandLogo linked />
-                <div className="harday-nav-divider" />
-              </div>
+      <nav
+        className={cn(
+          "harday-nav",
+          isDesktopShell && "desktop-shell-nav desktop-drag-region",
+        )}
+      >
+        <div
+          className={cn(
+            "harday-nav-inner",
+            isDesktopShell && "desktop-shell-nav-inner",
+          )}
+        >
+          <div
+            className={cn(
+              "harday-nav-main",
+              isDesktopShell && "desktop-shell-nav-main",
             )}
-            <div className={cn("harday-nav-links", isDesktopShell && "desktop-no-drag")}>
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = isNavItemActive(pathname, item.to);
-                return (
-                  <Link
-                    key={item.label}
-                    to={item.to as never}
-                    params={("params" in item ? item.params : undefined) as never}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded px-2.5 py-1 text-[13px] transition",
-                      isActive
-                        ? "bg-[var(--surface-high)] text-foreground"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--surface-high)] hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "harday-nav-menu-trigger",
+                  isDesktopShell && "desktop-no-drag",
+                )}
+                aria-label="Open primary navigation"
+              >
+                <ActiveNavIcon className="h-3.5 w-3.5" />
+                <span>{activeNavItem.label}</span>
+                <ChevronDown className="harday-nav-menu-trigger-arrow h-3.5 w-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="harday-nav-menu-content"
+                align="start"
+                sideOffset={6}
+              >
+                {visibleNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = isNavItemActive(pathname, item.to);
+                  return (
+                    <DropdownMenuItem
+                      key={item.label}
+                      className="harday-nav-menu-item"
+                      onClick={() => {
+                        void navigate({
+                          to: item.to as never,
+                          params: ("params" in item
+                            ? item.params
+                            : undefined) as never,
+                        });
+                      }}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                      {isActive ? <Check className="ml-auto h-4 w-4" /> : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {showMobileModeToggle ? (
+              <ToggleGroup
+                className="harday-mobile-mode-toggle"
+                aria-label="Primary navigation"
+                value={mobileModeValue}
+                onValueChange={(value) => {
+                  const nextValue = value[0];
+                  if (!nextValue) {
+                    return;
+                  }
+
+                  if (nextValue === "time") {
+                    void navigate({
+                      to: "/time/$date",
+                      params: { date: "today" },
+                    });
+                    return;
+                  }
+
+                  void navigate({ to: "/backlog" });
+                }}
+              >
+                <ToggleGroupItem
+                  value="time"
+                  size="sm"
+                  variant="default"
+                  className="harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0"
+                  aria-label="Time"
+                  title="Time"
+                >
+                  <Timer className="h-4 w-4" />
+                  <span className="sr-only">Time</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="backlog"
+                  size="sm"
+                  variant="default"
+                  className="harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0"
+                  aria-label="Backlog"
+                  title="Backlog"
+                >
+                  <ListTodo className="h-4 w-4" />
+                  <span className="sr-only">Backlog</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
           </div>
 
           <GlobalTimerBar />
@@ -633,14 +776,21 @@ export function AppShell() {
       </nav>
 
       {/* Page content */}
-      <main className="flex-1">
-        {pathname.startsWith("/settings") ? (
-          <Outlet />
-        ) : (
-          <div className={cn("page-container", isDesktopShell && "desktop-page-container")}>
+      <main className="app-content-shell flex-1">
+        <ScrollArea className="app-content-scroll-area">
+          {pathname.startsWith("/settings") ? (
             <Outlet />
-          </div>
-        )}
+          ) : (
+            <div
+              className={cn(
+                "page-container",
+                isDesktopShell && "desktop-page-container",
+              )}
+            >
+              <Outlet />
+            </div>
+          )}
+        </ScrollArea>
       </main>
     </div>
   );

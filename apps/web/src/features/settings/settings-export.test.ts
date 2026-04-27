@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
+import { DEFAULT_PROJECT_ICON } from "@/lib/project-icons";
 import {
   buildTimesheetExportRows,
   detectTimesheetImportConflicts,
@@ -14,6 +15,7 @@ const projects: LocalProject[] = [
     _id: "project-1",
     name: "Project Mercury",
     color: "#123456",
+    icon: DEFAULT_PROJECT_ICON,
     status: "active",
     tasks: [
       {
@@ -28,6 +30,7 @@ const projects: LocalProject[] = [
     _id: "project-2",
     name: "Project Gemini",
     color: "#654321",
+    icon: DEFAULT_PROJECT_ICON,
     status: "active",
     tasks: [],
   },

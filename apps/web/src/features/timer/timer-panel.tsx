@@ -1,13 +1,69 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Check, Play, Plus, Trash2, X } from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  RiAddLine as Plus,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiPlayLine as Play,
+  RiTimerLine as Timer,
+} from "@remixicon/react";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyContent,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { formatDurationHoursInput, normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
-import type { LocalTimesheetEntry } from "@/lib/local-store";
-import { localStore } from "@/lib/local-store";
+import {
+  formatDurationHoursInput,
+  normalizeHoursInput,
+  parseHoursInput,
+} from "@/features/timer/hours-input";
+import {
+  getLocalProjectDisplayName,
+  localStore,
+  type LocalTimesheetEntry,
+} from "@/lib/local-store";
+import { ProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
+const ENTRY_DRAG_MOUSE_DELAY_MS = 180;
+const ENTRY_DRAG_TOUCH_DELAY_MS = 260;
+const ENTRY_DRAG_MOUSE_TOLERANCE_PX = 6;
+const ENTRY_DRAG_TOUCH_TOLERANCE_PX = 12;
+
+type EntryDragState = {
+  entryId: string;
+  pointerId: number;
+  originIndex: number;
+  targetIndex: number;
+  pointerX: number;
+  pointerY: number;
+  offsetX: number;
+  offsetY: number;
+  originLeft: number;
+  minTop: number;
+  width: number;
+  height: number;
+};
+
+type PendingEntryPointerSession = {
+  pointerId: number;
+  timeoutId: number;
+  removeListeners: () => void;
+};
 
 function formatEntryHours(durationMs: number) {
   const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
@@ -29,8 +85,70 @@ interface RunningEntryRow {
   entryId?: string;
 }
 
-function isRunningEntry(entry: LocalTimesheetEntry | RunningEntryRow): entry is RunningEntryRow {
+function isRunningEntry(
+  entry: LocalTimesheetEntry | RunningEntryRow,
+): entry is RunningEntryRow {
   return "isRunning" in entry && entry.isRunning;
+}
+
+function getEntryDragDelay(pointerType: string) {
+  return pointerType === "touch"
+    ? ENTRY_DRAG_TOUCH_DELAY_MS
+    : ENTRY_DRAG_MOUSE_DELAY_MS;
+}
+
+function getEntryDragTolerance(pointerType: string) {
+  return pointerType === "touch"
+    ? ENTRY_DRAG_TOUCH_TOLERANCE_PX
+    : ENTRY_DRAG_MOUSE_TOLERANCE_PX;
+}
+
+function isEntryDragBlockedTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement
+    ? Boolean(
+        target.closest(
+          "button, input, textarea, select, option, a, [data-no-entry-drag='true']",
+        ),
+      )
+    : false;
+}
+
+function getEntryDragTargetIndex(
+  entryIds: string[],
+  sourceEntryId: string,
+  pointerY: number,
+  rowRefs: Map<string, HTMLTableRowElement>,
+) {
+  let nextIndex = 0;
+
+  for (const entryId of entryIds) {
+    if (entryId === sourceEntryId) {
+      continue;
+    }
+
+    const row = rowRefs.get(entryId);
+    if (!row) {
+      continue;
+    }
+
+    const rect = row.getBoundingClientRect();
+    if (pointerY >= rect.top + rect.height / 2) {
+      nextIndex += 1;
+    }
+  }
+
+  return nextIndex;
+}
+
+function moveId(ids: string[], fromIndex: number, toIndex: number) {
+  const nextIds = [...ids];
+  const [id] = nextIds.splice(fromIndex, 1);
+  if (!id) {
+    return ids;
+  }
+
+  nextIds.splice(toIndex, 0, id);
+  return nextIds;
 }
 
 export function TimerPanel({
@@ -53,22 +171,41 @@ export function TimerPanel({
   const [newTaskId, setNewTaskId] = useState("");
   const [newNote, setNewNote] = useState("");
   const [newDurationHours, setNewDurationHours] = useState("");
-  const [pendingDeleteEntryId, setPendingDeleteEntryId] = useState<string | null>(null);
+  const [pendingDeleteEntryId, setPendingDeleteEntryId] = useState<
+    string | null
+  >(null);
+  const entryRowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const entryPointerSessionRef = useRef<PendingEntryPointerSession | null>(
+    null,
+  );
+  const entryDragStateRef = useRef<EntryDragState | null>(null);
+  const suppressEntryClickUntilRef = useRef(0);
+  const [pressedEntryId, setPressedEntryId] = useState<string | null>(null);
+  const [entryDragState, setEntryDragState] = useState<EntryDragState | null>(
+    null,
+  );
 
   const projectOptions = useMemo(
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
   const currentTimer = state.timers[0] ?? null;
-  const expandedEntry =
-    expandedEntryId
-      ? state.timesheetEntries.find((entry) => entry._id === expandedEntryId && entry.localDate === date) ?? null
-      : null;
+  const expandedEntry = expandedEntryId
+    ? (state.timesheetEntries.find(
+        (entry) => entry._id === expandedEntryId && entry.localDate === date,
+      ) ?? null)
+    : null;
   const runningEntry = useMemo<RunningEntryRow | null>(() => {
     if (!currentTimer || currentTimer.localDate !== date) {
       return null;
@@ -80,7 +217,9 @@ export function TimerPanel({
       projectId: currentTimer.projectId,
       taskId: currentTimer.taskId,
       note: currentTimer.note,
-      durationMs: currentTimer.accumulatedDurationMs + Math.max(0, now - currentTimer.startedAt),
+      durationMs:
+        currentTimer.accumulatedDurationMs +
+        Math.max(0, now - currentTimer.startedAt),
       committedAt: currentTimer.startedAt,
       isRunning: true,
       timerId: currentTimer._id,
@@ -102,12 +241,18 @@ export function TimerPanel({
       })),
     [expandedAvailableTasks],
   );
-  const expandedParsedDurationMs = useMemo(() => parseHoursInput(expandedDurationHours), [expandedDurationHours]);
+  const expandedParsedDurationMs = useMemo(
+    () => parseHoursInput(expandedDurationHours),
+    [expandedDurationHours],
+  );
   const expandedOriginalDurationHours = useMemo(
-    () => (expandedEntry ? formatDurationHoursInput(expandedEntry.durationMs) : ""),
+    () =>
+      expandedEntry ? formatDurationHoursInput(expandedEntry.durationMs) : "",
     [expandedEntry],
   );
-  const hasExpandedTimeChanged = Boolean(expandedEntry && expandedDurationHours !== expandedOriginalDurationHours);
+  const hasExpandedTimeChanged = Boolean(
+    expandedEntry && expandedDurationHours !== expandedOriginalDurationHours,
+  );
   const expandedDurationError = !hasExpandedTimeChanged
     ? null
     : expandedParsedDurationMs === null
@@ -130,12 +275,20 @@ export function TimerPanel({
       })),
     [newAvailableTasks],
   );
-  const newParsedDurationMs = useMemo(() => parseHoursInput(newDurationHours), [newDurationHours]);
+  const newParsedDurationMs = useMemo(
+    () => parseHoursInput(newDurationHours),
+    [newDurationHours],
+  );
   const newDurationError = useMemo(
-    () => (newDurationHours.trim() !== "" && newParsedDurationMs === null ? "Enter a valid duration" : null),
+    () =>
+      newDurationHours.trim() !== "" && newParsedDurationMs === null
+        ? "Enter a valid duration"
+        : null,
     [newDurationHours, newParsedDurationMs],
   );
-  const hasNewEntryContent = Boolean(newProjectId || newTaskId || newNote.trim() || newDurationHours.trim());
+  const hasNewEntryContent = Boolean(
+    newProjectId || newTaskId || newNote.trim() || newDurationHours.trim(),
+  );
   const showNewTimeActions = newDurationHours.trim() !== "";
 
   const recentEntries = useMemo(
@@ -146,12 +299,31 @@ export function TimerPanel({
     [date, state.timesheetEntries],
   );
   const visibleEntries = useMemo(() => {
-    const filteredEntries = runningEntry?.isRunning && currentTimer?.entryId
-      ? recentEntries.filter((entry) => entry._id !== currentTimer.entryId)
-      : recentEntries;
+    const filteredEntries =
+      runningEntry?.isRunning && currentTimer?.entryId
+        ? recentEntries.filter((entry) => entry._id !== currentTimer.entryId)
+        : recentEntries;
 
     return runningEntry ? [runningEntry, ...filteredEntries] : filteredEntries;
   }, [currentTimer?.entryId, recentEntries, runningEntry]);
+  const draggableEntryIds = useMemo(
+    () =>
+      visibleEntries
+        .filter((entry) => !isRunningEntry(entry))
+        .map((entry) => entry._id),
+    [visibleEntries],
+  );
+  const draggedEntry = useMemo(
+    () =>
+      entryDragState
+        ? (visibleEntries.find(
+            (entry) => entry._id === entryDragState.entryId,
+          ) ?? null)
+        : null,
+    [entryDragState, visibleEntries],
+  );
+  const canReorderEntries =
+    !isCreatingEntry && !expandedEntryId && draggableEntryIds.length > 1;
 
   useEffect(() => {
     if (!runningEntry) {
@@ -183,7 +355,12 @@ export function TimerPanel({
     }
 
     setExpandedTaskId("");
-  }, [expandedAvailableTasks, expandedEntry, expandedProjectId, expandedTaskId]);
+  }, [
+    expandedAvailableTasks,
+    expandedEntry,
+    expandedProjectId,
+    expandedTaskId,
+  ]);
 
   useEffect(() => {
     if (!isCreatingEntry || !newProjectId) {
@@ -203,11 +380,73 @@ export function TimerPanel({
     }
 
     const timeoutId = window.setTimeout(() => {
-      setPendingDeleteEntryId((current) => (current === pendingDeleteEntryId ? null : current));
+      setPendingDeleteEntryId((current) =>
+        current === pendingDeleteEntryId ? null : current,
+      );
     }, 2500);
 
     return () => window.clearTimeout(timeoutId);
   }, [pendingDeleteEntryId]);
+
+  useEffect(() => {
+    entryDragStateRef.current = entryDragState;
+  }, [entryDragState]);
+
+  const clearEntryPointerSession = useCallback(() => {
+    const pendingSession = entryPointerSessionRef.current;
+    if (!pendingSession) {
+      return;
+    }
+
+    window.clearTimeout(pendingSession.timeoutId);
+    pendingSession.removeListeners();
+    entryPointerSessionRef.current = null;
+  }, []);
+
+  const resetEntryDragVisuals = useCallback(() => {
+    document.body.classList.remove("time-entry-drag-active");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
+
+  const finishEntryDrag = useCallback(
+    (shouldCommit: boolean) => {
+      const currentDrag = entryDragStateRef.current;
+      clearEntryPointerSession();
+
+      if (
+        shouldCommit &&
+        currentDrag &&
+        currentDrag.originIndex !== currentDrag.targetIndex
+      ) {
+        localStore.reorderTimesheetEntries(
+          date,
+          moveId(
+            draggableEntryIds,
+            currentDrag.originIndex,
+            currentDrag.targetIndex,
+          ),
+        );
+      }
+
+      suppressEntryClickUntilRef.current = performance.now() + 250;
+      entryDragStateRef.current = null;
+      setEntryDragState(null);
+      setPressedEntryId(null);
+      resetEntryDragVisuals();
+    },
+    [clearEntryPointerSession, date, draggableEntryIds, resetEntryDragVisuals],
+  );
+
+  useEffect(() => {
+    return () => {
+      clearEntryPointerSession();
+      entryDragStateRef.current = null;
+      setEntryDragState(null);
+      setPressedEntryId(null);
+      resetEntryDragVisuals();
+    };
+  }, [clearEntryPointerSession, resetEntryDragVisuals]);
 
   function resetExpandedEntry() {
     setExpandedEntryId(null);
@@ -257,7 +496,8 @@ export function TimerPanel({
       return;
     }
 
-    const nextProjectId = (nextValues?.projectId ?? expandedProjectId) || undefined;
+    const nextProjectId =
+      (nextValues?.projectId ?? expandedProjectId) || undefined;
     const nextTaskId = (nextValues?.taskId ?? expandedTaskId) || undefined;
     const nextNote = (nextValues?.note ?? expandedNote).trim() || undefined;
     const hasMetadataChanges =
@@ -283,7 +523,11 @@ export function TimerPanel({
     }
 
     const nextDurationMs = parseHoursInput(nextDurationHours);
-    if (nextDurationMs === null || nextDurationMs <= 0 || nextDurationMs === expandedEntry.durationMs) {
+    if (
+      nextDurationMs === null ||
+      nextDurationMs <= 0 ||
+      nextDurationMs === expandedEntry.durationMs
+    ) {
       return;
     }
 
@@ -341,7 +585,10 @@ export function TimerPanel({
       return;
     }
 
-    if (typeof window !== "undefined" && !window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches) {
+    if (
+      typeof window !== "undefined" &&
+      !window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches
+    ) {
       resetExpandedEntry();
       setPendingDeleteEntryId(null);
       onOpenEntry?.({});
@@ -353,6 +600,10 @@ export function TimerPanel({
   }
 
   function handleToggleEntry(entry: LocalTimesheetEntry | RunningEntryRow) {
+    if (performance.now() < suppressEntryClickUntilRef.current) {
+      return;
+    }
+
     setPendingDeleteEntryId(null);
 
     if (isCreatingEntry) {
@@ -365,7 +616,10 @@ export function TimerPanel({
       return;
     }
 
-    if (typeof window !== "undefined" && !window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches) {
+    if (
+      typeof window !== "undefined" &&
+      !window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches
+    ) {
       resetExpandedEntry();
       onOpenEntry?.({ entryId: entry._id });
       return;
@@ -420,7 +674,8 @@ export function TimerPanel({
   }, [expandedEntryId]);
 
   function handleExpandedProjectChange(nextProjectId: string) {
-    const nextTaskId = nextProjectId === expandedProjectId ? expandedTaskId : "";
+    const nextTaskId =
+      nextProjectId === expandedProjectId ? expandedTaskId : "";
     setExpandedProjectId(nextProjectId);
     setExpandedTaskId(nextTaskId);
     persistExpandedMetadata({
@@ -473,21 +728,162 @@ export function TimerPanel({
     setPendingDeleteEntryId(entryId);
   }
 
+  function handleEntryPointerDown(
+    entry: LocalTimesheetEntry | RunningEntryRow,
+    event: React.PointerEvent<HTMLTableRowElement>,
+  ) {
+    if (
+      isRunningEntry(entry) ||
+      !canReorderEntries ||
+      event.button !== 0 ||
+      isEntryDragBlockedTarget(event.target)
+    ) {
+      return;
+    }
+
+    const sourceIndex = draggableEntryIds.indexOf(entry._id);
+    if (sourceIndex === -1) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    clearEntryPointerSession();
+    setPressedEntryId(entry._id);
+
+    const { clientX, clientY, pointerId, pointerType } = event;
+    const delay = getEntryDragDelay(pointerType);
+    const tolerance = getEntryDragTolerance(pointerType);
+
+    const startDrag = () => {
+      const row = entryRowRefs.current.get(entry._id);
+      if (!row) {
+        setPressedEntryId(null);
+        return;
+      }
+
+      const rect = row.getBoundingClientRect();
+      const firstRowRect = entryRowRefs.current
+        .get(draggableEntryIds[0] ?? entry._id)
+        ?.getBoundingClientRect();
+      document.body.classList.add("time-entry-drag-active");
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      suppressEntryClickUntilRef.current = performance.now() + 250;
+      setPressedEntryId(null);
+      setPendingDeleteEntryId(null);
+      const nextDragState = {
+        entryId: entry._id,
+        pointerId,
+        originIndex: sourceIndex,
+        targetIndex: sourceIndex,
+        pointerX: clientX,
+        pointerY: clientY,
+        offsetX: clientX - rect.left,
+        offsetY: clientY - rect.top,
+        originLeft: rect.left,
+        minTop: firstRowRect?.top ?? rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+      entryDragStateRef.current = nextDragState;
+      setEntryDragState(nextDragState);
+    };
+
+    const handlePointerMove = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) {
+        return;
+      }
+
+      const currentDrag = entryDragStateRef.current;
+      if (currentDrag?.pointerId === pointerId) {
+        pointerEvent.preventDefault();
+        setEntryDragState((current) => {
+          if (!current) {
+            return current;
+          }
+
+          const nextDragState = {
+            ...current,
+            pointerX: pointerEvent.clientX,
+            pointerY: pointerEvent.clientY,
+            targetIndex: getEntryDragTargetIndex(
+              draggableEntryIds,
+              current.entryId,
+              pointerEvent.clientY,
+              entryRowRefs.current,
+            ),
+          };
+          entryDragStateRef.current = nextDragState;
+          return nextDragState;
+        });
+        return;
+      }
+
+      if (
+        Math.hypot(
+          pointerEvent.clientX - clientX,
+          pointerEvent.clientY - clientY,
+        ) > tolerance
+      ) {
+        clearEntryPointerSession();
+        setPressedEntryId(null);
+      }
+    };
+
+    const handlePointerEnd = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) {
+        return;
+      }
+
+      const wasDragging = entryDragStateRef.current?.pointerId === pointerId;
+      clearEntryPointerSession();
+
+      if (wasDragging) {
+        pointerEvent.preventDefault();
+        finishEntryDrag(pointerEvent.type !== "pointercancel");
+        return;
+      }
+
+      setPressedEntryId(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+
+    entryPointerSessionRef.current = {
+      pointerId,
+      timeoutId: window.setTimeout(startDrag, delay),
+      removeListeners: () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerEnd);
+        window.removeEventListener("pointercancel", handlePointerEnd);
+      },
+    };
+  }
+
   return (
     <div className="space-y-3">
       <div className="entries-table-scroll-shell entries-table-scroll-shell-time">
-        <table className="entries-table animate-in">
+        <table className="entries-table entries-table-header-table animate-in">
           <thead>
             <tr>
               <th className="entry-project-heading">Project</th>
-              <th className="entry-notes-heading hidden lg:table-cell">Notes</th>
+              <th className="entry-notes-heading hidden lg:table-cell">
+                Notes
+              </th>
               <th className="entry-notes-heading lg:hidden">Entries</th>
               <th className="entry-hours-heading entry-hours-heading-create lg:hidden">
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    className={cn("entries-header-add entries-header-bubble", isCreatingEntry && "is-open")}
-                    aria-label={isCreatingEntry ? "Close new entry" : "Add new entry"}
+                    className={cn(
+                      "entries-header-add entries-header-bubble",
+                      isCreatingEntry && "is-open",
+                    )}
+                    aria-label={
+                      isCreatingEntry ? "Close new entry" : "Add new entry"
+                    }
                     onClick={handleCreateToggle}
                   >
                     <span className="entries-header-add-label">New entry</span>
@@ -498,8 +894,13 @@ export function TimerPanel({
               <th className="entry-hours-heading entry-hours-heading-actions hidden lg:table-cell">
                 <button
                   type="button"
-                  className={cn("entries-header-add", isCreatingEntry && "is-open")}
-                  aria-label={isCreatingEntry ? "Close new entry" : "Add new entry"}
+                  className={cn(
+                    "entries-header-add",
+                    isCreatingEntry && "is-open",
+                  )}
+                  aria-label={
+                    isCreatingEntry ? "Close new entry" : "Add new entry"
+                  }
                   onClick={handleCreateToggle}
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -507,9 +908,20 @@ export function TimerPanel({
               </th>
             </tr>
           </thead>
-          <tbody className="entries-table-scroll-region">
+        </table>
+        <ScrollArea className="entries-table-scroll-area">
+          <table
+            className={cn(
+              "entries-table entries-table-body-table animate-in",
+              entryDragState && "is-entry-dragging",
+            )}
+          >
+            <tbody className="entries-table-scroll-region">
               {isCreatingEntry ? (
-                <tr className="entry-edit-row" onClick={(event) => event.stopPropagation()}>
+                <tr
+                  className="entry-edit-row"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <td colSpan={3}>
                     <div className="entry-edit-dropdown entry-create-dropdown">
                       <div className="entry-edit-dropdown-grid">
@@ -532,11 +944,21 @@ export function TimerPanel({
                             value={newTaskId}
                             options={newTaskOptions}
                             onChange={setNewTaskId}
-                            placeholder={newProjectId ? "Select task" : "Pick a project first"}
+                            placeholder={
+                              newProjectId
+                                ? "Select task"
+                                : "Pick a project first"
+                            }
                             clearLabel={newProjectId ? "No task" : undefined}
-                            emptyMessage={newProjectId ? "No matching tasks" : "Pick a project first"}
+                            emptyMessage={
+                              newProjectId
+                                ? "No matching tasks"
+                                : "Pick a project first"
+                            }
                             ariaLabel="Task"
-                            disabled={!newProjectId || newAvailableTasks.length === 0}
+                            disabled={
+                              !newProjectId || newAvailableTasks.length === 0
+                            }
                           />
                         </label>
 
@@ -560,8 +982,14 @@ export function TimerPanel({
                               placeholder="01:30"
                               style={{ fontFamily: "var(--font-mono)" }}
                               value={newDurationHours}
-                              onChange={(event) => setNewDurationHours(event.target.value)}
-                              onBlur={(event) => setNewDurationHours(normalizeHoursInput(event.target.value))}
+                              onChange={(event) =>
+                                setNewDurationHours(event.target.value)
+                              }
+                              onBlur={(event) =>
+                                setNewDurationHours(
+                                  normalizeHoursInput(event.target.value),
+                                )
+                              }
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") {
                                   event.preventDefault();
@@ -592,7 +1020,11 @@ export function TimerPanel({
                               </div>
                             ) : null}
                           </div>
-                          {newDurationError ? <span className="field-error">{newDurationError}</span> : null}
+                          {newDurationError ? (
+                            <span className="field-error">
+                              {newDurationError}
+                            </span>
+                          ) : null}
                         </label>
                       </div>
                     </div>
@@ -603,48 +1035,139 @@ export function TimerPanel({
               {visibleEntries.length === 0 ? (
                 <tr className="entry-empty-row">
                   <td colSpan={3}>
-                    <div className="entry-table-empty">
-                      Saved manual and timer-based entries for this day will appear here.
-                    </div>
+                    <Empty className="entry-table-empty">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <Timer className="h-5 w-5" />
+                        </EmptyMedia>
+                        <EmptyTitle className="font-sans text-[14px] font-semibold tracking-normal">
+                          No time entries
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          Saved manual and timer-based entries for this day will
+                          appear here.
+                        </EmptyDescription>
+                      </EmptyHeader>
+                      <EmptyContent>
+                        <Button
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={handleCreateToggle}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          New entry
+                        </Button>
+                      </EmptyContent>
+                    </Empty>
                   </td>
                 </tr>
               ) : null}
               {visibleEntries.map((entry) => {
-                const project = projects.find((item) => item._id === entry.projectId);
-                const task = project?.tasks.find((item) => item._id === entry.taskId);
+                const project = projects.find(
+                  (item) => item._id === entry.projectId,
+                );
+                const task = project?.tasks.find(
+                  (item) => item._id === entry.taskId,
+                );
                 const isRunning = "isRunning" in entry && entry.isRunning;
                 const isExpanded = expandedEntry?._id === entry._id;
                 const isDeletePending = pendingDeleteEntryId === entry._id;
+                const draggableIndex = draggableEntryIds.indexOf(entry._id);
+                const isDraggedEntry = entryDragState?.entryId === entry._id;
+                const rowShift =
+                  !isRunning && entryDragState && draggableIndex !== -1
+                    ? entryDragState.originIndex < entryDragState.targetIndex
+                      ? draggableIndex > entryDragState.originIndex &&
+                        draggableIndex <= entryDragState.targetIndex
+                        ? -entryDragState.height
+                        : 0
+                      : entryDragState.originIndex > entryDragState.targetIndex
+                        ? draggableIndex >= entryDragState.targetIndex &&
+                          draggableIndex < entryDragState.originIndex
+                          ? entryDragState.height
+                          : 0
+                        : 0
+                    : 0;
 
                 return (
                   <React.Fragment key={entry._id}>
-                    <tr className={cn(isExpanded && "entry-row-expanded")} onClick={() => handleToggleEntry(entry)}>
+                    <tr
+                      ref={(node) => {
+                        if (isRunning) {
+                          return;
+                        }
+
+                        if (node) {
+                          entryRowRefs.current.set(entry._id, node);
+                          return;
+                        }
+
+                        entryRowRefs.current.delete(entry._id);
+                      }}
+                      className={cn(
+                        "time-entry-row",
+                        isExpanded && "entry-row-expanded",
+                        canReorderEntries &&
+                          !isRunning &&
+                          draggableIndex !== -1 &&
+                          "is-reorderable",
+                        pressedEntryId === entry._id && "is-pressing",
+                        rowShift !== 0 && "is-shifting",
+                        isDraggedEntry && "is-drag-source",
+                      )}
+                      style={
+                        rowShift !== 0
+                          ? { transform: `translate3d(0, ${rowShift}px, 0)` }
+                          : undefined
+                      }
+                      aria-grabbed={isDraggedEntry}
+                      onClick={() => handleToggleEntry(entry)}
+                      onPointerDown={(event) =>
+                        handleEntryPointerDown(entry, event)
+                      }
+                    >
                       <td className="entry-project-column">
                         <div className="entry-project-cell">
-                          <span
+                          <ProjectIcon
+                            icon={project?.icon}
+                            color={project?.color ?? "#3b82f6"}
                             className="entry-project-dot"
-                            style={{ background: project?.color ?? "#3b82f6" }}
+                            fallback="dot"
                           />
                           <span className="entry-project-name">
-                            {project?.name ?? "No project"}
+                            {project
+                              ? getLocalProjectDisplayName(project)
+                              : "No project"}
                           </span>
                         </div>
                       </td>
                       <td className="entry-notes-cell">
                         <div className="entry-notes-content">
                           <div className="entry-project-cell entry-project-cell-mobile">
-                            <span
+                            <ProjectIcon
+                              icon={project?.icon}
+                              color={project?.color ?? "#3b82f6"}
                               className="entry-project-dot"
-                              style={{ background: project?.color ?? "#3b82f6" }}
+                              fallback="dot"
                             />
                             <span className="entry-project-name">
-                              {project?.name ?? "No project"}
+                              {project
+                                ? getLocalProjectDisplayName(project)
+                                : "No project"}
                             </span>
                           </div>
-                          {task?.name && <span className="entry-task-name">{task.name}</span>}
-                          {entry.note && <span className="entry-note-text">{entry.note}</span>}
+                          {task?.name && (
+                            <span className="entry-task-name">{task.name}</span>
+                          )}
+                          {entry.note && (
+                            <span className="entry-note-text">
+                              {entry.note}
+                            </span>
+                          )}
                           {"submittedAt" in entry && entry.submittedAt ? (
-                            <span className="entry-submitted-status">submitted</span>
+                            <span className="entry-submitted-status">
+                              submitted
+                            </span>
                           ) : null}
                         </div>
                       </td>
@@ -653,15 +1176,23 @@ export function TimerPanel({
                           {isRunning ? (
                             <span className="stat-pill stat-pill-active entry-running-pill">
                               <span className="status-dot status-dot-pulse" />
-                              <span className="stat-pill-value">{formatEntryHours(entry.durationMs)}</span>
+                              <span className="stat-pill-value">
+                                {formatEntryHours(entry.durationMs)}
+                              </span>
                             </span>
                           ) : (
-                            <div className={cn("entry-row-actions", isDeletePending && "is-confirming")}>
+                            <div
+                              className={cn(
+                                "entry-row-actions",
+                                isDeletePending && "is-confirming",
+                              )}
+                            >
                               <button
                                 type="button"
                                 className="entry-row-action entry-row-action-play"
                                 aria-label="Restart entry"
                                 disabled={Boolean(currentTimer)}
+                                data-no-entry-drag="true"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleRestartEntry(entry._id);
@@ -672,25 +1203,43 @@ export function TimerPanel({
                               <span className="entry-row-action-slot">
                                 <button
                                   type="button"
-                                  className={cn("entry-row-action", "entry-row-action-delete", isDeletePending && "is-confirming")}
-                                  aria-label={isDeletePending ? "Confirm delete entry" : "Delete entry"}
+                                  className={cn(
+                                    "entry-row-action",
+                                    "entry-row-action-delete",
+                                    isDeletePending && "is-confirming",
+                                  )}
+                                  aria-label={
+                                    isDeletePending
+                                      ? "Confirm delete entry"
+                                      : "Delete entry"
+                                  }
+                                  data-no-entry-drag="true"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleDeleteEntry(entry._id);
                                   }}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
-                                  {isDeletePending ? <span>Confirm</span> : null}
+                                  {isDeletePending ? (
+                                    <span>Confirm</span>
+                                  ) : null}
                                 </button>
                               </span>
                             </div>
                           )}
-                          {isRunning ? null : <span className="hours-badge">{formatEntryHours(entry.durationMs)}</span>}
+                          {isRunning ? null : (
+                            <span className="hours-badge">
+                              {formatEntryHours(entry.durationMs)}
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
                     {!isRunning && isExpanded && expandedEntry ? (
-                      <tr className="entry-edit-row" onClick={(e) => e.stopPropagation()}>
+                      <tr
+                        className="entry-edit-row"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <td colSpan={3}>
                           <div className="entry-edit-dropdown">
                             <div className="entry-edit-dropdown-grid">
@@ -715,11 +1264,24 @@ export function TimerPanel({
                                   value={expandedTaskId}
                                   options={expandedTaskOptions}
                                   onChange={handleExpandedTaskChange}
-                                  placeholder={expandedProjectId ? "Select task" : "Pick a project first"}
-                                  clearLabel={expandedProjectId ? "No task" : undefined}
-                                  emptyMessage={expandedProjectId ? "No matching tasks" : "Pick a project first"}
+                                  placeholder={
+                                    expandedProjectId
+                                      ? "Select task"
+                                      : "Pick a project first"
+                                  }
+                                  clearLabel={
+                                    expandedProjectId ? "No task" : undefined
+                                  }
+                                  emptyMessage={
+                                    expandedProjectId
+                                      ? "No matching tasks"
+                                      : "Pick a project first"
+                                  }
                                   ariaLabel="Task"
-                                  disabled={!expandedProjectId || expandedAvailableTasks.length === 0}
+                                  disabled={
+                                    !expandedProjectId ||
+                                    expandedAvailableTasks.length === 0
+                                  }
                                 />
                               </label>
 
@@ -729,7 +1291,9 @@ export function TimerPanel({
                                 <textarea
                                   className="field-input entry-note-input"
                                   value={expandedNote}
-                                  onChange={(event) => setExpandedNote(event.target.value)}
+                                  onChange={(event) =>
+                                    setExpandedNote(event.target.value)
+                                  }
                                   onBlur={(event) => {
                                     const nextNote = event.target.value.trim();
                                     setExpandedNote(nextNote);
@@ -750,12 +1314,22 @@ export function TimerPanel({
                                     placeholder="01:30"
                                     style={{ fontFamily: "var(--font-mono)" }}
                                     value={expandedDurationHours}
-                                    onChange={(event) => setExpandedDurationHours(event.target.value)}
+                                    onChange={(event) =>
+                                      setExpandedDurationHours(
+                                        event.target.value,
+                                      )
+                                    }
                                     onBlur={(event) => {
-                                      const normalizedValue = normalizeHoursInput(event.target.value);
+                                      const normalizedValue =
+                                        normalizeHoursInput(event.target.value);
                                       setExpandedDurationHours(normalizedValue);
                                       const nextTarget = event.relatedTarget;
-                                      if (nextTarget instanceof HTMLElement && nextTarget.closest(".inline-hours-actions")) {
+                                      if (
+                                        nextTarget instanceof HTMLElement &&
+                                        nextTarget.closest(
+                                          ".inline-hours-actions",
+                                        )
+                                      ) {
                                         return;
                                       }
 
@@ -775,8 +1349,12 @@ export function TimerPanel({
                                         type="button"
                                         className="inline-hours-action"
                                         aria-label="Save and close entry"
-                                        disabled={Boolean(expandedDurationError)}
-                                        onMouseDown={(event) => event.preventDefault()}
+                                        disabled={Boolean(
+                                          expandedDurationError,
+                                        )}
+                                        onMouseDown={(event) =>
+                                          event.preventDefault()
+                                        }
                                         onClick={closeExpandedEntry}
                                       >
                                         <Check className="h-3.5 w-3.5" />
@@ -785,7 +1363,9 @@ export function TimerPanel({
                                         type="button"
                                         className="inline-hours-action"
                                         aria-label="Cancel entry changes"
-                                        onMouseDown={(event) => event.preventDefault()}
+                                        onMouseDown={(event) =>
+                                          event.preventDefault()
+                                        }
                                         onClick={discardExpandedEntry}
                                       >
                                         <X className="h-3.5 w-3.5" />
@@ -793,7 +1373,11 @@ export function TimerPanel({
                                     </div>
                                   ) : null}
                                 </div>
-                                {expandedDurationError ? <span className="field-error">{expandedDurationError}</span> : null}
+                                {expandedDurationError ? (
+                                  <span className="field-error">
+                                    {expandedDurationError}
+                                  </span>
+                                ) : null}
                               </label>
                             </div>
                           </div>
@@ -803,9 +1387,67 @@ export function TimerPanel({
                   </React.Fragment>
                 );
               })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </ScrollArea>
       </div>
+
+      {draggedEntry && entryDragState
+        ? (() => {
+            const project = projects.find(
+              (item) => item._id === draggedEntry.projectId,
+            );
+            const task = project?.tasks.find(
+              (item) => item._id === draggedEntry.taskId,
+            );
+
+            return (
+              <div
+                className="time-entry-drag-preview"
+                style={{
+                  width: entryDragState.width,
+                  minHeight: entryDragState.height,
+                  transform: `translate3d(${Math.round(entryDragState.originLeft)}px, ${Math.round(Math.max(entryDragState.minTop, entryDragState.pointerY - entryDragState.offsetY))}px, 0)`,
+                }}
+              >
+                <div className="entry-project-column">
+                  <div className="entry-project-cell">
+                    <ProjectIcon
+                      icon={project?.icon}
+                      color={project?.color ?? "#3b82f6"}
+                      className="entry-project-dot"
+                      fallback="dot"
+                    />
+                    <span className="entry-project-name">
+                      {project
+                        ? getLocalProjectDisplayName(project)
+                        : "No project"}
+                    </span>
+                  </div>
+                </div>
+                <div className="entry-notes-cell">
+                  <div className="entry-notes-content">
+                    {task?.name ? (
+                      <span className="entry-task-name">{task.name}</span>
+                    ) : null}
+                    {draggedEntry.note ? (
+                      <span className="entry-note-text">
+                        {draggedEntry.note}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="entry-hours-cell">
+                  <div className="entry-hours-content">
+                    <span className="hours-badge">
+                      {formatEntryHours(draggedEntry.durationMs)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        : null}
     </div>
   );
 }

@@ -20,6 +20,19 @@
         { "value": "project_open_tasks", "label": "Open tasks across organization" }
       ]
     },
+    {
+      "id": "taskIconDisplayMode",
+      "label": "Imported task icon",
+      "type": "select",
+      "required": true,
+      "defaultValue": "always",
+      "helpText": "Choose whether imported tasks keep the connector icon or switch to the linked project icon.",
+      "options": [
+        { "value": "always", "label": "Always show connector icon" },
+        { "value": "fallback", "label": "Use connector icon as fallback" },
+        { "value": "never", "label": "Never show connector icon" }
+      ]
+    },
     { "id": "priorityFieldName", "label": "Priority field", "type": "text", "placeholder": "MS Priority or Microsoft.VSTS.Common.Priority" },
     { "id": "originalEstimateFieldName", "label": "Original estimate field", "type": "text", "placeholder": "Original estimate field name" },
     { "id": "remainingEstimateFieldName", "label": "Remaining field", "type": "text", "placeholder": "Remaining estimate field name" },

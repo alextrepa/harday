@@ -1,21 +1,35 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive,
-  ArchiveRestore,
-  AlertTriangle,
-  ArrowUpDown,
-  Check,
-  ChevronRight,
-  FileText,
-  Maximize2,
-  Pencil,
-  Play,
-  Plus,
-  RotateCcw,
-  Trash2,
-  X,
-} from "lucide-react";
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  RiAddLine as Plus,
+  RiAlarmWarningLine as AlertTriangle,
+  RiArchiveLine as Archive,
+  RiArrowRightSLine as ChevronRight,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiExpandDiagonalLine as Maximize2,
+  RiFileTextLine as FileText,
+  RiFilter3Line as Filter,
+  RiInboxArchiveLine as ArchiveRestore,
+  RiPencilLine as Pencil,
+  RiPlayLine as Play,
+  RiRefreshLine as RotateCcw,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   buildBacklogStatusLookup,
   buildBacklogStatusNameLookup,
@@ -26,18 +40,34 @@ import {
   getWorkItemParentKey,
   isSubtaskItem,
 } from "@/features/backlog/work-item-hierarchy";
+import {
+  WorkItemIcon,
+  resolveWorkItemIcon,
+  useWorkItemIconData,
+} from "@/features/backlog/work-item-icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { BacklogTaskModal } from "@/features/backlog/backlog-task-modal";
 import {
   applyLoggedTimeToEstimateValues,
   getWorkItemEstimateBadgeLabel,
 } from "@/features/backlog/work-item-estimates";
 import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source-sync";
-import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
-import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
-import { getConnectorsOverview } from "@/lib/app-api";
-import { useLocalProjects, useLocalState, useLocalWorkItems } from "@/lib/local-hooks";
 import {
+  buildWorkItemTimerComment,
+  parseWorkItemReference,
+} from "@/features/backlog/work-item-timer-comment";
+import {
+  normalizeHoursInput,
+  parseHoursInput,
+} from "@/features/timer/hours-input";
+import {
+  useLocalProjects,
+  useLocalState,
+  useLocalWorkItems,
+} from "@/lib/local-hooks";
+import {
+  getLocalProjectDisplayName,
   hasWorkItemEstimateSyncIssue,
   localStore,
   type BacklogSortMode,
@@ -68,6 +98,8 @@ type BacklogDragState = {
   pointerY: number;
   offsetX: number;
   offsetY: number;
+  originLeft: number;
+  minTop: number;
   width: number;
   height: number;
 };
@@ -108,7 +140,9 @@ const EMPTY_BACKLOG_INLINE_EDITOR_STATE: BacklogInlineEditorState = {
   durationHours: "",
 };
 
-function buildBacklogInlineEditorState(workItem: LocalWorkItem): BacklogInlineEditorState {
+function buildBacklogInlineEditorState(
+  workItem: LocalWorkItem,
+): BacklogInlineEditorState {
   return {
     title: workItem.title,
     titleDraft: workItem.title,
@@ -118,9 +152,18 @@ function buildBacklogInlineEditorState(workItem: LocalWorkItem): BacklogInlineEd
     backlogStatusId: workItem.backlogStatusId ?? "",
     projectId: workItem.projectId ?? "",
     taskId: workItem.taskId ?? "",
-    originalEstimateHours: typeof workItem.originalEstimateHours === "number" ? String(workItem.originalEstimateHours) : "",
-    remainingEstimateHours: typeof workItem.remainingEstimateHours === "number" ? String(workItem.remainingEstimateHours) : "",
-    completedEstimateHours: typeof workItem.completedEstimateHours === "number" ? String(workItem.completedEstimateHours) : "",
+    originalEstimateHours:
+      typeof workItem.originalEstimateHours === "number"
+        ? String(workItem.originalEstimateHours)
+        : "",
+    remainingEstimateHours:
+      typeof workItem.remainingEstimateHours === "number"
+        ? String(workItem.remainingEstimateHours)
+        : "",
+    completedEstimateHours:
+      typeof workItem.completedEstimateHours === "number"
+        ? String(workItem.completedEstimateHours)
+        : "",
     durationHours: "",
   };
 }
@@ -131,30 +174,12 @@ const BACKLOG_FILTERS: { value: BacklogFilter; label: string }[] = [
 ];
 
 const BACKLOG_SORT_MODES: { value: "custom" | "priority"; label: string }[] = [
-  { value: "custom", label: "Custom" },
   { value: "priority", label: "Priority" },
+  { value: "custom", label: "Custom" },
 ];
-
-function ConnectorSourceIcon({ svg }: { svg: string | undefined }) {
-  if (!svg) {
-    return null;
-  }
-
-  return (
-    <span
-      className="backlog-task-source-icon inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
-      aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
 
 function isPrioritySortMode(mode: BacklogSortMode) {
   return mode === "priority_asc" || mode === "priority_desc";
-}
-
-function getPrioritySortDirection(mode: BacklogSortMode) {
-  return mode === "priority_desc" ? "desc" : "asc";
 }
 
 function getBacklogSortModeLabel(mode: BacklogSortMode) {
@@ -172,7 +197,10 @@ function formatPriorityInput(priority?: number) {
   return typeof priority === "number" ? String(priority) : "";
 }
 
-function isSamePriorityValue(left: number | undefined | null, right: number | undefined) {
+function isSamePriorityValue(
+  left: number | undefined | null,
+  right: number | undefined,
+) {
   return left === right;
 }
 
@@ -206,7 +234,11 @@ function formatEstimateInput(value?: number) {
   return typeof value === "number" ? String(value) : "";
 }
 
-function buildManualTimeEntryNote(note: string, title: string, sourceId?: string) {
+function buildManualTimeEntryNote(
+  note: string,
+  title: string,
+  sourceId?: string,
+) {
   const trimmedNote = note.trim();
   return trimmedNote || buildWorkItemTimerComment(title, sourceId);
 }
@@ -214,9 +246,12 @@ function buildManualTimeEntryNote(note: string, title: string, sourceId?: string
 function sumChildEstimateTotals(childItems: LocalWorkItem[]) {
   return childItems.reduce(
     (totals, childItem) => ({
-      originalEstimateHours: totals.originalEstimateHours + (childItem.originalEstimateHours ?? 0),
-      remainingEstimateHours: totals.remainingEstimateHours + (childItem.remainingEstimateHours ?? 0),
-      completedEstimateHours: totals.completedEstimateHours + (childItem.completedEstimateHours ?? 0),
+      originalEstimateHours:
+        totals.originalEstimateHours + (childItem.originalEstimateHours ?? 0),
+      remainingEstimateHours:
+        totals.remainingEstimateHours + (childItem.remainingEstimateHours ?? 0),
+      completedEstimateHours:
+        totals.completedEstimateHours + (childItem.completedEstimateHours ?? 0),
     }),
     {
       originalEstimateHours: 0,
@@ -247,12 +282,18 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
 }
 
 function getBacklogDragTolerance(pointerType: string) {
-  return pointerType === "touch" ? BACKLOG_DRAG_TOUCH_TOLERANCE_PX : BACKLOG_DRAG_MOUSE_TOLERANCE_PX;
+  return pointerType === "touch"
+    ? BACKLOG_DRAG_TOUCH_TOLERANCE_PX
+    : BACKLOG_DRAG_MOUSE_TOLERANCE_PX;
 }
 
 function isBacklogDragBlockedTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
-    ? Boolean(target.closest("button, input, textarea, select, option, a, [data-no-backlog-drag='true']"))
+    ? Boolean(
+        target.closest(
+          "button, input, textarea, select, option, a, [data-no-backlog-drag='true']",
+        ),
+      )
     : false;
 }
 
@@ -286,19 +327,24 @@ function getBacklogDragTargetIndex(
 export function BacklogPage() {
   const state = useLocalState();
   const projects = useLocalProjects();
+  const workItemIconData = useWorkItemIconData(projects);
   const workItems = useLocalWorkItems();
   const backlogRowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const backlogSortMenuRef = useRef<HTMLDivElement>(null);
   const expandedNoteModalOverlayRef = useRef<HTMLDivElement>(null);
   const expandedNoteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const inlineDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const backlogPointerSessionRef = useRef<PendingBacklogPointerSession | null>(null);
+  const backlogPointerSessionRef = useRef<PendingBacklogPointerSession | null>(
+    null,
+  );
   const backlogDragStateRef = useRef<BacklogDragState | null>(null);
   const suppressWorkItemClickUntilRef = useRef(0);
   const currentTimer = state.timers[0] ?? null;
   const backlogSortMode = state.backlogSortMode ?? "custom";
   const [isDesktopLayout, setIsDesktopLayout] = useState(() =>
-    typeof window === "undefined" ? true : window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches,
+    typeof window === "undefined"
+      ? true
+      : window.matchMedia(DESKTOP_ENTRY_MEDIA_QUERY).matches,
   );
   const [isCreatingItem, setIsCreatingItem] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -306,8 +352,11 @@ export function BacklogPage() {
   const [newBacklogStatusId, setNewBacklogStatusId] = useState("");
   const [newProjectId, setNewProjectId] = useState("");
   const [newTaskId, setNewTaskId] = useState("");
-  const [expandedWorkItemId, setExpandedWorkItemId] = useState<string | null>(null);
-  const [expandedViewMode, setExpandedViewMode] = useState<ExpandedViewMode | null>(null);
+  const [expandedWorkItemId, setExpandedWorkItemId] = useState<string | null>(
+    null,
+  );
+  const [expandedViewMode, setExpandedViewMode] =
+    useState<ExpandedViewMode | null>(null);
   const [expandedTitle, setExpandedTitle] = useState("");
   const [expandedTitleDraft, setExpandedTitleDraft] = useState("");
   const [expandedPriority, setExpandedPriority] = useState("");
@@ -318,34 +367,52 @@ export function BacklogPage() {
   const [expandedBacklogStatusId, setExpandedBacklogStatusId] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState("");
-  const [expandedOriginalEstimateHours, setExpandedOriginalEstimateHours] = useState("");
-  const [expandedRemainingEstimateHours, setExpandedRemainingEstimateHours] = useState("");
-  const [expandedCompletedEstimateHours, setExpandedCompletedEstimateHours] = useState("");
-  const [connectorIconsBySource, setConnectorIconsBySource] = useState<Record<string, string>>({});
+  const [expandedOriginalEstimateHours, setExpandedOriginalEstimateHours] =
+    useState("");
+  const [expandedRemainingEstimateHours, setExpandedRemainingEstimateHours] =
+    useState("");
+  const [expandedCompletedEstimateHours, setExpandedCompletedEstimateHours] =
+    useState("");
   const [expandedDurationHours, setExpandedDurationHours] = useState("");
-  const [expandedNoteModalTarget, setExpandedNoteModalTarget] = useState<ExpandedNoteModalTarget | null>(null);
-  const [standaloneNoteModalState, setStandaloneNoteModalState] = useState<StandaloneNoteModalState | null>(null);
-  const [expandedChildWorkItemId, setExpandedChildWorkItemId] = useState<string | null>(null);
-  const [expandedChildEditor, setExpandedChildEditor] = useState<BacklogInlineEditorState>(
-    EMPTY_BACKLOG_INLINE_EDITOR_STATE,
-  );
-  const [subtaskDraftParentId, setSubtaskDraftParentId] = useState<string | null>(null);
+  const [expandedNoteModalTarget, setExpandedNoteModalTarget] =
+    useState<ExpandedNoteModalTarget | null>(null);
+  const [standaloneNoteModalState, setStandaloneNoteModalState] =
+    useState<StandaloneNoteModalState | null>(null);
+  const [expandedChildWorkItemId, setExpandedChildWorkItemId] = useState<
+    string | null
+  >(null);
+  const [expandedChildEditor, setExpandedChildEditor] =
+    useState<BacklogInlineEditorState>(EMPTY_BACKLOG_INLINE_EDITOR_STATE);
+  const [subtaskDraftParentId, setSubtaskDraftParentId] = useState<
+    string | null
+  >(null);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskNote, setSubtaskNote] = useState("");
   const [subtaskProjectId, setSubtaskProjectId] = useState("");
   const [subtaskTaskId, setSubtaskTaskId] = useState("");
-  const [pendingArchiveWorkItemId, setPendingArchiveWorkItemId] = useState<string | null>(null);
-  const [pendingDeleteWorkItemId, setPendingDeleteWorkItemId] = useState<string | null>(null);
+  const [pendingArchiveWorkItemId, setPendingArchiveWorkItemId] = useState<
+    string | null
+  >(null);
+  const [pendingDeleteWorkItemId, setPendingDeleteWorkItemId] = useState<
+    string | null
+  >(null);
   const [modalWorkItemId, setModalWorkItemId] = useState<string | null>(null);
-  const [subtaskModalParentId, setSubtaskModalParentId] = useState<string | null>(null);
+  const [subtaskModalParentId, setSubtaskModalParentId] = useState<
+    string | null
+  >(null);
   const [activeFilter, setActiveFilter] = useState<BacklogFilter>("active");
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
-  const [pressedWorkItemId, setPressedWorkItemId] = useState<string | null>(null);
-  const [backlogDragState, setBacklogDragState] = useState<BacklogDragState | null>(null);
+  const [pressedWorkItemId, setPressedWorkItemId] = useState<string | null>(
+    null,
+  );
+  const [backlogDragState, setBacklogDragState] =
+    useState<BacklogDragState | null>(null);
 
   const { activeItems, archivedItems, visibleItems } = useMemo(() => {
     const active = workItems.filter((workItem) => workItem.status === "active");
-    const archived = workItems.filter((workItem) => workItem.status === "archived");
+    const archived = workItems.filter(
+      (workItem) => workItem.status === "archived",
+    );
 
     const visibleByFilter: Record<BacklogFilter, LocalWorkItem[]> = {
       active,
@@ -365,7 +432,9 @@ export function BacklogPage() {
   };
 
   const { visibleRootItems, allChildrenByParent } = useMemo(() => {
-    const allLookupKeys = new Set(workItems.flatMap((workItem) => getWorkItemLookupKeys(workItem)));
+    const allLookupKeys = new Set(
+      workItems.flatMap((workItem) => getWorkItemLookupKeys(workItem)),
+    );
     const nextChildrenByParent = new Map<string, LocalWorkItem[]>();
 
     for (const workItem of workItems) {
@@ -379,7 +448,9 @@ export function BacklogPage() {
       nextChildrenByParent.set(parentKey, siblings);
     }
 
-    const visibleLookupKeys = new Set(visibleItems.flatMap((workItem) => getWorkItemLookupKeys(workItem)));
+    const visibleLookupKeys = new Set(
+      visibleItems.flatMap((workItem) => getWorkItemLookupKeys(workItem)),
+    );
     const nextRoots: LocalWorkItem[] = [];
 
     for (const workItem of visibleItems) {
@@ -391,7 +462,9 @@ export function BacklogPage() {
       nextRoots.push(workItem);
     }
 
-    const visibleIndexById = new Map(visibleItems.map((workItem, index) => [workItem._id, index]));
+    const visibleIndexById = new Map(
+      visibleItems.map((workItem, index) => [workItem._id, index]),
+    );
 
     if (isPrioritySortMode(backlogSortMode)) {
       nextRoots.sort((left, right) => {
@@ -404,7 +477,10 @@ export function BacklogPage() {
             : leftPriority - rightPriority;
         }
 
-        return (visibleIndexById.get(left._id) ?? 0) - (visibleIndexById.get(right._id) ?? 0);
+        return (
+          (visibleIndexById.get(left._id) ?? 0) -
+          (visibleIndexById.get(right._id) ?? 0)
+        );
       });
     }
 
@@ -415,29 +491,52 @@ export function BacklogPage() {
   }, [backlogSortMode, visibleItems, workItems]);
 
   const expandedWorkItem = useMemo(
-    () => workItems.find((workItem) => workItem._id === expandedWorkItemId) ?? null,
+    () =>
+      workItems.find((workItem) => workItem._id === expandedWorkItemId) ?? null,
     [expandedWorkItemId, workItems],
   );
   const expandedChildWorkItem = useMemo(
-    () => workItems.find((workItem) => workItem._id === expandedChildWorkItemId) ?? null,
+    () =>
+      workItems.find((workItem) => workItem._id === expandedChildWorkItemId) ??
+      null,
     [expandedChildWorkItemId, workItems],
   );
   const draggedWorkItem = useMemo(
-    () => (backlogDragState ? workItems.find((workItem) => workItem._id === backlogDragState.workItemId) ?? null : null),
+    () =>
+      backlogDragState
+        ? (workItems.find(
+            (workItem) => workItem._id === backlogDragState.workItemId,
+          ) ?? null)
+        : null,
     [backlogDragState, workItems],
   );
-  const workItemsById = useMemo(() => new Map(workItems.map((workItem) => [workItem._id, workItem])), [workItems]);
+  const workItemsById = useMemo(
+    () => new Map(workItems.map((workItem) => [workItem._id, workItem])),
+    [workItems],
+  );
   const workItemsByLookupKey = useMemo(
     () =>
-      new Map(workItems.flatMap((workItem) => getWorkItemLookupKeys(workItem).map((key) => [key, workItem] as const))),
+      new Map(
+        workItems.flatMap((workItem) =>
+          getWorkItemLookupKeys(workItem).map(
+            (key) => [key, workItem] as const,
+          ),
+        ),
+      ),
     [workItems],
   );
   const projectOptions = useMemo(
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
@@ -485,7 +584,10 @@ export function BacklogPage() {
       })),
     [expandedAvailableTasks],
   );
-  const expandedParsedDurationMs = useMemo(() => parseHoursInput(expandedDurationHours), [expandedDurationHours]);
+  const expandedParsedDurationMs = useMemo(
+    () => parseHoursInput(expandedDurationHours),
+    [expandedDurationHours],
+  );
   const expandedChildAvailableTasks = useMemo(
     () =>
       projects
@@ -523,7 +625,10 @@ export function BacklogPage() {
   );
   const expandedNoteModalTitle = useMemo(() => {
     if (standaloneNoteModalState) {
-      return workItemsById.get(standaloneNoteModalState.workItemId)?.title || "Untitled task";
+      return (
+        workItemsById.get(standaloneNoteModalState.workItemId)?.title ||
+        "Untitled task"
+      );
     }
 
     if (expandedNoteModalTarget === "child") {
@@ -535,7 +640,12 @@ export function BacklogPage() {
       );
     }
 
-    return expandedTitleDraft.trim() || expandedTitle.trim() || expandedWorkItem?.title || "Untitled task";
+    return (
+      expandedTitleDraft.trim() ||
+      expandedTitle.trim() ||
+      expandedWorkItem?.title ||
+      "Untitled task"
+    );
   }, [
     expandedChildEditor.title,
     expandedChildEditor.titleDraft,
@@ -548,14 +658,13 @@ export function BacklogPage() {
     expandedWorkItem?.title,
   ]);
   const expandedNoteModalWorkItem = standaloneNoteModalState
-    ? workItemsById.get(standaloneNoteModalState.workItemId) ?? null
+    ? (workItemsById.get(standaloneNoteModalState.workItemId) ?? null)
     : expandedNoteModalTarget === "child"
       ? expandedChildWorkItem
       : expandedWorkItem;
-  const showExpandedNoteModalSourceIcon =
-    expandedNoteModalWorkItem?.source !== "manual" &&
-    expandedNoteModalWorkItem?.source !== "outlook" &&
-    Boolean(expandedNoteModalWorkItem?.source && connectorIconsBySource[expandedNoteModalWorkItem.source]);
+  const expandedNoteModalIcon = expandedNoteModalWorkItem
+    ? resolveWorkItemIcon(expandedNoteModalWorkItem, workItemIconData)
+    : null;
   const expandedNoteModalValue = standaloneNoteModalState
     ? standaloneNoteModalState.note
     : expandedNoteModalTarget === "child"
@@ -563,17 +672,11 @@ export function BacklogPage() {
       : expandedNote;
   const isAnyModalOpen = Boolean(modalWorkItemId || subtaskModalParentId);
   const canReorderVisibleRootItems =
-    backlogSortMode === "custom" && !isCreatingItem && !expandedWorkItemId && !isAnyModalOpen && visibleRootItems.length > 1;
-
-  useEffect(() => {
-    void getConnectorsOverview()
-      .then((overview) =>
-        setConnectorIconsBySource(
-          Object.fromEntries(overview.plugins.map((plugin) => [plugin.id, plugin.iconSvg] as const)),
-        ),
-      )
-      .catch(() => undefined);
-  }, []);
+    backlogSortMode === "custom" &&
+    !isCreatingItem &&
+    !expandedWorkItemId &&
+    !isAnyModalOpen &&
+    visibleRootItems.length > 1;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -676,7 +779,13 @@ export function BacklogPage() {
       }
 
       if (shouldCommit && currentDrag.originIndex !== currentDrag.targetIndex) {
-        localStore.reorderWorkItems(moveItem(currentDrag.groupIds, currentDrag.originIndex, currentDrag.targetIndex));
+        localStore.reorderWorkItems(
+          moveItem(
+            currentDrag.groupIds,
+            currentDrag.originIndex,
+            currentDrag.targetIndex,
+          ),
+        );
       }
 
       suppressWorkItemClickUntilRef.current = performance.now() + 250;
@@ -741,7 +850,12 @@ export function BacklogPage() {
     }
 
     return getRootWorkItemId(expandedWorkItem);
-  }, [expandedViewMode, expandedWorkItem, expandedWorkItemId, workItemsByLookupKey]);
+  }, [
+    expandedViewMode,
+    expandedWorkItem,
+    expandedWorkItemId,
+    workItemsByLookupKey,
+  ]);
 
   function resetNewItem() {
     setIsCreatingItem(false);
@@ -761,7 +875,9 @@ export function BacklogPage() {
   }
 
   function resetExpandedChildItem() {
-    setExpandedNoteModalTarget((current) => (current === "child" ? null : current));
+    setExpandedNoteModalTarget((current) =>
+      current === "child" ? null : current,
+    );
     setExpandedChildWorkItemId(null);
     setExpandedChildEditor(EMPTY_BACKLOG_INLINE_EDITOR_STATE);
   }
@@ -775,7 +891,9 @@ export function BacklogPage() {
   }
 
   function clearExpandedEditorState() {
-    setExpandedNoteModalTarget((current) => (current === "root" ? null : current));
+    setExpandedNoteModalTarget((current) =>
+      current === "root" ? null : current,
+    );
     setExpandedTitle("");
     setExpandedTitleDraft("");
     setExpandedPriority("");
@@ -824,7 +942,10 @@ export function BacklogPage() {
     resetNewItem();
   }
 
-  function buildExpandedWorkItemPatch(workItem: LocalWorkItem, preserveTitle = false) {
+  function buildExpandedWorkItemPatch(
+    workItem: LocalWorkItem,
+    preserveTitle = false,
+  ) {
     const title = expandedTitle.trim();
     if (!title && !preserveTitle) {
       return null;
@@ -834,9 +955,15 @@ export function BacklogPage() {
     if (priority === null) {
       return null;
     }
-    const originalEstimateHours = parseEstimateInput(expandedOriginalEstimateHours);
-    const remainingEstimateHours = parseEstimateInput(expandedRemainingEstimateHours);
-    const completedEstimateHours = parseEstimateInput(expandedCompletedEstimateHours);
+    const originalEstimateHours = parseEstimateInput(
+      expandedOriginalEstimateHours,
+    );
+    const remainingEstimateHours = parseEstimateInput(
+      expandedRemainingEstimateHours,
+    );
+    const completedEstimateHours = parseEstimateInput(
+      expandedCompletedEstimateHours,
+    );
     if (
       originalEstimateHours === null ||
       remainingEstimateHours === null ||
@@ -867,14 +994,23 @@ export function BacklogPage() {
     localStore.updateWorkItem(workItem._id, patch);
   }
 
-  function buildExpandedChildWorkItemPatch(workItem: LocalWorkItem, preserveTitle = false) {
+  function buildExpandedChildWorkItemPatch(
+    workItem: LocalWorkItem,
+    preserveTitle = false,
+  ) {
     const title = expandedChildEditor.title.trim();
     if (!title && !preserveTitle) {
       return null;
     }
-    const originalEstimateHours = parseEstimateInput(expandedChildEditor.originalEstimateHours);
-    const remainingEstimateHours = parseEstimateInput(expandedChildEditor.remainingEstimateHours);
-    const completedEstimateHours = parseEstimateInput(expandedChildEditor.completedEstimateHours);
+    const originalEstimateHours = parseEstimateInput(
+      expandedChildEditor.originalEstimateHours,
+    );
+    const remainingEstimateHours = parseEstimateInput(
+      expandedChildEditor.remainingEstimateHours,
+    );
+    const completedEstimateHours = parseEstimateInput(
+      expandedChildEditor.completedEstimateHours,
+    );
     if (
       originalEstimateHours === null ||
       remainingEstimateHours === null ||
@@ -911,7 +1047,9 @@ export function BacklogPage() {
     }
 
     const rootWorkItemId = getRootWorkItemId(expandedWorkItem);
-    const rootWorkItem = rootWorkItemId ? workItemsById.get(rootWorkItemId) ?? null : null;
+    const rootWorkItem = rootWorkItemId
+      ? (workItemsById.get(rootWorkItemId) ?? null)
+      : null;
 
     commitExpandedEdits(expandedWorkItem);
 
@@ -925,7 +1063,8 @@ export function BacklogPage() {
 
   function openEditPanel(workItem: LocalWorkItem) {
     const childItems = isSubtaskItem(workItem) ? [] : getChildItems(workItem);
-    const childEstimateTotals = childItems.length > 0 ? sumChildEstimateTotals(childItems) : null;
+    const childEstimateTotals =
+      childItems.length > 0 ? sumChildEstimateTotals(childItems) : null;
     closeExpandedChildItem();
     setExpandedWorkItemId(workItem._id);
     setExpandedViewMode("edit");
@@ -1053,7 +1192,9 @@ export function BacklogPage() {
       return;
     }
 
-    if (workItems.some((workItem) => workItem._id === pendingArchiveWorkItemId)) {
+    if (
+      workItems.some((workItem) => workItem._id === pendingArchiveWorkItemId)
+    ) {
       return;
     }
 
@@ -1066,7 +1207,9 @@ export function BacklogPage() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      setPendingArchiveWorkItemId((current) => (current === pendingArchiveWorkItemId ? null : current));
+      setPendingArchiveWorkItemId((current) =>
+        current === pendingArchiveWorkItemId ? null : current,
+      );
     }, 2500);
 
     return () => window.clearTimeout(timeoutId);
@@ -1077,7 +1220,9 @@ export function BacklogPage() {
       return;
     }
 
-    if (workItems.some((workItem) => workItem._id === pendingDeleteWorkItemId)) {
+    if (
+      workItems.some((workItem) => workItem._id === pendingDeleteWorkItemId)
+    ) {
       return;
     }
 
@@ -1090,7 +1235,9 @@ export function BacklogPage() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      setPendingDeleteWorkItemId((current) => (current === pendingDeleteWorkItemId ? null : current));
+      setPendingDeleteWorkItemId((current) =>
+        current === pendingDeleteWorkItemId ? null : current,
+      );
     }, 2500);
 
     return () => window.clearTimeout(timeoutId);
@@ -1114,7 +1261,10 @@ export function BacklogPage() {
   }, [newAvailableTasks, newProjectId, newTaskId]);
 
   useEffect(() => {
-    if (expandedBacklogStatusId && !backlogStatusNameById.has(expandedBacklogStatusId)) {
+    if (
+      expandedBacklogStatusId &&
+      !backlogStatusNameById.has(expandedBacklogStatusId)
+    ) {
       setExpandedBacklogStatusId("");
     }
   }, [backlogStatusNameById, expandedBacklogStatusId]);
@@ -1135,7 +1285,10 @@ export function BacklogPage() {
       expandedChildEditor.backlogStatusId &&
       !backlogStatusNameById.has(expandedChildEditor.backlogStatusId)
     ) {
-      setExpandedChildEditor((current) => ({ ...current, backlogStatusId: "" }));
+      setExpandedChildEditor((current) => ({
+        ...current,
+        backlogStatusId: "",
+      }));
     }
   }, [backlogStatusNameById, expandedChildEditor.backlogStatusId]);
 
@@ -1147,13 +1300,21 @@ export function BacklogPage() {
       return;
     }
 
-    if (!expandedChildAvailableTasks.some((task) => task._id === expandedChildEditor.taskId)) {
+    if (
+      !expandedChildAvailableTasks.some(
+        (task) => task._id === expandedChildEditor.taskId,
+      )
+    ) {
       setExpandedChildEditor((current) => ({
         ...current,
         taskId: expandedChildAvailableTasks[0]?._id ?? "",
       }));
     }
-  }, [expandedChildAvailableTasks, expandedChildEditor.projectId, expandedChildEditor.taskId]);
+  }, [
+    expandedChildAvailableTasks,
+    expandedChildEditor.projectId,
+    expandedChildEditor.taskId,
+  ]);
 
   useEffect(() => {
     if (!subtaskProjectId) {
@@ -1179,7 +1340,10 @@ export function BacklogPage() {
     setIsCreatingItem(true);
   }
 
-  function handleWorkItemPointerDown(workItem: LocalWorkItem, event: React.PointerEvent<HTMLTableRowElement>) {
+  function handleWorkItemPointerDown(
+    workItem: LocalWorkItem,
+    event: React.PointerEvent<HTMLTableRowElement>,
+  ) {
     if (
       !canReorderVisibleRootItems ||
       event.button !== 0 ||
@@ -1204,7 +1368,10 @@ export function BacklogPage() {
     let latestPointerX = clientX;
     let latestPointerY = clientY;
 
-    const startDrag = (pointerX = latestPointerX, pointerY = latestPointerY) => {
+    const startDrag = (
+      pointerX = latestPointerX,
+      pointerY = latestPointerY,
+    ) => {
       const row = backlogRowRefs.current.get(workItem._id);
       if (!row) {
         setPressedWorkItemId(null);
@@ -1212,6 +1379,9 @@ export function BacklogPage() {
       }
 
       const rect = row.getBoundingClientRect();
+      const firstRowRect = backlogRowRefs.current
+        .get(groupIds[0] ?? workItem._id)
+        ?.getBoundingClientRect();
       document.body.classList.add("backlog-drag-active");
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
@@ -1228,6 +1398,8 @@ export function BacklogPage() {
         pointerY,
         offsetX: pointerX - rect.left,
         offsetY: pointerY - rect.top,
+        originLeft: rect.left,
+        minTop: firstRowRect?.top ?? rect.top,
         width: rect.width,
         height: rect.height,
       });
@@ -1262,7 +1434,12 @@ export function BacklogPage() {
         return;
       }
 
-      if (Math.hypot(pointerEvent.clientX - clientX, pointerEvent.clientY - clientY) > tolerance) {
+      if (
+        Math.hypot(
+          pointerEvent.clientX - clientX,
+          pointerEvent.clientY - clientY,
+        ) > tolerance
+      ) {
         const session = backlogPointerSessionRef.current;
         if (session?.pointerId === pointerId) {
           window.clearTimeout(session.timeoutId);
@@ -1313,8 +1490,14 @@ export function BacklogPage() {
     };
   }
 
-  function handleToggleWorkItem(workItem: LocalWorkItem, options?: { ignoreClickSuppression?: boolean }) {
-    if (!options?.ignoreClickSuppression && performance.now() < suppressWorkItemClickUntilRef.current) {
+  function handleToggleWorkItem(
+    workItem: LocalWorkItem,
+    options?: { ignoreClickSuppression?: boolean },
+  ) {
+    if (
+      !options?.ignoreClickSuppression &&
+      performance.now() < suppressWorkItemClickUntilRef.current
+    ) {
       return;
     }
 
@@ -1347,8 +1530,14 @@ export function BacklogPage() {
       closeExpandedChildItem();
     }
 
-    if (expandedViewMode === "edit" && expandedWorkItemId && expandedWorkItemId !== workItem._id) {
-      const isClosingChild = expandedWorkItem ? isSubtaskItem(expandedWorkItem) : false;
+    if (
+      expandedViewMode === "edit" &&
+      expandedWorkItemId &&
+      expandedWorkItemId !== workItem._id
+    ) {
+      const isClosingChild = expandedWorkItem
+        ? isSubtaskItem(expandedWorkItem)
+        : false;
       closeExpandedItem({ preserveSubtasks: isClosingChild });
     }
 
@@ -1438,7 +1627,9 @@ export function BacklogPage() {
 
   function handleExpandedNoteModalChange(value: string) {
     if (standaloneNoteModalState) {
-      setStandaloneNoteModalState((current) => (current ? { ...current, note: value } : current));
+      setStandaloneNoteModalState((current) =>
+        current ? { ...current, note: value } : current,
+      );
       return;
     }
 
@@ -1551,7 +1742,8 @@ export function BacklogPage() {
         return;
       }
 
-      const nextPriority = typeof parsedPriority === "number" ? String(parsedPriority) : "";
+      const nextPriority =
+        typeof parsedPriority === "number" ? String(parsedPriority) : "";
       setExpandedPriority(nextPriority);
       setExpandedPriorityDraft(nextPriority);
     }
@@ -1566,17 +1758,27 @@ export function BacklogPage() {
   }
 
   function submitExpandedTime() {
-    if (!expandedWorkItem || !expandedParsedDurationMs || expandedParsedDurationMs <= 0) {
+    if (
+      !expandedWorkItem ||
+      !expandedParsedDurationMs ||
+      expandedParsedDurationMs <= 0
+    ) {
       return;
     }
 
-    const hasSubtasks = !isSubtaskItem(expandedWorkItem) && getChildItems(expandedWorkItem).length > 0;
+    const hasSubtasks =
+      !isSubtaskItem(expandedWorkItem) &&
+      getChildItems(expandedWorkItem).length > 0;
     const timeEntryTitle = expandedTitle.trim() || expandedWorkItem.title;
     const patch = buildExpandedWorkItemPatch(expandedWorkItem, true);
     const nextEstimates = applyLoggedTimeToEstimateValues(
       {
-        remainingEstimateHours: patch?.remainingEstimateHours ?? expandedWorkItem.remainingEstimateHours,
-        completedEstimateHours: patch?.completedEstimateHours ?? expandedWorkItem.completedEstimateHours,
+        remainingEstimateHours:
+          patch?.remainingEstimateHours ??
+          expandedWorkItem.remainingEstimateHours,
+        completedEstimateHours:
+          patch?.completedEstimateHours ??
+          expandedWorkItem.completedEstimateHours,
       },
       {
         projectId: patch?.projectId ?? (expandedProjectId || undefined),
@@ -1593,32 +1795,50 @@ export function BacklogPage() {
       workItemId: expandedWorkItem._id,
       projectId: (patch?.projectId ?? expandedProjectId) || undefined,
       taskId: (patch?.taskId ?? expandedTaskId) || undefined,
-      note: buildManualTimeEntryNote(expandedTimeEntryNote, timeEntryTitle, expandedWorkItem.sourceId),
+      note: buildManualTimeEntryNote(
+        expandedTimeEntryNote,
+        timeEntryTitle,
+        expandedWorkItem.sourceId,
+      ),
       durationMs: expandedParsedDurationMs,
     });
     syncBacklogWorkItemToSource(expandedWorkItem);
     if (!hasSubtasks) {
-      setExpandedRemainingEstimateHours(formatEstimateInput(nextEstimates.remainingEstimateHours));
-      setExpandedCompletedEstimateHours(formatEstimateInput(nextEstimates.completedEstimateHours));
+      setExpandedRemainingEstimateHours(
+        formatEstimateInput(nextEstimates.remainingEstimateHours),
+      );
+      setExpandedCompletedEstimateHours(
+        formatEstimateInput(nextEstimates.completedEstimateHours),
+      );
     }
     setExpandedDurationHours("");
     setExpandedTimeEntryNote("");
   }
 
   function submitExpandedChildTime() {
-    if (!expandedChildWorkItem || !expandedChildParsedDurationMs || expandedChildParsedDurationMs <= 0) {
+    if (
+      !expandedChildWorkItem ||
+      !expandedChildParsedDurationMs ||
+      expandedChildParsedDurationMs <= 0
+    ) {
       return;
     }
 
-    const timeEntryTitle = expandedChildEditor.title.trim() || expandedChildWorkItem.title;
+    const timeEntryTitle =
+      expandedChildEditor.title.trim() || expandedChildWorkItem.title;
     const patch = buildExpandedChildWorkItemPatch(expandedChildWorkItem, true);
     const nextEstimates = applyLoggedTimeToEstimateValues(
       {
-        remainingEstimateHours: patch?.remainingEstimateHours ?? expandedChildWorkItem.remainingEstimateHours,
-        completedEstimateHours: patch?.completedEstimateHours ?? expandedChildWorkItem.completedEstimateHours,
+        remainingEstimateHours:
+          patch?.remainingEstimateHours ??
+          expandedChildWorkItem.remainingEstimateHours,
+        completedEstimateHours:
+          patch?.completedEstimateHours ??
+          expandedChildWorkItem.completedEstimateHours,
       },
       {
-        projectId: patch?.projectId ?? (expandedChildEditor.projectId || undefined),
+        projectId:
+          patch?.projectId ?? (expandedChildEditor.projectId || undefined),
         taskId: patch?.taskId ?? (expandedChildEditor.taskId || undefined),
         durationMsDelta: expandedChildParsedDurationMs,
       },
@@ -1630,16 +1850,25 @@ export function BacklogPage() {
     localStore.saveManualTimeEntry({
       localDate: todayIsoDate(),
       workItemId: expandedChildWorkItem._id,
-      projectId: (patch?.projectId ?? expandedChildEditor.projectId) || undefined,
+      projectId:
+        (patch?.projectId ?? expandedChildEditor.projectId) || undefined,
       taskId: (patch?.taskId ?? expandedChildEditor.taskId) || undefined,
-      note: buildManualTimeEntryNote(expandedChildEditor.timeEntryNote, timeEntryTitle, expandedChildWorkItem.sourceId),
+      note: buildManualTimeEntryNote(
+        expandedChildEditor.timeEntryNote,
+        timeEntryTitle,
+        expandedChildWorkItem.sourceId,
+      ),
       durationMs: expandedChildParsedDurationMs,
     });
     syncBacklogWorkItemToSource(expandedChildWorkItem);
     setExpandedChildEditor((current) => ({
       ...current,
-      remainingEstimateHours: formatEstimateInput(nextEstimates.remainingEstimateHours),
-      completedEstimateHours: formatEstimateInput(nextEstimates.completedEstimateHours),
+      remainingEstimateHours: formatEstimateInput(
+        nextEstimates.remainingEstimateHours,
+      ),
+      completedEstimateHours: formatEstimateInput(
+        nextEstimates.completedEstimateHours,
+      ),
       durationHours: "",
       timeEntryNote: "",
     }));
@@ -1677,7 +1906,10 @@ export function BacklogPage() {
     );
   }
 
-  function renderSubtaskComposer(workItem: LocalWorkItem, childItems: LocalWorkItem[]) {
+  function renderSubtaskComposer(
+    workItem: LocalWorkItem,
+    childItems: LocalWorkItem[],
+  ) {
     return (
       <div className="backlog-subtasks-composer">
         <div className="entry-edit-dropdown-grid">
@@ -1716,9 +1948,13 @@ export function BacklogPage() {
               value={subtaskTaskId}
               options={subtaskTaskOptions}
               onChange={setSubtaskTaskId}
-              placeholder={subtaskProjectId ? "Select task" : "Pick a project first"}
+              placeholder={
+                subtaskProjectId ? "Select task" : "Pick a project first"
+              }
               clearLabel={subtaskProjectId ? "No task" : undefined}
-              emptyMessage={subtaskProjectId ? "No matching tasks" : "Pick a project first"}
+              emptyMessage={
+                subtaskProjectId ? "No matching tasks" : "Pick a project first"
+              }
               ariaLabel="Subtask task mapping"
               disabled={!subtaskProjectId || subtaskAvailableTasks.length === 0}
             />
@@ -1760,11 +1996,17 @@ export function BacklogPage() {
     );
   }
 
-  function renderSubtasksSectionRow(workItem: LocalWorkItem, childItems: LocalWorkItem[]) {
+  function renderSubtasksSectionRow(
+    workItem: LocalWorkItem,
+    childItems: LocalWorkItem[],
+  ) {
     const showComposer = subtaskDraftParentId === workItem._id;
 
     return (
-      <tr className="entry-edit-row" onClick={(event) => event.stopPropagation()}>
+      <tr
+        className="entry-edit-row"
+        onClick={(event) => event.stopPropagation()}
+      >
         <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
           <div className="entry-edit-dropdown backlog-subtasks-panel">
             {renderSubtasksSectionHeader(workItem)}
@@ -1780,31 +2022,50 @@ export function BacklogPage() {
     const task = project?.tasks.find((item) => item._id === workItem.taskId);
     const isLogicalChild = forceChild || isSubtaskItem(workItem);
     const childItems = isLogicalChild ? [] : getChildItems(workItem);
-    const childEstimateTotals = !isLogicalChild && childItems.length > 0 ? sumChildEstimateTotals(childItems) : null;
+    const childEstimateTotals =
+      !isLogicalChild && childItems.length > 0
+        ? sumChildEstimateTotals(childItems)
+        : null;
     const hasSubtasks = childItems.length > 0;
-    const isEditingRootItem = expandedViewMode === "edit" && expandedWorkItem?._id === workItem._id;
+    const isEditingRootItem =
+      expandedViewMode === "edit" && expandedWorkItem?._id === workItem._id;
     const isEditingChildItem = expandedChildWorkItem?._id === workItem._id;
-    const isRootExpanded = !isLogicalChild && expandedRootWorkItemId === workItem._id;
-    const showInlineEditor = (isEditingRootItem || isEditingChildItem) && isDesktopLayout;
+    const isRootExpanded =
+      !isLogicalChild && expandedRootWorkItemId === workItem._id;
+    const showInlineEditor =
+      (isEditingRootItem || isEditingChildItem) && isDesktopLayout;
     const isMobileLayout = !isDesktopLayout;
     const isArchivePending = pendingArchiveWorkItemId === workItem._id;
     const isDeletePending = pendingDeleteWorkItemId === workItem._id;
     const isArchived = workItem.status === "archived";
-    const showConnectorIcon =
-      workItem.source !== "manual" &&
-      workItem.source !== "outlook" &&
-      !isLogicalChild &&
-      Boolean(connectorIconsBySource[workItem.source]);
+    const resolvedWorkItemIcon = resolveWorkItemIcon(workItem, workItemIconData);
+    const showWorkItemIcon = true;
     const showSubtasksPill = !isLogicalChild && hasSubtasks;
     const canStartTimer = Boolean(!currentTimer && !isArchived);
-    const editorTitle = isEditingChildItem ? expandedChildEditor.title : expandedTitle;
-    const editorTitleDraft = isEditingChildItem ? expandedChildEditor.titleDraft : expandedTitleDraft;
-    const isEditorTitleEditing = isEditingChildItem ? expandedChildEditor.isTitleEditing : isExpandedTitleEditing;
-    const editorNote = isEditingChildItem ? expandedChildEditor.note : expandedNote;
-    const editorTimeEntryNote = isEditingChildItem ? expandedChildEditor.timeEntryNote : expandedTimeEntryNote;
-    const editorBacklogStatusId = isEditingChildItem ? expandedChildEditor.backlogStatusId : expandedBacklogStatusId;
-    const editorProjectId = isEditingChildItem ? expandedChildEditor.projectId : expandedProjectId;
-    const editorTaskId = isEditingChildItem ? expandedChildEditor.taskId : expandedTaskId;
+    const editorTitle = isEditingChildItem
+      ? expandedChildEditor.title
+      : expandedTitle;
+    const editorTitleDraft = isEditingChildItem
+      ? expandedChildEditor.titleDraft
+      : expandedTitleDraft;
+    const isEditorTitleEditing = isEditingChildItem
+      ? expandedChildEditor.isTitleEditing
+      : isExpandedTitleEditing;
+    const editorNote = isEditingChildItem
+      ? expandedChildEditor.note
+      : expandedNote;
+    const editorTimeEntryNote = isEditingChildItem
+      ? expandedChildEditor.timeEntryNote
+      : expandedTimeEntryNote;
+    const editorBacklogStatusId = isEditingChildItem
+      ? expandedChildEditor.backlogStatusId
+      : expandedBacklogStatusId;
+    const editorProjectId = isEditingChildItem
+      ? expandedChildEditor.projectId
+      : expandedProjectId;
+    const editorTaskId = isEditingChildItem
+      ? expandedChildEditor.taskId
+      : expandedTaskId;
     const editorOriginalEstimateHours = isEditingChildItem
       ? expandedChildEditor.originalEstimateHours
       : expandedOriginalEstimateHours;
@@ -1814,19 +2075,36 @@ export function BacklogPage() {
     const editorCompletedEstimateHours = isEditingChildItem
       ? expandedChildEditor.completedEstimateHours
       : expandedCompletedEstimateHours;
-    const editorDurationHours = isEditingChildItem ? expandedChildEditor.durationHours : expandedDurationHours;
+    const editorDurationHours = isEditingChildItem
+      ? expandedChildEditor.durationHours
+      : expandedDurationHours;
     const editorPriority = isEditingChildItem ? "" : expandedPriority;
     const editorPriorityDraft = isEditingChildItem ? "" : expandedPriorityDraft;
-    const importedPriorityValue = isLogicalChild ? undefined : workItem.importedPriority;
+    const importedPriorityValue = isLogicalChild
+      ? undefined
+      : workItem.importedPriority;
     const canResetInlinePriority =
       !isLogicalChild &&
-      !isSamePriorityValue(parsePriorityInput(editorPriorityDraft), importedPriorityValue);
-    const canResetInlineBacklogStatus = editorBacklogStatusId !== (workItem.importedBacklogStatusId ?? "");
-    const editorTaskOptions = isEditingChildItem ? expandedChildTaskOptions : expandedTaskOptions;
-    const editorAvailableTasks = isEditingChildItem ? expandedChildAvailableTasks : expandedAvailableTasks;
-    const editorParsedDurationMs = isEditingChildItem ? expandedChildParsedDurationMs : expandedParsedDurationMs;
-    const hasEditorTimeDraft = showInlineEditor && editorDurationHours.trim().length > 0;
-    const canSubmitEditorTime = Boolean(editorParsedDurationMs && editorParsedDurationMs > 0);
+      !isSamePriorityValue(
+        parsePriorityInput(editorPriorityDraft),
+        importedPriorityValue,
+      );
+    const canResetInlineBacklogStatus =
+      editorBacklogStatusId !== (workItem.importedBacklogStatusId ?? "");
+    const editorTaskOptions = isEditingChildItem
+      ? expandedChildTaskOptions
+      : expandedTaskOptions;
+    const editorAvailableTasks = isEditingChildItem
+      ? expandedChildAvailableTasks
+      : expandedAvailableTasks;
+    const editorParsedDurationMs = isEditingChildItem
+      ? expandedChildParsedDurationMs
+      : expandedParsedDurationMs;
+    const hasEditorTimeDraft =
+      showInlineEditor && editorDurationHours.trim().length > 0;
+    const canSubmitEditorTime = Boolean(
+      editorParsedDurationMs && editorParsedDurationMs > 0,
+    );
     const canSaveEditorTitle =
       editorTitleDraft.trim().length > 0 &&
       (isLogicalChild || parsePriorityInput(editorPriorityDraft) !== null) &&
@@ -1843,32 +2121,57 @@ export function BacklogPage() {
           : null;
     const sourceMetaParts = [
       isLogicalChild ? "Task" : undefined,
-      workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceConnectionLabel : undefined,
-      workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceProjectName : undefined,
+      workItem.source !== "manual" && workItem.source !== "outlook"
+        ? workItem.sourceConnectionLabel
+        : undefined,
+      workItem.source !== "manual" && workItem.source !== "outlook"
+        ? workItem.sourceProjectName
+        : undefined,
       workItem.sourceWorkItemType,
     ].filter(Boolean);
-    const timeEntryMetaParts = [project?.name, task?.name].filter(Boolean);
-    const sourceReference = workItem.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
-    const sourceUrl = workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceId : undefined;
-    const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
-    const backlogStatus = workItem.backlogStatusId ? backlogStatusById.get(workItem.backlogStatusId) : undefined;
+    const timeEntryMetaParts = [
+      project ? getLocalProjectDisplayName(project) : undefined,
+      task?.name,
+    ].filter(Boolean);
+    const sourceReference =
+      workItem.source === "azure_devops"
+        ? parseWorkItemReference(workItem.sourceId)
+        : undefined;
+    const sourceUrl =
+      workItem.source !== "manual" && workItem.source !== "outlook"
+        ? workItem.sourceId
+        : undefined;
+    const sourceMetaLabel = [
+      sourceReference ? `#${sourceReference}` : undefined,
+      ...sourceMetaParts,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const backlogStatus = workItem.backlogStatusId
+      ? backlogStatusById.get(workItem.backlogStatusId)
+      : undefined;
     const backlogStatusLabel = backlogStatus?.name;
-    const backlogEstimateBadgeLabel = getWorkItemEstimateBadgeLabel(childEstimateTotals ?? workItem);
+    const backlogEstimateBadgeLabel = getWorkItemEstimateBadgeLabel(
+      childEstimateTotals ?? workItem,
+    );
     const startTimerTitle = currentTimer
       ? "Stop the current timer first"
       : `Start timer for ${workItem.title}`;
     const canResetOriginalEstimate =
       childEstimateTotals !== null &&
-      normalizeEstimateComparisonValue(parseEstimateInput(editorOriginalEstimateHours) ?? undefined) !==
-        childEstimateTotals.originalEstimateHours;
+      normalizeEstimateComparisonValue(
+        parseEstimateInput(editorOriginalEstimateHours) ?? undefined,
+      ) !== childEstimateTotals.originalEstimateHours;
     const canResetRemainingEstimate =
       childEstimateTotals !== null &&
-      normalizeEstimateComparisonValue(parseEstimateInput(editorRemainingEstimateHours) ?? undefined) !==
-        childEstimateTotals.remainingEstimateHours;
+      normalizeEstimateComparisonValue(
+        parseEstimateInput(editorRemainingEstimateHours) ?? undefined,
+      ) !== childEstimateTotals.remainingEstimateHours;
     const canResetCompletedEstimate =
       childEstimateTotals !== null &&
-      normalizeEstimateComparisonValue(parseEstimateInput(editorCompletedEstimateHours) ?? undefined) !==
-        childEstimateTotals.completedEstimateHours;
+      normalizeEstimateComparisonValue(
+        parseEstimateInput(editorCompletedEstimateHours) ?? undefined,
+      ) !== childEstimateTotals.completedEstimateHours;
     const hasEstimateSyncIssue = hasWorkItemEstimateSyncIssue(workItem);
     const editorStartTimerTitle = isArchived
       ? "Archived tasks cannot start timers"
@@ -1876,24 +2179,29 @@ export function BacklogPage() {
         ? "Stop the current timer first"
         : `Start timer for ${editorTitle.trim() || workItem.title}`;
     const isDraggedWorkItem = backlogDragState?.workItemId === workItem._id;
-    const rootIndex = visibleRootItems.findIndex((item) => item._id === workItem._id);
-    const rowShift = backlogDragState && backlogDragState.groupIds.includes(workItem._id)
-      ? backlogDragState.originIndex < backlogDragState.targetIndex
-        ? rootIndex > backlogDragState.originIndex &&
-          rootIndex <= backlogDragState.targetIndex
-          ? -backlogDragState.height
-          : 0
-        : backlogDragState.originIndex > backlogDragState.targetIndex
-          ? rootIndex >= backlogDragState.targetIndex &&
-            rootIndex < backlogDragState.originIndex
-            ? backlogDragState.height
+    const rootIndex = visibleRootItems.findIndex(
+      (item) => item._id === workItem._id,
+    );
+    const rowShift =
+      backlogDragState && backlogDragState.groupIds.includes(workItem._id)
+        ? backlogDragState.originIndex < backlogDragState.targetIndex
+          ? rootIndex > backlogDragState.originIndex &&
+            rootIndex <= backlogDragState.targetIndex
+            ? -backlogDragState.height
             : 0
-          : 0
-      : 0;
+          : backlogDragState.originIndex > backlogDragState.targetIndex
+            ? rootIndex >= backlogDragState.targetIndex &&
+              rootIndex < backlogDragState.originIndex
+              ? backlogDragState.height
+              : 0
+            : 0
+        : 0;
     const isReorderableRoot = canReorderVisibleRootItems && !isLogicalChild;
 
     if (showInlineEditor) {
-      const closeInlineEditor = isEditingChildItem ? closeExpandedChildItem : () => closeExpandedItem();
+      const closeInlineEditor = isEditingChildItem
+        ? closeExpandedChildItem
+        : () => closeExpandedItem();
       const beginInlineTitleEdit = () => {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
@@ -1938,7 +2246,10 @@ export function BacklogPage() {
       };
       const setInlineTitleDraft = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, titleDraft: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            titleDraft: value,
+          }));
           return;
         }
 
@@ -1954,7 +2265,10 @@ export function BacklogPage() {
       };
       const setInlineTimeEntryNote = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, timeEntryNote: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            timeEntryNote: value,
+          }));
           return;
         }
 
@@ -1962,7 +2276,10 @@ export function BacklogPage() {
       };
       const setInlineBacklogStatusId = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, backlogStatusId: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            backlogStatusId: value,
+          }));
           return;
         }
 
@@ -1970,7 +2287,10 @@ export function BacklogPage() {
       };
       const setInlineProjectId = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, projectId: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            projectId: value,
+          }));
           return;
         }
 
@@ -1986,7 +2306,10 @@ export function BacklogPage() {
       };
       const setInlineOriginalEstimateHours = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, originalEstimateHours: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            originalEstimateHours: value,
+          }));
           return;
         }
 
@@ -1994,7 +2317,10 @@ export function BacklogPage() {
       };
       const setInlineRemainingEstimateHours = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, remainingEstimateHours: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            remainingEstimateHours: value,
+          }));
           return;
         }
 
@@ -2002,7 +2328,10 @@ export function BacklogPage() {
       };
       const setInlineCompletedEstimateHours = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, completedEstimateHours: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            completedEstimateHours: value,
+          }));
           return;
         }
 
@@ -2016,12 +2345,16 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            originalEstimateHours: formatEstimateInput(childEstimateTotals.originalEstimateHours),
+            originalEstimateHours: formatEstimateInput(
+              childEstimateTotals.originalEstimateHours,
+            ),
           }));
           return;
         }
 
-        setExpandedOriginalEstimateHours(formatEstimateInput(childEstimateTotals.originalEstimateHours));
+        setExpandedOriginalEstimateHours(
+          formatEstimateInput(childEstimateTotals.originalEstimateHours),
+        );
       };
       const resetInlineRemainingEstimate = () => {
         if (!childEstimateTotals) {
@@ -2031,12 +2364,16 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            remainingEstimateHours: formatEstimateInput(childEstimateTotals.remainingEstimateHours),
+            remainingEstimateHours: formatEstimateInput(
+              childEstimateTotals.remainingEstimateHours,
+            ),
           }));
           return;
         }
 
-        setExpandedRemainingEstimateHours(formatEstimateInput(childEstimateTotals.remainingEstimateHours));
+        setExpandedRemainingEstimateHours(
+          formatEstimateInput(childEstimateTotals.remainingEstimateHours),
+        );
       };
       const resetInlineCompletedEstimate = () => {
         if (!childEstimateTotals) {
@@ -2046,16 +2383,23 @@ export function BacklogPage() {
         if (isEditingChildItem) {
           setExpandedChildEditor((current) => ({
             ...current,
-            completedEstimateHours: formatEstimateInput(childEstimateTotals.completedEstimateHours),
+            completedEstimateHours: formatEstimateInput(
+              childEstimateTotals.completedEstimateHours,
+            ),
           }));
           return;
         }
 
-        setExpandedCompletedEstimateHours(formatEstimateInput(childEstimateTotals.completedEstimateHours));
+        setExpandedCompletedEstimateHours(
+          formatEstimateInput(childEstimateTotals.completedEstimateHours),
+        );
       };
       const setInlineDurationHours = (value: string) => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, durationHours: value }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            durationHours: value,
+          }));
           return;
         }
 
@@ -2063,7 +2407,10 @@ export function BacklogPage() {
       };
       const cancelInlineTime = () => {
         if (isEditingChildItem) {
-          setExpandedChildEditor((current) => ({ ...current, durationHours: "" }));
+          setExpandedChildEditor((current) => ({
+            ...current,
+            durationHours: "",
+          }));
           return;
         }
 
@@ -2088,11 +2435,19 @@ export function BacklogPage() {
       return (
         <tr
           key={workItem._id}
-          className={cn("entry-edit-row backlog-inline-editor-row", isLogicalChild && "backlog-row-child")}
+          className={cn(
+            "entry-edit-row backlog-inline-editor-row",
+            isLogicalChild && "backlog-row-child",
+          )}
           onClick={(event) => event.stopPropagation()}
         >
           <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
-            <div className={cn("entry-edit-dropdown backlog-inline-editor", isLogicalChild && "entry-edit-dropdown-child")}>
+            <div
+              className={cn(
+                "entry-edit-dropdown backlog-inline-editor",
+                isLogicalChild && "entry-edit-dropdown-child",
+              )}
+            >
               <div
                 className="backlog-editor-header"
                 onClick={(event) => {
@@ -2105,9 +2460,19 @@ export function BacklogPage() {
                 }}
               >
                 <div className="backlog-editor-heading">
-                  <div className={cn("backlog-inline-title", isLogicalChild && "is-child")}>
+                  <div
+                    className={cn(
+                      "backlog-inline-title",
+                      isLogicalChild && "is-child",
+                    )}
+                  >
                     {isEditorTitleEditing ? (
-                      <div className={cn("backlog-inline-edit-shell", isLogicalChild && "is-child")}>
+                      <div
+                        className={cn(
+                          "backlog-inline-edit-shell",
+                          isLogicalChild && "is-child",
+                        )}
+                      >
                         {!isLogicalChild ? (
                           <input
                             className="field-input backlog-inline-priority-input"
@@ -2115,14 +2480,18 @@ export function BacklogPage() {
                             inputMode="numeric"
                             pattern="[0-9]*"
                             value={editorPriorityDraft}
-                            onChange={(event) => setExpandedPriorityDraft(event.target.value)}
+                            onChange={(event) =>
+                              setExpandedPriorityDraft(event.target.value)
+                            }
                             aria-label="Task priority"
                           />
                         ) : null}
                         <input
                           className="field-input backlog-inline-title-input"
                           value={editorTitleDraft}
-                          onChange={(event) => setInlineTitleDraft(event.target.value)}
+                          onChange={(event) =>
+                            setInlineTitleDraft(event.target.value)
+                          }
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
                               event.preventDefault();
@@ -2134,8 +2503,12 @@ export function BacklogPage() {
                               cancelInlineTitleEdit();
                             }
                           }}
-                          placeholder={isLogicalChild ? "Subtask name" : "Task name"}
-                          aria-label={isLogicalChild ? "Subtask name" : "Task name"}
+                          placeholder={
+                            isLogicalChild ? "Subtask name" : "Task name"
+                          }
+                          aria-label={
+                            isLogicalChild ? "Subtask name" : "Task name"
+                          }
                           autoFocus
                         />
                         {!isLogicalChild && canResetInlinePriority ? (
@@ -2143,7 +2516,11 @@ export function BacklogPage() {
                             <button
                               type="button"
                               className="backlog-inline-reset-button"
-                              onClick={() => setExpandedPriorityDraft(formatPriorityInput(importedPriorityValue))}
+                              onClick={() =>
+                                setExpandedPriorityDraft(
+                                  formatPriorityInput(importedPriorityValue),
+                                )
+                              }
                             >
                               Reset to imported
                             </button>
@@ -2151,13 +2528,24 @@ export function BacklogPage() {
                         ) : null}
                       </div>
                     ) : (
-                      <div className={cn("backlog-inline-title-display", isLogicalChild && "is-child")}>
-                        {!isLogicalChild ? <span className="backlog-priority-pill">{editorPriority}</span> : null}
+                      <div
+                        className={cn(
+                          "backlog-inline-title-display",
+                          isLogicalChild && "is-child",
+                        )}
+                      >
+                        {!isLogicalChild ? (
+                          <span className="backlog-priority-pill">
+                            {editorPriority}
+                          </span>
+                        ) : null}
                         <div className="backlog-inline-title-main">
-                          {showConnectorIcon ? (
-                            <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
+                          {showWorkItemIcon ? (
+                            <WorkItemIcon icon={resolvedWorkItemIcon} />
                           ) : null}
-                          <span className="backlog-inline-title-text">{editorTitle}</span>
+                          <span className="backlog-inline-title-text">
+                            {editorTitle}
+                          </span>
                         </div>
                       </div>
                     )}
@@ -2168,7 +2556,7 @@ export function BacklogPage() {
                         "backlog-inline-meta",
                         isLogicalChild && "is-child",
                         !isLogicalChild && "has-priority",
-                        showConnectorIcon && "has-source-icon",
+                        showWorkItemIcon && "has-source-icon",
                       )}
                     >
                       {sourceUrl ? (
@@ -2183,7 +2571,9 @@ export function BacklogPage() {
                           {sourceMetaLabel}
                         </a>
                       ) : (
-                        <span className="backlog-task-meta">{sourceMetaLabel}</span>
+                        <span className="backlog-task-meta">
+                          {sourceMetaLabel}
+                        </span>
                       )}
                     </div>
                   ) : null}
@@ -2225,8 +2615,16 @@ export function BacklogPage() {
                       ) : !isArchived ? (
                         <button
                           type="button"
-                          className={cn("backlog-task-inline-action", "backlog-task-archive", isDeletePending && "is-confirming")}
-                          aria-label={isDeletePending ? `Confirm delete ${workItem.title}` : `Delete ${workItem.title}`}
+                          className={cn(
+                            "backlog-task-inline-action",
+                            "backlog-task-archive",
+                            isDeletePending && "is-confirming",
+                          )}
+                          aria-label={
+                            isDeletePending
+                              ? `Confirm delete ${workItem.title}`
+                              : `Delete ${workItem.title}`
+                          }
                           onClick={() => handleDeleteWorkItem(workItem._id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -2235,7 +2633,11 @@ export function BacklogPage() {
                       ) : (
                         <button
                           type="button"
-                          className={cn("backlog-task-inline-action", "backlog-task-archive", "is-restore")}
+                          className={cn(
+                            "backlog-task-inline-action",
+                            "backlog-task-archive",
+                            "is-restore",
+                          )}
                           aria-label={`Unarchive ${workItem.title}`}
                           onClick={() => handleUnarchiveWorkItem(workItem._id)}
                         >
@@ -2253,14 +2655,21 @@ export function BacklogPage() {
                             "backlog-task-archive",
                             isArchivePending && "is-confirming",
                           )}
-                          aria-label={isArchivePending ? "Confirm archive task" : "Archive task"}
+                          aria-label={
+                            isArchivePending
+                              ? "Confirm archive task"
+                              : "Archive task"
+                          }
                           onClick={() => handleArchiveWorkItem(workItem._id)}
                         >
                           <Archive className="h-3.5 w-3.5" />
                           {isArchivePending ? <span>Confirm</span> : null}
                         </button>
                       ) : (
-                        <span className="backlog-editor-action-placeholder" aria-hidden="true" />
+                        <span
+                          className="backlog-editor-action-placeholder"
+                          aria-hidden="true"
+                        />
                       )}
                     </span>
                   </div>
@@ -2292,11 +2701,19 @@ export function BacklogPage() {
                     value={editorTaskId}
                     options={editorTaskOptions}
                     onChange={setInlineTaskId}
-                    placeholder={editorProjectId ? "Select task" : "Pick a project first"}
+                    placeholder={
+                      editorProjectId ? "Select task" : "Pick a project first"
+                    }
                     clearLabel={editorProjectId ? "No task" : undefined}
-                    emptyMessage={editorProjectId ? "No matching tasks" : "Pick a project first"}
+                    emptyMessage={
+                      editorProjectId
+                        ? "No matching tasks"
+                        : "Pick a project first"
+                    }
                     ariaLabel="Task mapping"
-                    disabled={!editorProjectId || editorAvailableTasks.length === 0}
+                    disabled={
+                      !editorProjectId || editorAvailableTasks.length === 0
+                    }
                   />
                 </label>
 
@@ -2313,12 +2730,17 @@ export function BacklogPage() {
                         emptyMessage="No matching statuses"
                         ariaLabel="Backlog status"
                       />
-                      {workItem.source !== "manual" && canResetInlineBacklogStatus ? (
+                      {workItem.source !== "manual" &&
+                      canResetInlineBacklogStatus ? (
                         <div className="backlog-field-meta">
                           <button
                             type="button"
                             className="backlog-inline-reset-button"
-                            onClick={() => setInlineBacklogStatusId(workItem.importedBacklogStatusId ?? "")}
+                            onClick={() =>
+                              setInlineBacklogStatusId(
+                                workItem.importedBacklogStatusId ?? "",
+                              )
+                            }
                           >
                             Reset to synced
                           </button>
@@ -2335,7 +2757,9 @@ export function BacklogPage() {
                             type="text"
                             inputMode="decimal"
                             value={editorOriginalEstimateHours}
-                            onChange={(event) => setInlineOriginalEstimateHours(event.target.value)}
+                            onChange={(event) =>
+                              setInlineOriginalEstimateHours(event.target.value)
+                            }
                             placeholder="0"
                             aria-label="Original estimate"
                           />
@@ -2361,7 +2785,11 @@ export function BacklogPage() {
                             type="text"
                             inputMode="decimal"
                             value={editorRemainingEstimateHours}
-                            onChange={(event) => setInlineRemainingEstimateHours(event.target.value)}
+                            onChange={(event) =>
+                              setInlineRemainingEstimateHours(
+                                event.target.value,
+                              )
+                            }
                             placeholder="0"
                             aria-label="Remaining estimate"
                           />
@@ -2387,7 +2815,11 @@ export function BacklogPage() {
                             type="text"
                             inputMode="decimal"
                             value={editorCompletedEstimateHours}
-                            onChange={(event) => setInlineCompletedEstimateHours(event.target.value)}
+                            onChange={(event) =>
+                              setInlineCompletedEstimateHours(
+                                event.target.value,
+                              )
+                            }
                             placeholder="0"
                             aria-label="Completed estimate"
                           />
@@ -2417,7 +2849,11 @@ export function BacklogPage() {
                         className="backlog-note-expand"
                         aria-label={`Expand description editor for ${editorTitle.trim() || workItem.title}`}
                         title="Expand description editor"
-                        onClick={() => openExpandedNoteModal(isEditingChildItem ? "child" : "root")}
+                        onClick={() =>
+                          openExpandedNoteModal(
+                            isEditingChildItem ? "child" : "root",
+                          )
+                        }
                       >
                         <Maximize2 className="h-3.5 w-3.5" />
                       </button>
@@ -2439,7 +2875,9 @@ export function BacklogPage() {
                     <textarea
                       className="field-input entry-note-input"
                       value={editorTimeEntryNote}
-                      onChange={(event) => setInlineTimeEntryNote(event.target.value)}
+                      onChange={(event) =>
+                        setInlineTimeEntryNote(event.target.value)
+                      }
                       placeholder="Time entry note (optional)"
                       rows={2}
                     />
@@ -2455,8 +2893,14 @@ export function BacklogPage() {
                       placeholder="01:30"
                       style={{ fontFamily: "var(--font-mono)" }}
                       value={editorDurationHours}
-                      onChange={(event) => setInlineDurationHours(event.target.value)}
-                      onBlur={(event) => setInlineDurationHours(normalizeHoursInput(event.target.value))}
+                      onChange={(event) =>
+                        setInlineDurationHours(event.target.value)
+                      }
+                      onBlur={(event) =>
+                        setInlineDurationHours(
+                          normalizeHoursInput(event.target.value),
+                        )
+                      }
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
@@ -2496,7 +2940,10 @@ export function BacklogPage() {
                       ) : (
                         <button
                           type="button"
-                          className={cn("inline-hours-action", "inline-hours-action-play")}
+                          className={cn(
+                            "inline-hours-action",
+                            "inline-hours-action-play",
+                          )}
                           aria-label={`Start timer for ${editorTitle.trim() || workItem.title}`}
                           title={editorStartTimerTitle}
                           disabled={!canStartEditorTimer}
@@ -2508,7 +2955,9 @@ export function BacklogPage() {
                       )}
                     </div>
                   </div>
-                  {editorTimeFeedback ? <span className="field-error">{editorTimeFeedback}</span> : null}
+                  {editorTimeFeedback ? (
+                    <span className="field-error">{editorTimeFeedback}</span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -2541,13 +2990,21 @@ export function BacklogPage() {
           pressedWorkItemId === workItem._id && "is-pressing",
           isDraggedWorkItem && "is-drag-source",
         )}
-        style={rowShift !== 0 ? { transform: `translate3d(0, ${rowShift}px, 0)` } : undefined}
+        style={
+          rowShift !== 0
+            ? { transform: `translate3d(0, ${rowShift}px, 0)` }
+            : undefined
+        }
         aria-grabbed={isDraggedWorkItem}
         onClick={() => handleToggleWorkItem(workItem)}
         onPointerDown={(event) => handleWorkItemPointerDown(workItem, event)}
       >
         <td className="backlog-priority-cell">
-          {!isLogicalChild ? <span className="backlog-priority-value">{workItem.priority ?? ""}</span> : null}
+          {!isLogicalChild ? (
+            <span className="backlog-priority-value">
+              {workItem.priority ?? ""}
+            </span>
+          ) : null}
         </td>
         <td className="backlog-task-cell" colSpan={isLogicalChild ? 2 : 1}>
           <div className={cn("backlog-task-row", isLogicalChild && "is-child")}>
@@ -2558,7 +3015,10 @@ export function BacklogPage() {
                     showSubtasksPill ? (
                       <button
                         type="button"
-                        className={cn("backlog-task-subtasks-pill", isRootExpanded && "is-active")}
+                        className={cn(
+                          "backlog-task-subtasks-pill",
+                          isRootExpanded && "is-active",
+                        )}
                         aria-label={`${isRootExpanded ? "Hide" : "Show"} subtasks for ${workItem.title}`}
                         data-no-backlog-drag="true"
                         onPointerDown={(event) => {
@@ -2573,11 +3033,14 @@ export function BacklogPage() {
                         <ChevronRight className="h-4 w-4" />
                       </button>
                     ) : (
-                      <span className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder" aria-hidden="true" />
+                      <span
+                        className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder"
+                        aria-hidden="true"
+                      />
                     )
                   ) : null}
-                  {showConnectorIcon ? (
-                    <ConnectorSourceIcon svg={connectorIconsBySource[workItem.source]} />
+                  {showWorkItemIcon ? (
+                    <WorkItemIcon icon={resolvedWorkItemIcon} />
                   ) : null}
                   <span
                     className={cn(
@@ -2588,7 +3051,10 @@ export function BacklogPage() {
                     {workItem.title}
                   </span>
                   {hasEstimateSyncIssue ? (
-                    <span className="backlog-task-meta flex items-center gap-1 text-amber-300" title="Estimate sync needs review">
+                    <span
+                      className="backlog-task-meta flex items-center gap-1 text-amber-300"
+                      title="Estimate sync needs review"
+                    >
                       <AlertTriangle className="h-3.5 w-3.5" />
                     </span>
                   ) : null}
@@ -2604,7 +3070,7 @@ export function BacklogPage() {
                       "backlog-task-meta",
                       "backlog-task-meta-link",
                       !isLogicalChild && "backlog-task-meta-indented",
-                      showConnectorIcon && "has-source-icon",
+                      showWorkItemIcon && "has-source-icon",
                     )}
                     data-no-backlog-drag="true"
                     onClick={(event) => event.stopPropagation()}
@@ -2616,7 +3082,7 @@ export function BacklogPage() {
                     className={cn(
                       "backlog-task-meta",
                       !isLogicalChild && "backlog-task-meta-indented",
-                      showConnectorIcon && "has-source-icon",
+                      showWorkItemIcon && "has-source-icon",
                     )}
                   >
                     {sourceMetaLabel}
@@ -2629,13 +3095,16 @@ export function BacklogPage() {
                     "backlog-task-meta",
                     "backlog-task-meta-secondary",
                     !isLogicalChild && "backlog-task-meta-indented",
-                    showConnectorIcon && "has-source-icon",
+                    showWorkItemIcon && "has-source-icon",
                   )}
                 >
                   {timeEntryMetaParts.join(" · ")}
                 </span>
               ) : null}
-              {!isArchived && isRootExpanded && expandedViewMode === "edit" && workItem.note ? (
+              {!isArchived &&
+              isRootExpanded &&
+              expandedViewMode === "edit" &&
+              workItem.note ? (
                 <span className="backlog-task-note">{workItem.note}</span>
               ) : null}
             </div>
@@ -2649,7 +3118,9 @@ export function BacklogPage() {
                   className="status-dot backlog-status-dot"
                   style={{ background: backlogStatus?.color }}
                 />
-                <span className="backlog-status-cell-label">{backlogStatusLabel}</span>
+                <span className="backlog-status-cell-label">
+                  {backlogStatusLabel}
+                </span>
               </div>
             ) : null}
           </td>
@@ -2657,7 +3128,12 @@ export function BacklogPage() {
         <td className="entry-hours-cell backlog-estimate-cell">
           <div className="entry-hours-content backlog-estimate-content">
             {!isMobileLayout ? (
-              <div className={cn("entry-row-actions backlog-entry-row-actions", isArchivePending && "is-confirming")}>
+              <div
+                className={cn(
+                  "entry-row-actions backlog-entry-row-actions",
+                  isArchivePending && "is-confirming",
+                )}
+              >
                 {!isArchived ? (
                   <button
                     type="button"
@@ -2710,16 +3186,28 @@ export function BacklogPage() {
                   <span className="entry-row-action-slot">
                     <button
                       type="button"
-                      className={cn("entry-row-action", "entry-row-action-delete", isArchivePending && "is-confirming")}
-                      aria-label={isArchivePending ? "Confirm archive task" : "Archive task"}
-                      title={isArchivePending ? "Confirm archive task" : "Archive task"}
+                      className={cn(
+                        "entry-row-action",
+                        "entry-row-action-delete",
+                        isArchivePending && "is-confirming",
+                      )}
+                      aria-label={
+                        isArchivePending
+                          ? "Confirm archive task"
+                          : "Archive task"
+                      }
+                      title={
+                        isArchivePending
+                          ? "Confirm archive task"
+                          : "Archive task"
+                      }
                       data-no-backlog-drag="true"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleArchiveWorkItem(workItem._id);
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleArchiveWorkItem(workItem._id);
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
                       <Archive className="h-3.5 w-3.5" />
                       {isArchivePending ? <span>Confirm</span> : null}
                     </button>
@@ -2728,7 +3216,9 @@ export function BacklogPage() {
               </div>
             ) : null}
             {backlogEstimateBadgeLabel ? (
-              <span className="hours-badge backlog-estimate-badge">{backlogEstimateBadgeLabel}</span>
+              <span className="hours-badge backlog-estimate-badge">
+                {backlogEstimateBadgeLabel}
+              </span>
             ) : null}
             {isMobileLayout && !isArchived ? (
               <button
@@ -2759,97 +3249,135 @@ export function BacklogPage() {
   const draggedWorkItemProject = draggedWorkItem
     ? projects.find((item) => item._id === draggedWorkItem.projectId)
     : undefined;
-  const draggedWorkItemTask = draggedWorkItemProject?.tasks.find((item) => item._id === draggedWorkItem?.taskId);
-  const draggedWorkItemChildCount = draggedWorkItem ? getChildItems(draggedWorkItem).length : 0;
+  const draggedWorkItemTask = draggedWorkItemProject?.tasks.find(
+    (item) => item._id === draggedWorkItem?.taskId,
+  );
+  const draggedWorkItemChildCount = draggedWorkItem
+    ? getChildItems(draggedWorkItem).length
+    : 0;
   const draggedWorkItemSourceReference =
-    draggedWorkItem?.source === "azure_devops" ? parseWorkItemReference(draggedWorkItem.sourceId) : undefined;
+    draggedWorkItem?.source === "azure_devops"
+      ? parseWorkItemReference(draggedWorkItem.sourceId)
+      : undefined;
   const draggedWorkItemSourceMetaParts = draggedWorkItem
     ? [
-        draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook"
+        draggedWorkItem.source !== "manual" &&
+        draggedWorkItem.source !== "outlook"
           ? draggedWorkItem.sourceConnectionLabel
           : undefined,
-        draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook"
+        draggedWorkItem.source !== "manual" &&
+        draggedWorkItem.source !== "outlook"
           ? draggedWorkItem.sourceProjectName
           : undefined,
         draggedWorkItem.sourceWorkItemType,
       ].filter(Boolean)
     : [];
   const draggedWorkItemSourceMetaLabel = [
-    draggedWorkItemSourceReference ? `#${draggedWorkItemSourceReference}` : undefined,
+    draggedWorkItemSourceReference
+      ? `#${draggedWorkItemSourceReference}`
+      : undefined,
     ...draggedWorkItemSourceMetaParts,
   ]
     .filter(Boolean)
     .join(" · ");
-  const draggedWorkItemTimeEntryMetaParts = [draggedWorkItemProject?.name, draggedWorkItemTask?.name].filter(Boolean);
-  const draggedWorkItemStatus = draggedWorkItem?.backlogStatusId ? backlogStatusById.get(draggedWorkItem.backlogStatusId) : undefined;
+  const draggedWorkItemTimeEntryMetaParts = [
+    draggedWorkItemProject
+      ? getLocalProjectDisplayName(draggedWorkItemProject)
+      : undefined,
+    draggedWorkItemTask?.name,
+  ].filter(Boolean);
+  const draggedWorkItemStatus = draggedWorkItem?.backlogStatusId
+    ? backlogStatusById.get(draggedWorkItem.backlogStatusId)
+    : undefined;
   const draggedWorkItemEstimateBadgeLabel = useMemo(() => {
     if (!draggedWorkItem) {
       return null;
     }
 
-    const draggedChildItems = isSubtaskItem(draggedWorkItem) ? [] : getChildItems(draggedWorkItem);
+    const draggedChildItems = isSubtaskItem(draggedWorkItem)
+      ? []
+      : getChildItems(draggedWorkItem);
     return getWorkItemEstimateBadgeLabel(
-      draggedChildItems.length > 0 ? sumChildEstimateTotals(draggedChildItems) : draggedWorkItem,
+      draggedChildItems.length > 0
+        ? sumChildEstimateTotals(draggedChildItems)
+        : draggedWorkItem,
     );
   }, [draggedWorkItem, getChildItems]);
 
   return (
-    <div className="space-y-4">
-      <section className="backlog-signals" aria-label="Filter tasks">
-        <div className="toggle-group backlog-filter-tabs" role="tablist">
-          {BACKLOG_FILTERS.map((filter) => {
-            const isActive = activeFilter === filter.value;
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={cn("toggle-item backlog-filter-tab", isActive && "toggle-item-active")}
-                onClick={() => {
-                  setActiveFilter(filter.value);
-                  setPendingArchiveWorkItemId(null);
-                  resetExpandedItem();
-                }}
-              >
-                <span className="backlog-filter-label">{filter.label}</span>
-                <span className="backlog-filter-count">{filterCounts[filter.value]}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
+    <div className="backlog-page-stack">
       <div className="entries-table-scroll-shell entries-table-scroll-shell-backlog">
-        <table className={cn("entries-table backlog-table animate-in", backlogDragState && "is-backlog-dragging")}>
+        <table className="entries-table backlog-table entries-table-header-table animate-in">
           <thead>
             <tr>
-              <th className="backlog-priority-heading" aria-hidden="true" />
-              <th className="backlog-task-heading">
+              <th
+                className="backlog-task-heading"
+                colSpan={BACKLOG_TABLE_COLUMN_COUNT}
+              >
                 <div className="backlog-task-heading-content">
                   <span>Backlog Items</span>
                   <div className="backlog-header-actions">
-                    <div ref={backlogSortMenuRef} className="backlog-sort-control">
+                    <div
+                      ref={backlogSortMenuRef}
+                      className="backlog-sort-control"
+                    >
                       <button
                         type="button"
-                        className={cn("entries-header-add backlog-sort-trigger", isSortMenuOpen && "is-open")}
-                        aria-label={`Change backlog sorting. Current mode: ${getBacklogSortModeLabel(backlogSortMode)}`}
-                        title={`Sort backlog by ${getBacklogSortModeLabel(backlogSortMode)}`}
+                        className={cn(
+                          "entries-header-add backlog-sort-trigger",
+                          isSortMenuOpen && "is-open",
+                        )}
+                        aria-label={`Filter backlog. Showing ${activeFilter} items ordered by ${getBacklogSortModeLabel(backlogSortMode)}`}
+                        title="Filter backlog"
                         onClick={() => setIsSortMenuOpen((current) => !current)}
                       >
-                        <ArrowUpDown className="backlog-sort-trigger-icon" />
+                        <Filter className="backlog-sort-trigger-icon" />
                       </button>
                       {isSortMenuOpen ? (
-                        <div className="backlog-sort-menu" role="menu" aria-label="Backlog sort mode">
+                        <div
+                          className="backlog-sort-menu"
+                          role="menu"
+                          aria-label="Backlog filters"
+                        >
+                          <div className="backlog-filter-menu-group" role="group" aria-label="Status">
+                            <span className="backlog-filter-menu-label">Status</span>
+                            {BACKLOG_FILTERS.map((filter) => {
+                              const isActive = activeFilter === filter.value;
+                              return (
+                                <button
+                                  key={filter.value}
+                                  type="button"
+                                  role="menuitemradio"
+                                  aria-checked={isActive}
+                                  className={cn(
+                                    "backlog-sort-option",
+                                    isActive && "is-active",
+                                  )}
+                                  onClick={() => {
+                                    setActiveFilter(filter.value);
+                                    setPendingArchiveWorkItemId(null);
+                                    resetExpandedItem();
+                                  }}
+                                >
+                                  <span className="backlog-filter-option-copy">
+                                    <span>{filter.label}</span>
+                                    <span className="backlog-filter-count">
+                                      {filterCounts[filter.value]}
+                                    </span>
+                                  </span>
+                                  {isActive ? <Check className="h-3.5 w-3.5" /> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="backlog-filter-menu-divider" />
+                          <div className="backlog-filter-menu-group" role="group" aria-label="Order">
+                            <span className="backlog-filter-menu-label">Order</span>
                           {BACKLOG_SORT_MODES.map((sortMode) => {
                             const isActive =
                               sortMode.value === "priority"
                                 ? isPrioritySortMode(backlogSortMode)
                                 : backlogSortMode === sortMode.value;
-                            const label =
-                              sortMode.value === "priority" && isPrioritySortMode(backlogSortMode)
-                                ? `${sortMode.label} ${getPrioritySortDirection(backlogSortMode) === "asc" ? "↑" : "↓"}`
-                                : sortMode.label;
 
                             return (
                               <button
@@ -2857,32 +3385,40 @@ export function BacklogPage() {
                                 type="button"
                                 role="menuitemradio"
                                 aria-checked={isActive}
-                                className={cn("backlog-sort-option", isActive && "is-active")}
+                                className={cn(
+                                  "backlog-sort-option",
+                                  isActive && "is-active",
+                                )}
                                 onClick={() => {
                                   if (sortMode.value === "priority") {
-                                    localStore.setBacklogSortMode(
-                                      isPrioritySortMode(backlogSortMode)
-                                        ? (backlogSortMode === "priority_asc" ? "priority_desc" : "priority_asc")
-                                        : "priority_asc",
-                                    );
+                                    localStore.setBacklogSortMode("priority_asc");
                                   } else {
-                                    localStore.setBacklogSortMode(sortMode.value);
+                                    localStore.setBacklogSortMode(
+                                      sortMode.value,
+                                    );
                                   }
-                                  setIsSortMenuOpen(false);
                                 }}
                               >
-                                <span>{label}</span>
-                                {isActive ? <Check className="h-3.5 w-3.5" /> : null}
+                                <span>{sortMode.label}</span>
+                                {isActive ? (
+                                  <Check className="h-3.5 w-3.5" />
+                                ) : null}
                               </button>
                             );
                           })}
+                          </div>
                         </div>
                       ) : null}
                     </div>
                     <button
                       type="button"
-                      className={cn("entries-header-add entries-header-bubble", isCreatingItem && "is-open")}
-                      aria-label={isCreatingItem ? "Close new task" : "Add new task"}
+                      className={cn(
+                        "entries-header-add entries-header-bubble",
+                        isCreatingItem && "is-open",
+                      )}
+                      aria-label={
+                        isCreatingItem ? "Close new task" : "Add new task"
+                      }
                       onClick={handleCreateToggle}
                     >
                       <span className="entries-header-add-label">New task</span>
@@ -2891,117 +3427,159 @@ export function BacklogPage() {
                   </div>
                 </div>
               </th>
-              <th className="backlog-status-heading" aria-hidden="true" />
-              <th className="backlog-estimate-heading" aria-hidden="true" />
             </tr>
           </thead>
-          <tbody className="entries-table-scroll-region">
-            {isCreatingItem ? (
-              <tr className="entry-edit-row" onClick={(event) => event.stopPropagation()}>
-                <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
-                  <div className="entry-edit-dropdown entry-create-dropdown">
-                    <div className="entry-create-label">New task</div>
-                    <div className="entry-edit-dropdown-grid">
-                      <label className="field backlog-field-title">
-                        <span className="field-label">Task</span>
-                        <input
-                          className="field-input"
-                          value={newTitle}
-                          onChange={(event) => setNewTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              closeNewItem();
-                            }
-                          }}
-                          placeholder="Task name"
-                        />
-                      </label>
-
-                      <label className="field backlog-field-project">
-                        <span className="field-label">Status</span>
-                        <SearchableSelect
-                          value={newBacklogStatusId}
-                          options={backlogStatusOptions}
-                          onChange={setNewBacklogStatusId}
-                          placeholder="No status"
-                          clearLabel="No status"
-                          emptyMessage="No matching statuses"
-                          ariaLabel="Backlog status"
-                        />
-                      </label>
-
-                      <label className="field backlog-field-project">
-                        <span className="field-label">Project</span>
-                        <SearchableSelect
-                          value={newProjectId}
-                          options={projectOptions}
-                          onChange={setNewProjectId}
-                          placeholder="No project"
-                          clearLabel="No project"
-                          emptyMessage="No matching projects"
-                          ariaLabel="Project"
-                        />
-                      </label>
-
-                      <label className="field backlog-field-task">
-                        <span className="field-label">Task mapping</span>
-                        <SearchableSelect
-                          value={newTaskId}
-                          options={newTaskOptions}
-                          onChange={setNewTaskId}
-                          placeholder={newProjectId ? "Select task" : "Pick a project first"}
-                          clearLabel={newProjectId ? "No task" : undefined}
-                          emptyMessage={newProjectId ? "No matching tasks" : "Pick a project first"}
-                          ariaLabel="Task mapping"
-                          disabled={!newProjectId || newAvailableTasks.length === 0}
-                        />
-                      </label>
-
-                      <label className="field backlog-field-note">
-                        <span className="field-label">Description</span>
-                        <textarea
-                          className="field-input entry-note-input"
-                          value={newNote}
-                          onChange={(event) => setNewNote(event.target.value)}
-                          placeholder="Description (optional)"
-                          rows={2}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            ) : null}
-
-            {visibleRootItems.length === 0 ? (
-              <tr className="entry-empty-row">
-                <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
-                  <div className="entry-table-empty">
-                    {activeFilter === "active"
-                      ? "No active tasks yet."
-                      : "No archived tasks."}
-                  </div>
-                </td>
-              </tr>
-            ) : null}
-
-            {visibleRootItems.map((workItem) => {
-              const childItems = getChildItems(workItem);
-              const isExpanded = expandedRootWorkItemId === workItem._id;
-
-              return (
-                <Fragment key={workItem._id}>
-                  {renderWorkItemRow(workItem)}
-                  {isExpanded && !isSubtaskItem(workItem) ? renderSubtasksSectionRow(workItem, childItems) : null}
-                  {isExpanded
-                    ? childItems.map((childItem) => renderWorkItemRow(childItem, true))
-                    : null}
-                </Fragment>
-              );
-            })}
-          </tbody>
         </table>
+        <ScrollArea className="entries-table-scroll-area">
+          <table
+            className={cn(
+              "entries-table backlog-table entries-table-body-table animate-in",
+              backlogDragState && "is-backlog-dragging",
+            )}
+          >
+            <tbody className="entries-table-scroll-region">
+              {isCreatingItem ? (
+                <tr
+                  className="entry-edit-row"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
+                    <div className="entry-edit-dropdown entry-create-dropdown">
+                      <div className="entry-create-label">New task</div>
+                      <div className="entry-edit-dropdown-grid">
+                        <label className="field backlog-field-title">
+                          <span className="field-label">Task</span>
+                          <input
+                            className="field-input"
+                            value={newTitle}
+                            onChange={(event) =>
+                              setNewTitle(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                closeNewItem();
+                              }
+                            }}
+                            placeholder="Task name"
+                          />
+                        </label>
+
+                        <label className="field backlog-field-project">
+                          <span className="field-label">Status</span>
+                          <SearchableSelect
+                            value={newBacklogStatusId}
+                            options={backlogStatusOptions}
+                            onChange={setNewBacklogStatusId}
+                            placeholder="No status"
+                            clearLabel="No status"
+                            emptyMessage="No matching statuses"
+                            ariaLabel="Backlog status"
+                          />
+                        </label>
+
+                        <label className="field backlog-field-project">
+                          <span className="field-label">Project</span>
+                          <SearchableSelect
+                            value={newProjectId}
+                            options={projectOptions}
+                            onChange={setNewProjectId}
+                            placeholder="No project"
+                            clearLabel="No project"
+                            emptyMessage="No matching projects"
+                            ariaLabel="Project"
+                          />
+                        </label>
+
+                        <label className="field backlog-field-task">
+                          <span className="field-label">Task mapping</span>
+                          <SearchableSelect
+                            value={newTaskId}
+                            options={newTaskOptions}
+                            onChange={setNewTaskId}
+                            placeholder={
+                              newProjectId
+                                ? "Select task"
+                                : "Pick a project first"
+                            }
+                            clearLabel={newProjectId ? "No task" : undefined}
+                            emptyMessage={
+                              newProjectId
+                                ? "No matching tasks"
+                                : "Pick a project first"
+                            }
+                            ariaLabel="Task mapping"
+                            disabled={
+                              !newProjectId || newAvailableTasks.length === 0
+                            }
+                          />
+                        </label>
+
+                        <label className="field backlog-field-note">
+                          <span className="field-label">Description</span>
+                          <textarea
+                            className="field-input entry-note-input"
+                            value={newNote}
+                            onChange={(event) => setNewNote(event.target.value)}
+                            placeholder="Description (optional)"
+                            rows={2}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {visibleRootItems.length === 0 ? (
+                <tr className="entry-empty-row">
+                  <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
+                    <Empty className="entry-table-empty">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          {activeFilter === "active" ? (
+                            <FileText className="h-5 w-5" />
+                          ) : (
+                            <ArchiveRestore className="h-5 w-5" />
+                          )}
+                        </EmptyMedia>
+                        <EmptyTitle>
+                          {activeFilter === "active"
+                            ? "No active tasks"
+                            : "No archived tasks"}
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          {activeFilter === "active"
+                            ? "Create one with the + button above."
+                            : "Archived tasks will appear here."}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  </td>
+                </tr>
+              ) : null}
+
+              {visibleRootItems.map((workItem) => {
+                const childItems = getChildItems(workItem);
+                const isExpanded = expandedRootWorkItemId === workItem._id;
+
+                return (
+                  <Fragment key={workItem._id}>
+                    {renderWorkItemRow(workItem)}
+                    {isExpanded && !isSubtaskItem(workItem)
+                      ? renderSubtasksSectionRow(workItem, childItems)
+                      : null}
+                    {isExpanded
+                      ? childItems.map((childItem) =>
+                          renderWorkItemRow(childItem, true),
+                        )
+                      : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollArea>
       </div>
 
       {draggedWorkItem && backlogDragState ? (
@@ -3010,12 +3588,14 @@ export function BacklogPage() {
           style={{
             width: backlogDragState.width,
             minHeight: backlogDragState.height,
-            transform: `translate3d(${Math.round(backlogDragState.pointerX - backlogDragState.offsetX)}px, ${Math.round(backlogDragState.pointerY - backlogDragState.offsetY)}px, 0)`,
+            transform: `translate3d(${Math.round(backlogDragState.originLeft)}px, ${Math.round(Math.max(backlogDragState.minTop, backlogDragState.pointerY - backlogDragState.offsetY))}px, 0)`,
           }}
         >
           <div className="backlog-task-drag-preview-grid">
             <div className="backlog-priority-cell backlog-task-drag-preview-priority">
-              <span className="backlog-priority-value">{draggedWorkItem.priority ?? ""}</span>
+              <span className="backlog-priority-value">
+                {draggedWorkItem.priority ?? ""}
+              </span>
             </div>
             <div className="backlog-task-cell backlog-task-drag-preview-cell">
               <div className="backlog-task-row">
@@ -3023,19 +3603,29 @@ export function BacklogPage() {
                   <div className="backlog-task-title-row">
                     <div className="backlog-task-title-content">
                       {draggedWorkItemChildCount > 0 ? (
-                        <span className="backlog-task-subtasks-indicator" aria-hidden="true">
+                        <span
+                          className="backlog-task-subtasks-indicator"
+                          aria-hidden="true"
+                        >
                           <ChevronRight className="h-4 w-4" />
                         </span>
                       ) : (
-                        <span className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder" aria-hidden="true" />
+                        <span
+                          className="backlog-task-subtasks-indicator backlog-task-subtasks-placeholder"
+                          aria-hidden="true"
+                        />
                       )}
-                      {draggedWorkItem.source !== "manual" && draggedWorkItem.source !== "outlook" ? (
-                        <ConnectorSourceIcon svg={connectorIconsBySource[draggedWorkItem.source]} />
-                      ) : null}
+                      <WorkItemIcon
+                        icon={resolveWorkItemIcon(
+                          draggedWorkItem,
+                          workItemIconData,
+                        )}
+                      />
                       <span
                         className={cn(
                           "backlog-task-title",
-                          draggedWorkItem.status === "archived" && "is-archived",
+                          draggedWorkItem.status === "archived" &&
+                            "is-archived",
                         )}
                       >
                         {draggedWorkItem.title}
@@ -3043,7 +3633,9 @@ export function BacklogPage() {
                     </div>
                   </div>
                   {draggedWorkItemSourceMetaLabel ? (
-                    <span className="backlog-task-meta">{draggedWorkItemSourceMetaLabel}</span>
+                    <span className="backlog-task-meta">
+                      {draggedWorkItemSourceMetaLabel}
+                    </span>
                   ) : null}
                   {draggedWorkItemTimeEntryMetaParts.length > 0 ? (
                     <span className="backlog-task-meta backlog-task-meta-secondary">
@@ -3060,14 +3652,18 @@ export function BacklogPage() {
                     className="status-dot backlog-status-dot"
                     style={{ background: draggedWorkItemStatus.color }}
                   />
-                  <span className="backlog-status-cell-label">{draggedWorkItemStatus.name}</span>
+                  <span className="backlog-status-cell-label">
+                    {draggedWorkItemStatus.name}
+                  </span>
                 </div>
               ) : null}
             </div>
             <div className="entry-hours-cell backlog-estimate-cell backlog-task-drag-preview-estimate">
               {draggedWorkItemEstimateBadgeLabel ? (
                 <div className="entry-hours-content">
-                  <span className="hours-badge backlog-estimate-badge">{draggedWorkItemEstimateBadgeLabel}</span>
+                  <span className="hours-badge backlog-estimate-badge">
+                    {draggedWorkItemEstimateBadgeLabel}
+                  </span>
                 </div>
               ) : null}
             </div>
@@ -3104,12 +3700,15 @@ export function BacklogPage() {
             aria-labelledby="backlog-note-modal-title"
           >
             <div className="time-entry-modal-header backlog-note-modal-header">
-              <div className="backlog-note-modal-heading">
-                <div className="backlog-note-modal-title-row">
-                  {showExpandedNoteModalSourceIcon ? (
-                    <ConnectorSourceIcon svg={expandedNoteModalWorkItem ? connectorIconsBySource[expandedNoteModalWorkItem.source] : undefined} />
-                  ) : null}
-                  <span id="backlog-note-modal-title" className="backlog-note-modal-task-title">
+                <div className="backlog-note-modal-heading">
+                  <div className="backlog-note-modal-title-row">
+                    {expandedNoteModalIcon ? (
+                      <WorkItemIcon icon={expandedNoteModalIcon} />
+                    ) : null}
+                  <span
+                    id="backlog-note-modal-title"
+                    className="backlog-note-modal-task-title"
+                  >
                     {expandedNoteModalTitle}
                   </span>
                 </div>
@@ -3128,7 +3727,9 @@ export function BacklogPage() {
                 ref={expandedNoteTextareaRef}
                 className="field-input entry-note-input backlog-note-modal-input"
                 value={expandedNoteModalValue}
-                onChange={(event) => handleExpandedNoteModalChange(event.target.value)}
+                onChange={(event) =>
+                  handleExpandedNoteModalChange(event.target.value)
+                }
                 placeholder="Description (optional)"
                 rows={18}
               />

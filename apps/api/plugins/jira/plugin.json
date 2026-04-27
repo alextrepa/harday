@@ -22,6 +22,19 @@
         { "value": "project_open_issues", "label": "Open issues" }
       ]
     },
+    {
+      "id": "taskIconDisplayMode",
+      "label": "Imported task icon",
+      "type": "select",
+      "required": true,
+      "defaultValue": "always",
+      "helpText": "Choose whether imported tasks keep the connector icon or switch to the linked project icon.",
+      "options": [
+        { "value": "always", "label": "Always show connector icon" },
+        { "value": "fallback", "label": "Use connector icon as fallback" },
+        { "value": "never", "label": "Never show connector icon" }
+      ]
+    },
     { "id": "originalEstimateFieldName", "label": "Original estimate field", "type": "text", "placeholder": "Original estimate field name or id" },
     { "id": "remainingEstimateFieldName", "label": "Remaining field", "type": "text", "placeholder": "Remaining estimate field name or id" },
     { "id": "completedEstimateFieldName", "label": "Completed field", "type": "text", "placeholder": "Completed estimate field name or id" },

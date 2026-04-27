@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 import type { LocalProject } from "@/lib/local-store";
+import { DEFAULT_PROJECT_ICON } from "@/lib/project-icons";
 import {
   buildProjectTransferRows,
   createProjectTransferWorkbook,
@@ -13,6 +14,7 @@ const projects: LocalProject[] = [
     name: "Project Mercury",
     code: "MER",
     color: "#123456",
+    icon: DEFAULT_PROJECT_ICON,
     status: "active",
     tasks: [
       {
@@ -34,6 +36,7 @@ const projects: LocalProject[] = [
     _id: "project-2",
     name: "Project Gemini",
     color: "#654321",
+    icon: DEFAULT_PROJECT_ICON,
     status: "archived",
     tasks: [],
   },

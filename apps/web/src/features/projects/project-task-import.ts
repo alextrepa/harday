@@ -1,28 +1,14 @@
 import * as XLSX from "xlsx";
+import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import-utils";
+
+export {
+  formatTaskImportName,
+  normalizeTaskImportName,
+  type ProjectTaskImportResult,
+} from "@/features/projects/project-task-import-utils";
 
 const taskImportColumnIndex = 2;
-const repeatedWhitespacePattern = /\s+/g;
-const combiningMarkPattern = /[\u0300-\u036f]/g;
 const taskImportHeader = "nom personnalise de la tache";
-
-export type ProjectTaskImportResult = {
-  importedCount: number;
-  duplicateCount: number;
-  blankCount: number;
-  headerCount: number;
-  importedNames: string[];
-};
-
-export function formatTaskImportName(value: string): string {
-  return value.trim().replace(repeatedWhitespacePattern, " ");
-}
-
-export function normalizeTaskImportName(value: string): string {
-  return formatTaskImportName(value)
-    .normalize("NFD")
-    .replace(combiningMarkPattern, "")
-    .toLowerCase();
-}
 
 export function extractTaskNamesFromWorkbook(buffer: ArrayBuffer) {
   let workbook: XLSX.WorkBook;

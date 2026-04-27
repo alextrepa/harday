@@ -1,19 +1,22 @@
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  RiArrowLeftSLine as ChevronLeft,
+  RiArrowRightSLine as ChevronRight,
+} from "@remixicon/react";
 import { addDaysIsoDate, cn } from "@/lib/utils";
 
 function dateAtNoon(localDate: string) {
   return new Date(`${localDate}T12:00:00`);
 }
 
-function formatPageTitle(localDate: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-  }).format(dateAtNoon(localDate));
+function formatWeekdayLong(localDate: string) {
+  return new Intl.DateTimeFormat("en-CA", { weekday: "long" }).format(dateAtNoon(localDate));
+}
+
+function formatMonthDay(localDate: string) {
+  return new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(
+    dateAtNoon(localDate),
+  );
 }
 
 function formatWeekday(localDate: string) {
@@ -46,58 +49,81 @@ export function DayViewerCard({
   headerActions,
 }: DayViewerCardProps) {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-0">
-        <div className="relative border-b border-[var(--border)] bg-[var(--surface-high)] px-4 py-4 sm:px-5 sm:py-5 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-b before:from-indigo-500/[0.06] before:to-transparent">
-          <div className="space-y-3 lg:hidden">
-            <h1 className="min-w-0 text-[26px] font-semibold tracking-[-0.04em] text-foreground sm:text-[28px]">
-              {formatPageTitle(date)}
-            </h1>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => onSelectDate(addDaysIsoDate(date, -1))}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => onSelectDate(addDaysIsoDate(date, 1))}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                {date !== today ? (
-                  <Button variant="ghost" size="sm" onClick={() => onSelectDate(today)}>
-                    Return to today
-                  </Button>
-                ) : null}
-              </div>
-
-            </div>
+    <div className="day-viewer">
+      {/* Mobile layout */}
+      <div className="day-viewer-mobile lg:hidden">
+        <div className="day-viewer-date-section-mobile">
+          <div className="day-viewer-arrows">
+            <button
+              type="button"
+              className="day-viewer-arrow"
+              onClick={() => onSelectDate(addDaysIsoDate(date, -1))}
+              aria-label="Previous day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="day-viewer-arrow"
+              onClick={() => onSelectDate(addDaysIsoDate(date, 1))}
+              aria-label="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
-
-          <div className="hidden items-center justify-between gap-4 lg:flex">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => onSelectDate(addDaysIsoDate(date, -1))}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => onSelectDate(addDaysIsoDate(date, 1))}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <div className="ml-1">
-                <h1 className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">
-                  {formatPageTitle(date)}
-                </h1>
-              </div>
-              {date !== today ? (
-                <Button variant="ghost" size="sm" className="ml-1" onClick={() => onSelectDate(today)}>
-                  Return to today
-                </Button>
-              ) : null}
-            </div>
-
-            {headerActions ? <div className="flex items-center">{headerActions}</div> : null}
+          <div>
+            <p className="day-viewer-date-kicker">
+              <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
+              {date === today ? <span className="day-viewer-today-muted">Today</span> : null}
+            </p>
+            <p className="day-viewer-date-big">{formatMonthDay(date).toUpperCase()}</p>
           </div>
         </div>
 
-        {/* Day grid: hidden on mobile, arrows suffice there */}
-        <div className="hidden gap-px bg-[var(--border)] lg:grid lg:grid-cols-[repeat(7,minmax(0,1fr))_140px]">
+        {date !== today ? (
+          <button
+            type="button"
+            className="day-viewer-today-link"
+            onClick={() => onSelectDate(today)}
+          >
+            Today
+          </button>
+        ) : null}
+      </div>
+
+      {/* Desktop layout: single horizontal strip */}
+      <div className="day-viewer-strip hidden lg:flex">
+        {/* Left: arrows + date */}
+        <div className="day-viewer-date-section">
+          <div className="day-viewer-arrows">
+            <button
+              type="button"
+              className="day-viewer-arrow"
+              onClick={() => onSelectDate(addDaysIsoDate(date, -7))}
+              aria-label="Previous week"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="day-viewer-arrow"
+              onClick={() => onSelectDate(addDaysIsoDate(date, 7))}
+              aria-label="Next week"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="day-viewer-date-text">
+            <span className="day-viewer-date-kicker">
+              <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
+              {date === today ? <span className="day-viewer-today-muted">Today</span> : null}
+            </span>
+            <span className="day-viewer-date-big">{formatMonthDay(date).toUpperCase()}</span>
+          </div>
+        </div>
+
+        {/* Center: week day columns */}
+        <div className="day-viewer-days">
           {weekDates.map((day) => {
             const isSelected = day === date;
             const isToday = day === today;
@@ -107,28 +133,33 @@ export function DayViewerCard({
                 key={day}
                 type="button"
                 onClick={() => onSelectDate(day)}
-                className={cn(
-                  "flex min-h-[84px] flex-col items-start justify-between bg-[var(--surface)] px-4 py-3 text-left transition hover:bg-[var(--surface-high)]",
-                  isSelected ? "border-b-2 border-foreground bg-[var(--surface-high)]" : "border-b-2 border-transparent",
-                )}
+                className={cn("day-viewer-day", isSelected && "is-selected", isToday && "is-today")}
               >
-                <div className="space-y-0.5">
-                  <p className={cn("text-sm text-[var(--text-secondary)]", isToday ? "text-foreground" : "")}>
-                    {formatWeekday(day)}
-                  </p>
-                  <p className="font-mono text-lg font-semibold text-foreground">{formatDayNumber(day)}</p>
-                </div>
-                <p className="font-mono text-sm text-[var(--text-secondary)]">{getDayValue(day)}</p>
+                <span
+                  className={cn(
+                    "day-viewer-day-name",
+                    isSelected && "is-selected",
+                    isToday && "is-today",
+                  )}
+                >
+                  {formatWeekday(day).toUpperCase()}
+                </span>
+                <span className="day-viewer-day-number">{formatDayNumber(day)}</span>
+                <span className="day-viewer-day-hours">{getDayValue(day)}</span>
               </button>
             );
           })}
-
-          <div className="flex min-h-[84px] flex-col justify-between bg-[var(--surface)] px-4 py-3">
-            <p className="text-sm text-[var(--text-secondary)]">{totalLabel}</p>
-            <p className="font-mono text-lg font-semibold text-foreground">{totalValue}</p>
-          </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Right: week total + actions */}
+        <div className="day-viewer-end">
+          <div className="day-viewer-week-total">
+            <span className="day-viewer-week-total-label">{totalLabel.toUpperCase()}</span>
+            <span className="day-viewer-week-total-value">{totalValue}</span>
+          </div>
+          {headerActions}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, ArrowRight, CheckSquare, FolderTree, MinusSquare, RefreshCw, X } from "lucide-react";
+import {
+  RiAlarmWarningLine as AlertTriangle,
+  RiArrowRightLine as ArrowRight,
+  RiCheckboxIndeterminateLine as MinusSquare,
+  RiCheckboxMultipleLine as CheckSquare,
+  RiCloseLine as X,
+  RiNodeTree as FolderTree,
+  RiRefreshLine as RefreshCw,
+} from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

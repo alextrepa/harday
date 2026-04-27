@@ -1,11 +1,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 const INTERNAL_APP_API_HOST = "127.0.0.1";
 const INTERNAL_APP_API_PORT = "8787";
 const apiServerEntry = path.resolve(__dirname, "../api/src/server.ts");
+
+function vendorChunk(id: string) {
+  if (id.includes("/exceljs/")) {
+    return "excel-workbook";
+  }
+
+  if (id.includes("/xlsx/")) {
+    return "excel-parser";
+  }
+
+  return undefined;
+}
 
 function internalAppApiPlugin(): Plugin {
   let apiProcess: ChildProcess | null = null;
@@ -94,9 +107,15 @@ function internalAppApiPlugin(): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
+  plugins: [react(), tailwindcss(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
   build: {
     outDir: mode === "desktop" ? "dist-desktop" : "dist",
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: vendorChunk,
+      },
+    },
   },
   resolve: {
     alias: {

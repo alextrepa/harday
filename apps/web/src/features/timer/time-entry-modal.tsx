@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Save, Square, Trash2, X } from "lucide-react";
+import {
+  RiCloseLine as X,
+  RiDeleteBinLine as Trash2,
+  RiPlayLine as Play,
+  RiSaveLine as Save,
+  RiStopLine as Square,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { formatDurationHoursInput, normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
-import { localStore } from "@/lib/local-store";
+import {
+  formatDurationHoursInput,
+  normalizeHoursInput,
+  parseHoursInput,
+} from "@/features/timer/hours-input";
+import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 
 interface TimeEntryModalProps {
@@ -13,7 +23,12 @@ interface TimeEntryModalProps {
   onClose: () => void;
 }
 
-export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryModalProps) {
+export function TimeEntryModal({
+  date,
+  entryId,
+  timerId,
+  onClose,
+}: TimeEntryModalProps) {
   const state = useLocalState();
   const projects = useLocalProjects();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -21,20 +36,28 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
 
   const currentTimer = state.timers[0] ?? null;
   const editingTimer = useMemo(
-    () => (timerId && currentTimer?._id === timerId && currentTimer.localDate === date ? currentTimer : null),
+    () =>
+      timerId &&
+      currentTimer?._id === timerId &&
+      currentTimer.localDate === date
+        ? currentTimer
+        : null,
     [currentTimer, date, timerId],
   );
   const editingEntry = useMemo(
     () =>
       entryId
-        ? state.timesheetEntries.find((entry) => entry._id === entryId && entry.localDate === date) ?? null
+        ? (state.timesheetEntries.find(
+            (entry) => entry._id === entryId && entry.localDate === date,
+          ) ?? null)
         : null,
     [date, entryId, state.timesheetEntries],
   );
   const isEditing = Boolean(editingEntry || editingTimer);
   const isEditingTimer = Boolean(editingTimer);
   const runningDurationMs = editingTimer
-    ? editingTimer.accumulatedDurationMs + Math.max(0, now - editingTimer.startedAt)
+    ? editingTimer.accumulatedDurationMs +
+      Math.max(0, now - editingTimer.startedAt)
     : 0;
 
   const [projectId, setProjectId] = useState("");
@@ -46,8 +69,14 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
@@ -67,11 +96,18 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
     [availableTasks],
   );
 
-  const parsedDurationMs = useMemo(() => parseHoursInput(durationHours), [durationHours]);
+  const parsedDurationMs = useMemo(
+    () => parseHoursInput(durationHours),
+    [durationHours],
+  );
   const canSave = Boolean(projectId) && (parsedDurationMs ?? 0) > 0;
   const canStartTimer = !currentTimer;
   const isTimerMode = durationHours.trim() === "" || parsedDurationMs === 0;
-  const title = isEditingTimer ? "Running timer" : isEditing ? "Edit time entry" : "New time entry";
+  const title = isEditingTimer
+    ? "Running timer"
+    : isEditing
+      ? "Edit time entry"
+      : "New time entry";
 
   useEffect(() => {
     if (!editingTimer) {
@@ -260,7 +296,9 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
               onChange={setTaskId}
               placeholder={projectId ? "Select task" : "Pick a project first"}
               clearLabel={projectId ? "No task" : undefined}
-              emptyMessage={projectId ? "No matching tasks" : "Pick a project first"}
+              emptyMessage={
+                projectId ? "No matching tasks" : "Pick a project first"
+              }
               ariaLabel="Task"
               disabled={!projectId || availableTasks.length === 0}
             />
@@ -289,7 +327,9 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
               value={durationHours}
               disabled={isEditingTimer}
               onChange={(event) => setDurationHours(event.target.value)}
-              onBlur={(event) => setDurationHours(normalizeHoursInput(event.target.value))}
+              onBlur={(event) =>
+                setDurationHours(normalizeHoursInput(event.target.value))
+              }
               onKeyDown={(event) => {
                 if (isEditingTimer) {
                   return;
@@ -345,7 +385,12 @@ export function TimeEntryModal({ date, entryId, timerId, onClose }: TimeEntryMod
             </>
           )}
           {editingEntry ? (
-            <Button size="sm" variant="danger" className="gap-1.5" onClick={handleDelete}>
+            <Button
+              size="sm"
+              variant="danger"
+              className="gap-1.5"
+              onClick={handleDelete}
+            >
               <Trash2 className="h-3.5 w-3.5" />
               Delete
             </Button>

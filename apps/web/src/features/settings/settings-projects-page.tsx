@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { Download, FolderKanban, Upload } from "lucide-react";
+import {
+  RiDownloadLine as Download,
+  RiFolderChartLine as FolderKanban,
+  RiUploadLine as Upload,
+} from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocalState } from "@/lib/local-hooks";
 import { localStore } from "@/lib/local-store";
+import { ProjectIcon } from "@/lib/project-icons";
 import {
   buildProjectTransferFilename,
   createProjectTransferWorkbook,
@@ -190,9 +195,10 @@ export function SettingsProjectsPage() {
                       />
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className="inline-block h-2.5 w-2.5 rounded-full"
-                            style={{ backgroundColor: project.color }}
+                          <ProjectIcon
+                            icon={project.icon}
+                            color={project.color}
+                            className="size-3.5"
                           />
                           <span className="text-sm font-medium text-foreground">{project.name}</span>
                           {project.code ? <Badge className="bg-muted">{project.code}</Badge> : null}

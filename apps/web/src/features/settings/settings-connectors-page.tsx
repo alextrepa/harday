@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, RefreshCw, Trash2 } from "lucide-react";
+import {
+  RiDeleteBinLine as Trash2,
+  RiPencilLine as Pencil,
+  RiRefreshLine as RefreshCw,
+} from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

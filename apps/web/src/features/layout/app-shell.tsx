@@ -1,14 +1,47 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { FolderKanban, ListTodo, Play, Settings, Square, Timer, X } from "lucide-react";
-import { BrandLogo } from "@/components/brand-logo";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  RiAddLine as Plus,
+  RiArrowDownSLine as ChevronDown,
+  RiCheckLine as Check,
+  RiCloseLine as X,
+  RiFolderChartLine as FolderKanban,
+  RiListCheck3 as ListTodo,
+  RiPlayLine as Play,
+  RiSettings3Line as Settings,
+  RiStopLine as Square,
+  RiTimerLine as Timer,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
-import { localStore } from "@/lib/local-store";
+import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
 import { isDesktopShell } from "@/lib/runtime";
 import { cn, getIsoWeekDates, todayIsoDate } from "@/lib/utils";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
+import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile";
 import { useApplyTheme } from "@/lib/use-theme";
 
 const navItems = [
@@ -20,7 +53,10 @@ const navItems = [
 
 const AUTO_SYNC_POLL_INTERVAL_MS = 30_000;
 
-function isNavItemActive(pathname: string, to: (typeof navItems)[number]["to"]) {
+function isNavItemActive(
+  pathname: string,
+  to: (typeof navItems)[number]["to"],
+) {
   if (to === "/time/$date") {
     return pathname.startsWith("/time/") || pathname.startsWith("/review/");
   }
@@ -36,15 +72,290 @@ function isNavItemActive(pathname: string, to: (typeof navItems)[number]["to"]) 
   return pathname === to;
 }
 
-function isCompactTimerActive(pathname: string) {
-  return pathname.startsWith("/time/") || pathname.startsWith("/review/");
-}
-
 function formatDurationShort(durationMs: number) {
   const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
+function dateAtNoon(localDate: string) {
+  return new Date(`${localDate}T12:00:00`);
+}
+
+function formatTitlebarDate(localDate: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+  }).format(dateAtNoon(localDate));
+}
+
+function formatCalendarIsoDate(date: Date) {
+  return new Intl.DateTimeFormat("en-CA").format(date);
+}
+
+function getTimeRouteDate(pathname: string) {
+  const match = pathname.match(/^\/(?:time|review)\/([^/?#]+)/);
+  if (!match) {
+    return null;
+  }
+
+  return match[1] === "today" ? todayIsoDate() : match[1];
+}
+
+function CompactTimeDatePicker({
+  date,
+  onSelectDate,
+}: {
+  date: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  function selectDate(nextDate: string) {
+    setIsOpen(false);
+    if (nextDate !== date) {
+      onSelectDate(nextDate);
+    }
+  }
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger
+        className="harday-titlebar-date-trigger desktop-no-drag"
+        aria-label={`Select time entry date. Current date ${formatTitlebarDate(date)}`}
+      >
+        {formatTitlebarDate(date)}
+      </PopoverTrigger>
+      <PopoverContent
+        className="harday-titlebar-date-popover"
+        align="start"
+        sideOffset={8}
+      >
+        <Calendar
+          mode="single"
+          selected={dateAtNoon(date)}
+          onSelect={(selectedDate) => {
+            if (selectedDate) {
+              selectDate(formatCalendarIsoDate(selectedDate));
+            }
+          }}
+          captionLayout="label"
+          buttonVariant="ghost"
+          className="harday-titlebar-calendar"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TitlebarNewEntryPopover({ date }: { date: string }) {
+  const projects = useLocalProjects();
+  const [isOpen, setIsOpen] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [note, setNote] = useState("");
+  const [durationHours, setDurationHours] = useState("");
+
+  const projectOptions = useMemo(
+    () =>
+      projects.map((project) => ({
+        value: project._id,
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
+      })),
+    [projects],
+  );
+  const availableTasks = useMemo(
+    () =>
+      projects
+        .find((project) => project._id === projectId)
+        ?.tasks.filter((task) => task.status === "active") ?? [],
+    [projectId, projects],
+  );
+  const taskOptions = useMemo(
+    () =>
+      availableTasks.map((task) => ({
+        value: task._id,
+        label: task.name,
+      })),
+    [availableTasks],
+  );
+  const parsedDurationMs = useMemo(
+    () => parseHoursInput(durationHours),
+    [durationHours],
+  );
+  const durationError =
+    durationHours.trim() !== "" && parsedDurationMs === null
+      ? "Enter a valid duration"
+      : null;
+  const hasContent = Boolean(
+    projectId || taskId || note.trim() || durationHours.trim(),
+  );
+
+  useEffect(() => {
+    if (availableTasks.some((task) => task._id === taskId)) {
+      return;
+    }
+
+    setTaskId("");
+  }, [availableTasks, taskId]);
+
+  function reset() {
+    setProjectId("");
+    setTaskId("");
+    setNote("");
+    setDurationHours("");
+  }
+
+  function handleProjectChange(nextProjectId: string) {
+    const nextTaskId =
+      projects
+        .find((project) => project._id === nextProjectId)
+        ?.tasks.find((task) => task.status === "active")?._id ?? "";
+
+    setProjectId(nextProjectId);
+    setTaskId(nextTaskId);
+  }
+
+  function saveEntry() {
+    if (durationError || !hasContent) {
+      return;
+    }
+
+    localStore.saveManualTimeEntry({
+      localDate: date,
+      projectId: projectId || undefined,
+      taskId: taskId || undefined,
+      note: note.trim() || undefined,
+      durationMs: parsedDurationMs ?? 0,
+    });
+    reset();
+    setIsOpen(false);
+  }
+
+  function cancelEntry() {
+    reset();
+    setIsOpen(false);
+  }
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger
+        className="quick-timer-group-button desktop-no-drag"
+        aria-label="Create time entry"
+        title="Create time entry"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </PopoverTrigger>
+      <PopoverContent
+        className="quick-timer-create-popover"
+        align="end"
+        sideOffset={8}
+      >
+        <div className="quick-timer-create-form">
+          <div className="quick-timer-popup-header">
+            <span className="quick-timer-popup-title">New time entry</span>
+            <span className="quick-timer-create-date">
+              {formatTitlebarDate(date)}
+            </span>
+          </div>
+
+          <label className="field">
+            <span className="field-label">Project</span>
+            <SearchableSelect
+              value={projectId}
+              options={projectOptions}
+              onChange={handleProjectChange}
+              placeholder="No project"
+              clearLabel="No project"
+              emptyMessage="No matching projects"
+              ariaLabel="Project"
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Task</span>
+            <SearchableSelect
+              value={taskId}
+              options={taskOptions}
+              onChange={setTaskId}
+              placeholder={projectId ? "Select task" : "Pick a project first"}
+              clearLabel={projectId ? "No task" : undefined}
+              emptyMessage={
+                projectId ? "No matching tasks" : "Pick a project first"
+              }
+              ariaLabel="Task"
+              disabled={!projectId || availableTasks.length === 0}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Note</span>
+            <textarea
+              className="field-input entry-note-input"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Notes (optional)"
+              rows={2}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Hours</span>
+            <input
+              className="field-input entry-hours-input"
+              type="text"
+              placeholder="01:30"
+              style={{ fontFamily: "var(--font-mono)" }}
+              value={durationHours}
+              onChange={(event) => setDurationHours(event.target.value)}
+              onBlur={(event) =>
+                setDurationHours(normalizeHoursInput(event.target.value))
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  saveEntry();
+                }
+              }}
+              aria-label="Hours"
+            />
+            {durationError ? (
+              <span className="field-error">{durationError}</span>
+            ) : null}
+          </label>
+
+          <div className="quick-timer-popup-actions">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={cancelEntry}
+            >
+              <X className="h-3.5 w-3.5" />
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={Boolean(durationError) || !hasContent}
+              onClick={saveEntry}
+            >
+              <Check className="h-3.5 w-3.5" />
+              Save
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function ConnectorAutoSyncScheduler() {
@@ -89,7 +400,10 @@ function ConnectorAutoSyncScheduler() {
                 return true;
               }
 
-              return now - connection.lastSyncAt >= connection.autoSyncIntervalMinutes * 60_000;
+              return (
+                now - connection.lastSyncAt >=
+                connection.autoSyncIntervalMinutes * 60_000
+              );
             })
             .map((connection) => ({
               pluginId: group.plugin.id,
@@ -102,7 +416,11 @@ function ConnectorAutoSyncScheduler() {
             break;
           }
 
-          await syncConnectorConnection(dueConnection.pluginId, dueConnection.connection.id, { trigger: "auto" });
+          await syncConnectorConnection(
+            dueConnection.pluginId,
+            dueConnection.connection.id,
+            { trigger: "auto" },
+          );
         }
       } catch (error) {
         console.error("Connector auto sync failed.", error);
@@ -150,8 +468,14 @@ function QuickTimerPopup({
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
@@ -175,7 +499,10 @@ function QuickTimerPopup({
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
       const target = event.target as Node;
-      if (anchorRef.current?.contains(target) || popupRef.current?.contains(target)) {
+      if (
+        anchorRef.current?.contains(target) ||
+        popupRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -214,7 +541,9 @@ function QuickTimerPopup({
 
   function handleTaskChange(nextTaskId: string) {
     if (!currentTimer) return;
-    localStore.updateTimer(currentTimer._id, { taskId: nextTaskId || undefined });
+    localStore.updateTimer(currentTimer._id, {
+      taskId: nextTaskId || undefined,
+    });
   }
 
   function handleNoteChange(nextNote: string) {
@@ -267,7 +596,9 @@ function QuickTimerPopup({
           onChange={handleTaskChange}
           placeholder={projectId ? "No task" : "Pick a project first"}
           clearLabel={projectId ? "No task" : undefined}
-          emptyMessage={projectId ? "No matching tasks" : "Pick a project first"}
+          emptyMessage={
+            projectId ? "No matching tasks" : "Pick a project first"
+          }
           ariaLabel="Task"
           disabled={!projectId || availableTasks.length === 0}
         />
@@ -286,13 +617,18 @@ function QuickTimerPopup({
 
       {/* Actions */}
       <div className="quick-timer-popup-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={handleCancel}
+        >
+          <X className="h-3.5 w-3.5" />
+          Cancel
+        </Button>
         <Button size="sm" className="gap-1.5" onClick={handleSave}>
           <Square className="h-3.5 w-3.5" />
           Stop timer
-        </Button>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleCancel}>
-          <X className="h-3.5 w-3.5" />
-          Cancel
         </Button>
       </div>
     </div>
@@ -315,7 +651,10 @@ function DayTotalsPopup({
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
       const target = event.target as Node;
-      if (anchorRef.current?.contains(target) || popupRef.current?.contains(target)) {
+      if (
+        anchorRef.current?.contains(target) ||
+        popupRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -340,14 +679,23 @@ function DayTotalsPopup({
   }, [onClose]);
 
   return (
-    <div ref={popupRef} className="day-totals-popup" role="dialog" aria-label="Current time totals">
+    <div
+      ref={popupRef}
+      className="day-totals-popup"
+      role="dialog"
+      aria-label="Current time totals"
+    >
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Week total</span>
-        <span className="day-totals-popup-value">{formatDurationShort(weekTotalMs)}</span>
+        <span className="day-totals-popup-value">
+          {formatDurationShort(weekTotalMs)}
+        </span>
       </div>
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Day total</span>
-        <span className="day-totals-popup-value">{formatDurationShort(dayTotalMs)}</span>
+        <span className="day-totals-popup-value">
+          {formatDurationShort(dayTotalMs)}
+        </span>
       </div>
     </div>
   );
@@ -355,10 +703,9 @@ function DayTotalsPopup({
 
 /* ── Global Timer Bar ──────────────────────────────────────────────── */
 
-function GlobalTimerBar() {
+function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
   const state = useLocalState();
   const projects = useLocalProjects();
-  const navigate = useNavigate();
   const [now, setNow] = useState(() => Date.now());
   const [popupOpen, setPopupOpen] = useState(false);
   const [dayTotalsOpen, setDayTotalsOpen] = useState(false);
@@ -387,7 +734,8 @@ function GlobalTimerBar() {
   }, [currentTimer]);
 
   const runningDurationMs = currentTimer
-    ? currentTimer.accumulatedDurationMs + Math.max(0, now - currentTimer.startedAt)
+    ? currentTimer.accumulatedDurationMs +
+      Math.max(0, now - currentTimer.startedAt)
     : 0;
 
   const todayTotalMs = useMemo(() => {
@@ -418,21 +766,19 @@ function GlobalTimerBar() {
   const timerProject = currentTimer
     ? projects.find((p) => p._id === currentTimer.projectId)
     : null;
-  const timerTask = timerProject?.tasks.find((t) => t._id === currentTimer?.taskId);
-  const timerProjectLabel = timerProject?.code?.trim() || timerProject?.name;
-  const timerMeta = [timerProjectLabel, timerTask?.name].filter(Boolean).join(" \u00B7 ");
+  const timerTask = timerProject?.tasks.find(
+    (t) => t._id === currentTimer?.taskId,
+  );
+  const timerProjectLabel = timerProject
+    ? timerProject.code?.trim() || getLocalProjectDisplayName(timerProject)
+    : undefined;
+  const timerMeta = [timerProjectLabel, timerTask?.name]
+    .filter(Boolean)
+    .join(" \u00B7 ");
 
   function handlePlayClick() {
-    localStore.startTimer({ localDate: todayIsoDate() });
+    localStore.startTimer({ localDate: selectedDate });
     setPopupOpen(true);
-  }
-
-  function handleNewEntryClick() {
-    void navigate({
-      to: "/time/$date",
-      params: { date: "today" },
-      search: { entry: "new" } as never,
-    });
   }
 
   function handleTimerPillClick() {
@@ -456,7 +802,10 @@ function GlobalTimerBar() {
       {currentTimer ? (
         <div
           ref={quickTimerAnchorRef}
-          className={cn("quick-timer-popup-anchor", isDesktopShell && "desktop-no-drag")}
+          className={cn(
+            "quick-timer-popup-anchor",
+            isDesktopShell && "desktop-no-drag",
+          )}
         >
           {timerMeta ? (
             <span className="global-timer-meta">{timerMeta}</span>
@@ -471,7 +820,9 @@ function GlobalTimerBar() {
             }}
           >
             <span className="status-dot status-dot-pulse" />
-            <span className="stat-pill-value">{formatDurationShort(runningDurationMs)}</span>
+            <span className="stat-pill-value">
+              {formatDurationShort(runningDurationMs)}
+            </span>
           </div>
           {popupOpen ? (
             <QuickTimerPopup
@@ -482,29 +833,30 @@ function GlobalTimerBar() {
           ) : null}
         </div>
       ) : (
-        <>
+        <div
+          className={cn(
+            "quick-timer-button-group",
+            isDesktopShell && "desktop-no-drag",
+          )}
+        >
+          <TitlebarNewEntryPopover date={selectedDate} />
           <button
-            className={cn("quick-timer-secondary-btn", isDesktopShell && "desktop-no-drag")}
-            onClick={handleNewEntryClick}
-            title="New entry"
             type="button"
-          >
-            <span className="quick-timer-btn-label">New entry</span>
-          </button>
-          <button
-            className={cn("quick-timer-play-btn", isDesktopShell && "desktop-no-drag")}
+            className="quick-timer-group-button quick-timer-group-button-play"
             onClick={handlePlayClick}
             title="Start timer"
-            type="button"
+            aria-label="Start timer"
           >
             <Play className="h-3.5 w-3.5" />
-            <span className="quick-timer-btn-label">Start timer</span>
           </button>
-        </>
+        </div>
       )}
       <div
         ref={dayTotalsAnchorRef}
-        className={cn("day-totals-popup-anchor", isDesktopShell && "desktop-no-drag")}
+        className={cn(
+          "day-totals-popup-anchor",
+          isDesktopShell && "desktop-no-drag",
+        )}
       >
         <button
           type="button"
@@ -514,7 +866,9 @@ function GlobalTimerBar() {
           aria-expanded={dayTotalsOpen}
         >
           <span className="stat-pill-label">Today</span>
-          <span className="stat-pill-value">{formatDurationShort(todayTotalMs)}</span>
+          <span className="stat-pill-value">
+            {formatDurationShort(todayTotalMs)}
+          </span>
         </button>
 
         {dayTotalsOpen ? (
@@ -526,7 +880,6 @@ function GlobalTimerBar() {
           />
         ) : null}
       </div>
-
     </div>
   );
 }
@@ -534,105 +887,213 @@ function GlobalTimerBar() {
 /* ── App Shell ─────────────────────────────────────────────────────── */
 
 export function AppShell() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const navigate = useNavigate();
   const visibleNavItems = navItems;
+  const activeNavItem =
+    visibleNavItems.find((item) => isNavItemActive(pathname, item.to)) ??
+    visibleNavItems[0];
+  const ActiveNavIcon = activeNavItem.icon;
+  const isTimeActive = isNavItemActive(pathname, "/time/$date");
+  const isBacklogActive = isNavItemActive(pathname, "/backlog");
+  const timeRouteDate = getTimeRouteDate(pathname);
+  const [selectedTimeDate, setSelectedTimeDate] = useState(
+    () => timeRouteDate ?? todayIsoDate(),
+  );
+  const [showMobileModeToggle, setShowMobileModeToggle] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches,
+  );
+  const mobileModeValue = isTimeActive
+    ? ["time"]
+    : isBacklogActive
+      ? ["backlog"]
+      : [];
 
   useApplyTheme();
 
-  const renderCompactToggle = (extraClass?: string) => (
-    <div
-      className={cn(
-        "harday-nav-compact-toggle",
-        extraClass,
-        isDesktopShell && "desktop-no-drag",
-      )}
-      role="navigation"
-      aria-label="Primary navigation"
-    >
-      <Link
-        to="/time/$date"
-        params={{ date: "today" }}
-        aria-label="Open timer"
-        aria-current={isCompactTimerActive(pathname) ? "page" : undefined}
-        className={cn(
-          "harday-nav-compact-toggle-link",
-          isCompactTimerActive(pathname) && "is-active",
-        )}
-      >
-        <Timer className="h-3.5 w-3.5" />
-      </Link>
-      <Link
-        to="/backlog"
-        aria-label="Open backlog"
-        aria-current={pathname.startsWith("/backlog") ? "page" : undefined}
-        className={cn(
-          "harday-nav-compact-toggle-link",
-          pathname.startsWith("/backlog") && "is-active",
-        )}
-      >
-        <ListTodo className="h-3.5 w-3.5" />
-      </Link>
-    </div>
-  );
+  useEffect(() => {
+    if (timeRouteDate) {
+      setSelectedTimeDate(timeRouteDate);
+    }
+  }, [timeRouteDate]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT}px)`,
+    );
+    const handleViewportChange = () => {
+      setShowMobileModeToggle(mediaQuery.matches);
+    };
+
+    handleViewportChange();
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () =>
+      mediaQuery.removeEventListener("change", handleViewportChange);
+  }, []);
 
   return (
-    <div className={cn("flex min-h-screen flex-col bg-background", isDesktopShell && "desktop-shell-app")}>
+    <div
+      className={cn(
+        "flex min-h-screen flex-col bg-background",
+        isDesktopShell && "desktop-shell-app",
+      )}
+    >
       <ConnectorAutoSyncScheduler />
       {/* Top sticky nav */}
-      <nav className={cn("harday-nav", isDesktopShell && "desktop-shell-nav desktop-drag-region")}>
-        {isDesktopShell ? (
-          <div className="desktop-shell-brand desktop-no-drag">
-            <BrandLogo linked />
-            {renderCompactToggle("harday-nav-compact-toggle-with-brand")}
-          </div>
-        ) : null}
-        <div className={cn("harday-nav-inner", isDesktopShell && "desktop-shell-nav-inner")}>
-          {renderCompactToggle("harday-nav-compact-toggle-inline")}
-
-          <div className={cn("harday-nav-main", isDesktopShell && "desktop-shell-nav-main")}>
-            {isDesktopShell ? null : (
-              <div className={cn("harday-nav-brand", "desktop-no-drag")}>
-                <BrandLogo linked />
-                <div className="harday-nav-divider" />
-              </div>
+      <nav
+        className={cn(
+          "harday-nav",
+          isDesktopShell && "desktop-shell-nav desktop-drag-region",
+        )}
+      >
+        <div
+          className={cn(
+            "harday-nav-inner",
+            isDesktopShell && "desktop-shell-nav-inner",
+          )}
+        >
+          <div
+            className={cn(
+              "harday-nav-main",
+              isDesktopShell && "desktop-shell-nav-main",
             )}
-            <div className={cn("harday-nav-links", isDesktopShell && "desktop-no-drag")}>
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = isNavItemActive(pathname, item.to);
-                return (
-                  <Link
-                    key={item.label}
-                    to={item.to as never}
-                    params={("params" in item ? item.params : undefined) as never}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded px-2.5 py-1 text-[13px] transition",
-                      isActive
-                        ? "bg-[var(--surface-high)] text-foreground"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--surface-high)] hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "harday-nav-menu-trigger",
+                  isDesktopShell && "desktop-no-drag",
+                )}
+                aria-label="Open primary navigation"
+              >
+                <ActiveNavIcon className="h-3.5 w-3.5" />
+                <span>{activeNavItem.label}</span>
+                <ChevronDown className="harday-nav-menu-trigger-arrow h-3.5 w-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="harday-nav-menu-content"
+                align="start"
+                sideOffset={6}
+              >
+                {visibleNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = isNavItemActive(pathname, item.to);
+                  return (
+                    <DropdownMenuItem
+                      key={item.label}
+                      className="harday-nav-menu-item"
+                      onClick={() => {
+                        void navigate({
+                          to: item.to as never,
+                          params: (item.to === "/time/$date"
+                            ? { date: selectedTimeDate }
+                            : "params" in item
+                              ? item.params
+                              : undefined) as never,
+                        });
+                      }}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                      {isActive ? <Check className="ml-auto h-4 w-4" /> : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {showMobileModeToggle ? (
+              <ToggleGroup
+                className={cn(
+                  "harday-mobile-mode-toggle",
+                  isDesktopShell && "desktop-no-drag",
+                )}
+                aria-label="Primary navigation"
+                value={mobileModeValue}
+                onValueChange={(value) => {
+                  const nextValue = value[0];
+                  if (!nextValue) {
+                    return;
+                  }
+
+                  if (nextValue === "time") {
+                    void navigate({
+                      to: "/time/$date",
+                      params: { date: selectedTimeDate },
+                    });
+                    return;
+                  }
+
+                  void navigate({ to: "/backlog" });
+                }}
+              >
+                <ToggleGroupItem
+                  value="time"
+                  size="sm"
+                  variant="default"
+                  className={cn(
+                    "harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0",
+                    isDesktopShell && "desktop-no-drag",
+                  )}
+                  aria-label="Time"
+                  title="Time"
+                >
+                  <Timer className="h-4 w-4" />
+                  <span className="sr-only">Time</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="backlog"
+                  size="sm"
+                  variant="default"
+                  className={cn(
+                    "harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0",
+                    isDesktopShell && "desktop-no-drag",
+                  )}
+                  aria-label="Backlog"
+                  title="Backlog"
+                >
+                  <ListTodo className="h-4 w-4" />
+                  <span className="sr-only">Backlog</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            <CompactTimeDatePicker
+              date={selectedTimeDate}
+              onSelectDate={(nextDate) => {
+                setSelectedTimeDate(nextDate);
+                if (isTimeActive) {
+                  void navigate({
+                    to: "/time/$date",
+                    params: { date: nextDate },
+                  });
+                }
+              }}
+            />
           </div>
 
-          <GlobalTimerBar />
+          <GlobalTimerBar selectedDate={selectedTimeDate} />
         </div>
       </nav>
 
       {/* Page content */}
-      <main className="flex-1">
-        {pathname.startsWith("/settings") ? (
-          <Outlet />
-        ) : (
-          <div className={cn("page-container", isDesktopShell && "desktop-page-container")}>
+      <main className="app-content-shell flex-1">
+        <ScrollArea className="app-content-scroll-area">
+          {pathname.startsWith("/settings") ? (
             <Outlet />
-          </div>
-        )}
+          ) : (
+            <div
+              className={cn(
+                "page-container",
+                isDesktopShell && "desktop-page-container",
+              )}
+            >
+              <Outlet />
+            </div>
+          )}
+        </ScrollArea>
       </main>
     </div>
   );

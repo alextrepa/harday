@@ -195,6 +195,7 @@ describe("localStore.importProjectTasks", () => {
     ).toEqual({
       importedCount: 1,
       updatedCount: 0,
+      archivedCount: 0,
     });
 
     const initialWorkItem = localStore.snapshot().workItems[0];
@@ -228,6 +229,7 @@ describe("localStore.importProjectTasks", () => {
     ).toEqual({
       importedCount: 0,
       updatedCount: 1,
+      archivedCount: 0,
     });
 
     expect(localStore.snapshot().workItems).toHaveLength(1);
@@ -273,6 +275,7 @@ describe("localStore.importProjectTasks", () => {
     ).toEqual({
       importedCount: 1,
       updatedCount: 0,
+      archivedCount: 0,
     });
 
     expect(localStore.snapshot().workItems[0]).toMatchObject({

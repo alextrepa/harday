@@ -1,8 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import {
+  RiCloseLine as X,
+  RiFileCopyLine as Copy,
+  RiFilter3Line as Filter,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 import { localStore, type LocalTimesheetEntry } from "@/lib/local-store";
+import { ProjectIcon, type LocalProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
 
 function formatDuration(durationMs: number) {
@@ -12,10 +30,21 @@ function formatDuration(durationMs: number) {
   return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
+function formatCountLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function formatDayHeading(localDate: string) {
   return new Intl.DateTimeFormat("en-CA", {
     weekday: "long",
     month: "short",
+    day: "numeric",
+  }).format(new Date(`${localDate}T12:00:00`));
+}
+
+function formatDayColumnHeading(localDate: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    weekday: "short",
     day: "numeric",
   }).format(new Date(`${localDate}T12:00:00`));
 }
@@ -33,6 +62,23 @@ function formatWeekRange(weekDates: string[]) {
   });
 
   return `${formatter.format(new Date(`${firstDay}T12:00:00`))} to ${formatter.format(new Date(`${lastDay}T12:00:00`))}`;
+}
+
+function createTaskKey(projectId: string | undefined, taskId: string | undefined, taskLabel: string) {
+  return `${projectId ?? "no-project"}::${taskId ?? taskLabel}`;
+}
+
+function formatCommentSummary(comments: string[]) {
+  return comments.join(" | ");
+}
+
+function truncateLabel(value: string, maxLength = 30) {
+  const trimmedValue = value.trim();
+  if (trimmedValue.length <= maxLength) {
+    return trimmedValue;
+  }
+
+  return `${trimmedValue.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function SelectionCheckbox({
@@ -68,19 +114,166 @@ function SelectionCheckbox({
   );
 }
 
+function copyTextToClipboard(value: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    if (document.execCommand("copy")) {
+      return;
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  void navigator.clipboard?.writeText(value);
+}
+
+function CopyHoverRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="submit-timesheet-comment-card-row">
+      <span className="submit-timesheet-comment-card-row-label">{label}</span>
+      <span className="submit-timesheet-comment-card-row-value">{value}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="submit-timesheet-comment-card-copy"
+        aria-label={`Copy ${label.toLowerCase()}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          copyTextToClipboard(value);
+        }}
+      >
+        <Copy />
+      </Button>
+    </div>
+  );
+}
+
+type SubmitViewMode = "day" | "task";
+type SubmitGroupingMode = "single" | "grouped";
+
 interface SubmitTimesheetModalProps {
   weekDates: string[];
   onClose: () => void;
+}
+
+interface EnrichedEntry {
+  entry: LocalTimesheetEntry;
+  projectColor: string;
+  projectIcon?: LocalProjectIcon;
+  projectName: string;
+  taskId?: string;
+  taskLabel: string;
+  taskName?: string;
+  taskKey: string;
+  comments: string[];
+}
+
+interface EntryCollection {
+  comments: string[];
+  durationMs: number;
+  entryCount: number;
+  entryIds: string[];
+  projectColor: string;
+  projectIcon?: LocalProjectIcon;
+  projectName: string;
+  taskKey: string;
+  taskLabel: string;
+  taskName?: string;
+}
+
+interface DaySection {
+  entryIds: string[];
+  localDate: string;
+  rows: EntryCollection[];
+  totalMs: number;
+}
+
+interface TaskCell extends EntryCollection {
+  localDate: string;
+}
+
+interface TaskRowData extends EntryCollection {
+  cells: TaskCell[];
+}
+
+function mergeEntries(entries: EnrichedEntry[]): EntryCollection {
+  const firstEntry = entries[0];
+  return {
+    comments: entries.flatMap((entry) => entry.comments),
+    durationMs: entries.reduce((sum, entry) => sum + entry.entry.durationMs, 0),
+    entryCount: entries.length,
+    entryIds: entries.map((entry) => entry.entry._id),
+    projectColor: firstEntry?.projectColor ?? "#3b82f6",
+    projectIcon: firstEntry?.projectIcon,
+    projectName: firstEntry?.projectName ?? "No project",
+    taskKey: firstEntry?.taskKey ?? "unknown",
+    taskLabel: firstEntry?.taskLabel ?? "No task",
+    taskName: firstEntry?.taskName,
+  };
 }
 
 export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModalProps) {
   const state = useLocalState();
   const projects = useLocalProjects();
   const overlayRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
   const initializedSelectionRef = useRef(false);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<SubmitViewMode>("day");
+  const [groupingMode, setGroupingMode] = useState<SubmitGroupingMode>("single");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const weekDateSet = useMemo(() => new Set(weekDates), [weekDates]);
+  const projectMap = useMemo(
+    () => new Map(projects.map((project) => [project._id, project])),
+    [projects],
+  );
+  const weekEntries = useMemo(
+    () =>
+      state.timesheetEntries
+        .filter((entry) => weekDateSet.has(entry.localDate) && !entry.submittedAt)
+        .sort((left, right) => right.committedAt - left.committedAt),
+    [state.timesheetEntries, weekDateSet],
+  );
+  const enrichedEntries = useMemo<EnrichedEntry[]>(
+    () =>
+      weekEntries.map((entry) => {
+        const project = entry.projectId ? projectMap.get(entry.projectId) : undefined;
+        const task = entry.taskId ? project?.tasks.find((item) => item._id === entry.taskId) : undefined;
+        const projectName = project?.name ?? "No project";
+        const taskLabel =
+          task?.name ?? (entry.label && entry.label !== projectName ? entry.label : "No task");
+
+        return {
+          entry,
+          projectColor: project?.color ?? "#3b82f6",
+          projectIcon: project?.icon,
+          projectName,
+          taskId: task?._id,
+          taskKey: createTaskKey(project?._id, task?._id, taskLabel),
+          taskLabel,
+          taskName: task?.name,
+          comments: entry.note?.trim() ? [entry.note.trim()] : [],
+        };
+      }),
+    [projectMap, weekEntries],
+  );
   const submittedWeekEntryIds = useMemo(
     () =>
       new Set(
@@ -90,37 +283,92 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
       ),
     [state.timesheetEntries, weekDateSet],
   );
-  const groups = useMemo(
+  const visibleEntryIds = useMemo(
+    () => enrichedEntries.map((entry) => entry.entry._id),
+    [enrichedEntries],
+  );
+  const visibleEntryIdsKey = useMemo(() => visibleEntryIds.join("|"), [visibleEntryIds]);
+  const selectedEntryIdSet = useMemo(() => new Set(selectedEntryIds), [selectedEntryIds]);
+  const activeGroupingMode = viewMode === "task" ? "grouped" : groupingMode;
+
+  const daySections = useMemo<DaySection[]>(
     () =>
       weekDates
         .map((localDate) => {
-          const entries = state.timesheetEntries
-            .filter((entry) => entry.localDate === localDate && !entry.submittedAt)
-            .sort((left, right) => right.committedAt - left.committedAt);
+          const entries = enrichedEntries.filter((entry) => entry.entry.localDate === localDate);
+          const rows =
+            activeGroupingMode === "single"
+              ? entries.map((entry) => mergeEntries([entry]))
+              : Array.from(
+                  entries.reduce((groups, entry) => {
+                    const current = groups.get(entry.taskKey) ?? [];
+                    current.push(entry);
+                    groups.set(entry.taskKey, current);
+                    return groups;
+                  }, new Map<string, EnrichedEntry[]>()),
+                ).map(([, groupedEntries]) => mergeEntries(groupedEntries));
 
           return {
+            entryIds: entries.map((entry) => entry.entry._id),
             localDate,
-            entries,
-            totalMs: entries.reduce((sum, entry) => sum + entry.durationMs, 0),
+            rows,
+            totalMs: entries.reduce((sum, entry) => sum + entry.entry.durationMs, 0),
           };
         })
-        .filter((group) => group.entries.length > 0),
-    [state.timesheetEntries, weekDates],
+        .filter((group) => group.rows.length > 0),
+    [activeGroupingMode, enrichedEntries, weekDates],
   );
-  const visibleEntryIds = useMemo(() => groups.flatMap((group) => group.entries.map((entry) => entry._id)), [groups]);
-  const visibleEntryIdsKey = useMemo(() => visibleEntryIds.join("|"), [visibleEntryIds]);
-  const selectedEntryIdSet = useMemo(() => new Set(selectedEntryIds), [selectedEntryIds]);
+
+  const taskRows = useMemo<TaskRowData[]>(
+    () =>
+      Array.from(
+        enrichedEntries.reduce((groups, entry) => {
+          const current = groups.get(entry.taskKey) ?? [];
+          current.push(entry);
+          groups.set(entry.taskKey, current);
+          return groups;
+        }, new Map<string, EnrichedEntry[]>()),
+      )
+        .map(([, taskEntries]) => {
+          const mergedRow = mergeEntries(taskEntries);
+          const cells = weekDates.map((localDate) =>
+            mergeEntries(taskEntries.filter((entry) => entry.entry.localDate === localDate)),
+          );
+
+          return {
+            ...mergedRow,
+            cells: cells.map((cell, index) => ({
+              ...cell,
+              localDate: weekDates[index]!,
+            })),
+          };
+        })
+        .sort((left, right) => {
+          const projectCompare = left.projectName.localeCompare(right.projectName);
+          if (projectCompare !== 0) {
+            return projectCompare;
+          }
+
+          return left.taskLabel.localeCompare(right.taskLabel);
+        }),
+    [enrichedEntries, weekDates],
+  );
+
   const selectedCount = selectedEntryIds.length;
   const submittedWeekCount = submittedWeekEntryIds.size;
   const selectedDurationMs = useMemo(
     () =>
-      groups.reduce(
-        (sum, group) =>
-          sum + group.entries.reduce((groupSum, entry) => groupSum + (selectedEntryIdSet.has(entry._id) ? entry.durationMs : 0), 0),
+      enrichedEntries.reduce(
+        (sum, entry) => sum + (selectedEntryIdSet.has(entry.entry._id) ? entry.entry.durationMs : 0),
         0,
       ),
-    [groups, selectedEntryIdSet],
+    [enrichedEntries, selectedEntryIdSet],
   );
+  const primaryCountLabel =
+    viewMode === "task"
+      ? formatCountLabel(taskRows.length, "task", "tasks")
+      : formatCountLabel(daySections.length, "day", "days");
+
   useEffect(() => {
     const nextVisibleEntryIdSet = new Set(visibleEntryIds);
     setSelectedEntryIds((current) => {
@@ -130,12 +378,23 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
         return visibleEntryIds;
       }
 
+      if (
+        nextSelectedIds.length === current.length &&
+        nextSelectedIds.every((entryId, index) => entryId === current[index])
+      ) {
+        return current;
+      }
+
       return nextSelectedIds;
     });
   }, [visibleEntryIds, visibleEntryIdsKey]);
 
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
+      if (filterRef.current && event.target instanceof Node && !filterRef.current.contains(event.target)) {
+        setIsFilterOpen(false);
+      }
+
       if (overlayRef.current === event.target) {
         onClose();
       }
@@ -143,6 +402,11 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        if (isFilterOpen) {
+          setIsFilterOpen(false);
+          return;
+        }
+
         onClose();
       }
     }
@@ -153,21 +417,29 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [isFilterOpen, onClose]);
 
   function replaceSelection(nextEntryIds: string[]) {
     const nextIdSet = new Set(nextEntryIds);
     setSelectedEntryIds(visibleEntryIds.filter((entryId) => nextIdSet.has(entryId)));
   }
 
-  function setGroupSelection(entries: LocalTimesheetEntry[], checked: boolean) {
-    const groupIds = new Set(entries.map((entry) => entry._id));
+  function setEntrySelection(entryIds: string[], checked: boolean) {
+    const entryIdSet = new Set(entryIds);
     setSelectedEntryIds((current) => {
       const nextSelectedSet = new Set(
-        checked ? [...current, ...entries.map((entry) => entry._id)] : current.filter((entryId) => !groupIds.has(entryId)),
+        checked ? [...current, ...entryIds] : current.filter((entryId) => !entryIdSet.has(entryId)),
       );
       return visibleEntryIds.filter((entryId) => nextSelectedSet.has(entryId));
     });
+  }
+
+  function getSelectionState(entryIds: string[]) {
+    const selectedCountForGroup = entryIds.filter((entryId) => selectedEntryIdSet.has(entryId)).length;
+    return {
+      checked: entryIds.length > 0 && selectedCountForGroup === entryIds.length,
+      indeterminate: selectedCountForGroup > 0 && selectedCountForGroup < entryIds.length,
+    };
   }
 
   function handleSubmit() {
@@ -178,8 +450,50 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
     localStore.markTimesheetEntriesSubmitted(selectedEntryIds);
   }
 
+  function renderTimeHover(collection: EntryCollection, cellLabel: string, triggerClassName: string) {
+    const commentSummary = collection.comments.length > 0 ? collection.comments.join(" || ") : "No comments";
+    const durationLabel = formatDuration(collection.durationMs);
+
+    return (
+      <HoverCard>
+        <HoverCardTrigger
+          className={triggerClassName}
+          aria-label={`${cellLabel} time details`}
+        >
+          {durationLabel}
+        </HoverCardTrigger>
+        <HoverCardContent
+          className="submit-timesheet-comment-card"
+          positionerClassName="submit-timesheet-comment-card-positioner"
+          side="top"
+          align="center"
+        >
+          <CopyHoverRow label="Project" value={collection.projectName} />
+          <CopyHoverRow label="Task" value={collection.taskLabel} />
+          <CopyHoverRow label="Time" value={durationLabel} />
+          <CopyHoverRow label="Comments" value={commentSummary} />
+        </HoverCardContent>
+      </HoverCard>
+    );
+  }
+
+  function renderTaskCell(cell: TaskCell, rowLabel: string) {
+    if (cell.entryIds.length === 0) {
+      return <span className="submit-timesheet-task-cell-empty">-</span>;
+    }
+
+    const selectionState = getSelectionState(cell.entryIds);
+    const triggerClassName = cn(
+      "submit-timesheet-task-cell-trigger",
+      selectionState.checked && "is-selected",
+      selectionState.indeterminate && "is-partial",
+    );
+
+    return renderTimeHover(cell, rowLabel, triggerClassName);
+  }
+
   return (
-    <div ref={overlayRef} className="time-entry-modal-overlay">
+    <div ref={overlayRef} className="time-entry-modal-overlay submit-timesheet-modal-overlay">
       <div className="submit-timesheet-modal">
         <div className="submit-timesheet-modal-header">
           <div className="submit-timesheet-modal-title-wrap">
@@ -192,121 +506,309 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
         </div>
 
         <div className="submit-timesheet-toolbar">
-          <div className="submit-timesheet-toolbar-copy">
-            <span className="submit-timesheet-toolbar-label">Week of {formatWeekRange(weekDates)}</span>
-            <span className="submit-timesheet-toolbar-value">
-              {selectedCount} selected · {formatDuration(selectedDurationMs)}
-            </span>
+          <div className="submit-timesheet-toolbar-head">
+            <div className="submit-timesheet-toolbar-copy">
+              <span className="submit-timesheet-toolbar-label">Week of {formatWeekRange(weekDates)}</span>
+              <span className="submit-timesheet-toolbar-value">
+                {selectedCount} selected · {formatDuration(selectedDurationMs)}
+              </span>
+            </div>
           </div>
 
           <div className="submit-timesheet-toolbar-badges">
-            <span className="submit-timesheet-toolbar-badge">{visibleEntryIds.length} unsubmitted entries</span>
-            <span className="submit-timesheet-toolbar-badge">{submittedWeekCount} submitted</span>
-            <span className="submit-timesheet-toolbar-badge">{groups.length} days</span>
+            <span className="submit-timesheet-toolbar-badge">{formatCountLabel(visibleEntryIds.length, "unsubmitted entry", "unsubmitted entries")}</span>
+            <span className="submit-timesheet-toolbar-badge">{formatCountLabel(submittedWeekCount, "submitted", "submitted")}</span>
+            <span className="submit-timesheet-toolbar-badge">{primaryCountLabel}</span>
           </div>
 
-          <div className="submit-timesheet-toolbar-actions">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={visibleEntryIds.length === 0}
-              onClick={() => replaceSelection(visibleEntryIds)}
-            >
-              Select All
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={visibleEntryIds.length === 0}
-              onClick={() => replaceSelection(visibleEntryIds)}
-            >
-              Select Unsubmitted
-            </Button>
-            <Button variant="outline" size="sm" disabled={selectedEntryIds.length === 0} onClick={() => replaceSelection([])}>
-              Clear Selection
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={submittedWeekCount === 0}
-              onClick={() => setSelectedEntryIds((current) => current.filter((entryId) => !submittedWeekEntryIds.has(entryId)))}
-            >
-              Clear Submitted
-            </Button>
+          <div className="submit-timesheet-toolbar-footer">
+            <div className="submit-timesheet-toolbar-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={visibleEntryIds.length === 0}
+                onClick={() => replaceSelection(visibleEntryIds)}
+              >
+                Select All
+              </Button>
+              <Button variant="outline" size="sm" disabled={selectedEntryIds.length === 0} onClick={() => replaceSelection([])}>
+                Clear Selection
+              </Button>
+            </div>
+
+            <div ref={filterRef} className="submit-timesheet-filter">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="submit-timesheet-filter-trigger"
+                aria-label="Open submit view options"
+                aria-expanded={isFilterOpen}
+                onClick={() => setIsFilterOpen((current) => !current)}
+              >
+                <Filter />
+              </Button>
+
+              {isFilterOpen ? (
+                <div className="submit-timesheet-filter-menu" role="dialog" aria-label="Submit view options">
+                  <fieldset className="submit-timesheet-option-group">
+                    <legend className="submit-timesheet-option-group-label">View</legend>
+                    <label
+                      className="submit-timesheet-option-row"
+                      htmlFor="submit-timesheet-view-day"
+                      onClick={() => {
+                        setViewMode("day");
+                        setIsFilterOpen(false);
+                      }}
+                    >
+                      <input
+                        id="submit-timesheet-view-day"
+                        type="radio"
+                        value="day"
+                        name="submit-timesheet-view"
+                        className="submit-timesheet-option-radio"
+                        checked={viewMode === "day"}
+                        onChange={() => {
+                          setViewMode("day");
+                          setIsFilterOpen(false);
+                        }}
+                      />
+                      <span>By day</span>
+                    </label>
+                    <label
+                      className="submit-timesheet-option-row"
+                      htmlFor="submit-timesheet-view-task"
+                      onClick={() => {
+                        setViewMode("task");
+                        setIsFilterOpen(false);
+                      }}
+                    >
+                      <input
+                        id="submit-timesheet-view-task"
+                        type="radio"
+                        value="task"
+                        name="submit-timesheet-view"
+                        className="submit-timesheet-option-radio"
+                        checked={viewMode === "task"}
+                        onChange={() => {
+                          setViewMode("task");
+                          setIsFilterOpen(false);
+                        }}
+                      />
+                      <span>By task</span>
+                    </label>
+                  </fieldset>
+                  <div className="submit-timesheet-filter-divider" />
+                  <fieldset className="submit-timesheet-option-group">
+                    <legend className="submit-timesheet-option-group-label">Grouping</legend>
+                    <label
+                      className={cn("submit-timesheet-option-row", viewMode === "task" && "is-disabled")}
+                      htmlFor="submit-timesheet-grouping-single"
+                      onClick={() => {
+                        if (viewMode !== "task") {
+                          setGroupingMode("single");
+                          setIsFilterOpen(false);
+                        }
+                      }}
+                    >
+                      <input
+                        id="submit-timesheet-grouping-single"
+                        type="radio"
+                        value="single"
+                        name="submit-timesheet-grouping"
+                        className="submit-timesheet-option-radio"
+                        checked={activeGroupingMode === "single"}
+                        onChange={() => {
+                          setGroupingMode("single");
+                          setIsFilterOpen(false);
+                        }}
+                        disabled={viewMode === "task"}
+                      />
+                      <span>Single</span>
+                    </label>
+                    <label
+                      className={cn("submit-timesheet-option-row", viewMode === "task" && "is-disabled")}
+                      htmlFor="submit-timesheet-grouping-grouped"
+                      onClick={() => {
+                        if (viewMode !== "task") {
+                          setGroupingMode("grouped");
+                          setIsFilterOpen(false);
+                        }
+                      }}
+                    >
+                      <input
+                        id="submit-timesheet-grouping-grouped"
+                        type="radio"
+                        value="grouped"
+                        name="submit-timesheet-grouping"
+                        className="submit-timesheet-option-radio"
+                        checked={activeGroupingMode === "grouped"}
+                        onChange={() => {
+                          setGroupingMode("grouped");
+                          setIsFilterOpen(false);
+                        }}
+                        disabled={viewMode === "task"}
+                      />
+                      <span>Grouped</span>
+                    </label>
+                  </fieldset>
+                  {viewMode === "task" ? (
+                    <div className="submit-timesheet-filter-note">
+                      Grouping stays merged in the by-task view.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
-        <div className="submit-timesheet-groups">
-          {groups.length === 0 ? (
-            <div className="submit-timesheet-empty">
-              All entries in this week are already submitted.
-            </div>
-          ) : (
-            groups.map((group) => {
-              const daySelectedCount = group.entries.filter((entry) => selectedEntryIdSet.has(entry._id)).length;
-              const isDayChecked = daySelectedCount === group.entries.length;
-              const isDayIndeterminate = daySelectedCount > 0 && !isDayChecked;
-              return (
-                <section key={group.localDate} className="submit-timesheet-group">
-                  <div className="submit-timesheet-group-header">
-                    <div className="submit-timesheet-group-main">
-                      <div className="submit-timesheet-group-copy">
-                        <h3 className="submit-timesheet-group-title">{formatDayHeading(group.localDate)}</h3>
-                        <p className="submit-timesheet-group-meta">
-                          {group.entries.length} entries · {formatDuration(group.totalMs)}
-                        </p>
+        <div className="submit-timesheet-content">
+          <div className="submit-timesheet-groups">
+            {viewMode === "task" ? (
+              taskRows.length === 0 ? (
+                <div className="submit-timesheet-empty">
+                  All entries in this week are already submitted.
+                </div>
+              ) : (
+                <div className="submit-timesheet-task-table-shell">
+                  <Table className="submit-timesheet-task-table">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="submit-timesheet-task-main-head">Task</TableHead>
+                        {weekDates.map((localDate) => (
+                          <TableHead key={localDate} className="submit-timesheet-task-day-head">
+                            {formatDayColumnHeading(localDate)}
+                          </TableHead>
+                        ))}
+                        <TableHead className="submit-timesheet-task-total-head">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {taskRows.map((row) => {
+                        const selectionState = getSelectionState(row.entryIds);
+                        const rowLabel = `${row.projectName} ${row.taskLabel}`.trim();
+
+                        return (
+                          <TableRow key={row.taskKey}>
+                            <TableCell className="submit-timesheet-task-main-cell">
+                              <div className="submit-timesheet-task-main">
+                                <SelectionCheckbox
+                                  checked={selectionState.checked}
+                                  indeterminate={selectionState.indeterminate}
+                                  onChange={(checked) => setEntrySelection(row.entryIds, checked)}
+                                  ariaLabel={`Select ${rowLabel}`}
+                                />
+                                <div className="submit-timesheet-task-copy">
+                                  <div className="submit-timesheet-entry-primary">
+                                    <ProjectIcon
+                                      icon={row.projectIcon}
+                                      color={row.projectColor}
+                                      className="entry-project-dot"
+                                      fallback="dot"
+                                    />
+                                    <span className="submit-timesheet-entry-project">{row.projectName}</span>
+                                  </div>
+                                  <div className="submit-timesheet-entry-secondary" title={row.taskLabel}>
+                                    {truncateLabel(row.taskLabel)}
+                                  </div>
+                                </div>
+                              </div>
+                            </TableCell>
+                            {row.cells.map((cell) => (
+                              <TableCell key={`${row.taskKey}-${cell.localDate}`} className="submit-timesheet-task-day-cell">
+                                {renderTaskCell(cell, rowLabel)}
+                              </TableCell>
+                            ))}
+                            <TableCell className="submit-timesheet-task-total-cell">{formatDuration(row.durationMs)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )
+            ) : daySections.length === 0 ? (
+              <div className="submit-timesheet-empty">
+                All entries in this week are already submitted.
+              </div>
+            ) : (
+              daySections.map((group) => {
+                const selectionState = getSelectionState(group.entryIds);
+
+                return (
+                  <section key={group.localDate} className="submit-timesheet-group">
+                    <div className="submit-timesheet-group-header">
+                      <div className="submit-timesheet-group-main">
+                        <div className="submit-timesheet-group-copy">
+                          <h3 className="submit-timesheet-group-title">{formatDayHeading(group.localDate)}</h3>
+                          <p className="submit-timesheet-group-meta">
+                            {formatCountLabel(group.entryIds.length, "entry", "entries")} · {formatDuration(group.totalMs)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="submit-timesheet-group-actions">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={selectionState.checked}
+                          onClick={() => setEntrySelection(group.entryIds, true)}
+                        >
+                          Check All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!selectionState.checked && !selectionState.indeterminate}
+                          onClick={() => setEntrySelection(group.entryIds, false)}
+                        >
+                          Uncheck All
+                        </Button>
                       </div>
                     </div>
 
-                    <div className="submit-timesheet-group-actions">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isDayChecked}
-                        onClick={() => setGroupSelection(group.entries, true)}
-                      >
-                        Check All
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!isDayChecked && !isDayIndeterminate}
-                        onClick={() => setGroupSelection(group.entries, false)}
-                      >
-                        Uncheck All
-                      </Button>
-                    </div>
-                  </div>
+                    <div className="submit-timesheet-entry-list">
+                      {group.rows.map((row, index) => {
+                        const rowSelectionState = getSelectionState(row.entryIds);
+                        const noteSummary = formatCommentSummary(row.comments);
 
-                  <div className="submit-timesheet-entry-list">
-                    {group.entries.map((entry) => {
-                      const project = projects.find((item) => item._id === entry.projectId);
-                      const task = project?.tasks.find((item) => item._id === entry.taskId);
-
-                      return (
-                        <label key={entry._id} className={cn("submit-timesheet-entry", selectedEntryIdSet.has(entry._id) && "is-selected")}>
-                          <SelectionCheckbox
-                            checked={selectedEntryIdSet.has(entry._id)}
-                            onChange={(checked) => setGroupSelection([entry], checked)}
-                            ariaLabel={`Select ${project?.name ?? "No project"} ${task?.name ?? ""}`.trim()}
-                          />
-                          <div className="submit-timesheet-entry-body">
-                            <div className="submit-timesheet-entry-primary">
-                              <span className="entry-project-dot" style={{ background: project?.color ?? "#3b82f6" }} />
-                              <span className="submit-timesheet-entry-project">{project?.name ?? "No project"}</span>
+                        return (
+                          <div key={`${group.localDate}-${row.taskKey}-${index}`} className={cn("submit-timesheet-entry", rowSelectionState.checked && "is-selected")}>
+                            <SelectionCheckbox
+                              checked={rowSelectionState.checked}
+                              indeterminate={rowSelectionState.indeterminate}
+                              onChange={(checked) => setEntrySelection(row.entryIds, checked)}
+                              ariaLabel={`Select ${row.projectName} ${row.taskLabel}`.trim()}
+                            />
+                            <div className="submit-timesheet-entry-body">
+                              <div className="submit-timesheet-entry-primary">
+                                <ProjectIcon
+                                  icon={row.projectIcon}
+                                  color={row.projectColor}
+                                  className="entry-project-dot"
+                                  fallback="dot"
+                                />
+                                <span className="submit-timesheet-entry-project">{row.projectName}</span>
+                              </div>
+                              <div className="submit-timesheet-entry-secondary" title={row.taskLabel}>
+                                {row.taskLabel}
+                              </div>
+                              {noteSummary ? <div className="submit-timesheet-entry-note">{noteSummary}</div> : null}
                             </div>
-                            {task?.name ? <div className="submit-timesheet-entry-secondary">{task.name}</div> : null}
-                            {entry.note ? <div className="submit-timesheet-entry-note">{entry.note}</div> : null}
+                            {renderTimeHover(
+                              row,
+                              `${row.projectName} ${row.taskLabel}`.trim(),
+                              "submit-timesheet-entry-hours",
+                            )}
                           </div>
-                          <div className="submit-timesheet-entry-hours">{formatDuration(entry.durationMs)}</div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </section>
-              );
-            })
-          )}
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })
+            )}
+          </div>
         </div>
 
         <div className="submit-timesheet-modal-actions">

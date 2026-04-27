@@ -13,13 +13,34 @@ import {
   buildBacklogStatusNameLookup,
   buildBacklogStatusOptions,
 } from "@/features/backlog/backlog-status";
-import { getDirectChildWorkItems, isSubtaskItem } from "@/features/backlog/work-item-hierarchy";
-import { buildWorkItemTimerComment, parseWorkItemReference } from "@/features/backlog/work-item-timer-comment";
+import {
+  getDirectChildWorkItems,
+  isSubtaskItem,
+} from "@/features/backlog/work-item-hierarchy";
+import {
+  WorkItemIcon,
+  resolveWorkItemIcon,
+  useWorkItemIconData,
+} from "@/features/backlog/work-item-icons";
+import {
+  buildWorkItemTimerComment,
+  parseWorkItemReference,
+} from "@/features/backlog/work-item-timer-comment";
 import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source-sync";
-import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
-import { getConnectorsOverview } from "@/lib/app-api";
-import { useLocalProjects, useLocalState, useLocalWorkItems } from "@/lib/local-hooks";
-import { type LocalWorkItem, localStore } from "@/lib/local-store";
+import {
+  normalizeHoursInput,
+  parseHoursInput,
+} from "@/features/timer/hours-input";
+import {
+  useLocalProjects,
+  useLocalState,
+  useLocalWorkItems,
+} from "@/lib/local-hooks";
+import {
+  getLocalProjectDisplayName,
+  type LocalWorkItem,
+  localStore,
+} from "@/lib/local-store";
 import { cn, todayIsoDate } from "@/lib/utils";
 
 interface BacklogTaskModalProps {
@@ -28,25 +49,14 @@ interface BacklogTaskModalProps {
   onClose: () => void;
 }
 
-function ConnectorSourceIcon({ svg }: { svg: string | undefined }) {
-  if (!svg) {
-    return null;
-  }
-
-  return (
-    <span
-      className="backlog-task-source-icon inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
-      aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
-
 function formatPriorityInput(priority?: number) {
   return typeof priority === "number" ? String(priority) : "";
 }
 
-function isSamePriorityValue(left: number | undefined | null, right: number | undefined) {
+function isSamePriorityValue(
+  left: number | undefined | null,
+  right: number | undefined,
+) {
   return left === right;
 }
 
@@ -80,12 +90,19 @@ function parseEstimateInput(value: string) {
   return Math.round(parsedValue * 10_000) / 10_000;
 }
 
-function buildManualTimeEntryNote(note: string, title: string, sourceId?: string) {
+function buildManualTimeEntryNote(
+  note: string,
+  title: string,
+  sourceId?: string,
+) {
   const trimmedNote = note.trim();
   return trimmedNote || buildWorkItemTimerComment(title, sourceId);
 }
 
-function collectBlockedParentIds(workItem: LocalWorkItem, workItems: LocalWorkItem[]) {
+function collectBlockedParentIds(
+  workItem: LocalWorkItem,
+  workItems: LocalWorkItem[],
+) {
   const blockedParentIds = new Set<string>([workItem._id]);
   const queue = [workItem];
 
@@ -109,21 +126,31 @@ function collectBlockedParentIds(workItem: LocalWorkItem, workItems: LocalWorkIt
   return blockedParentIds;
 }
 
-export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: BacklogTaskModalProps) {
+export function BacklogTaskModal({
+  workItemId,
+  parentWorkItemId,
+  onClose,
+}: BacklogTaskModalProps) {
   const state = useLocalState();
   const projects = useLocalProjects();
+  const workItemIconData = useWorkItemIconData(projects);
   const workItems = useLocalWorkItems();
   const overlayRef = useRef<HTMLDivElement>(null);
   const currentTimer = state.timers[0] ?? null;
   const isCreateSubtaskMode = Boolean(parentWorkItemId && !workItemId);
-  const [connectorIconsBySource, setConnectorIconsBySource] = useState<Record<string, string>>({});
 
   const workItem = useMemo(
-    () => (workItemId ? workItems.find((item) => item._id === workItemId) ?? null : null),
+    () =>
+      workItemId
+        ? (workItems.find((item) => item._id === workItemId) ?? null)
+        : null,
     [workItemId, workItems],
   );
   const parentWorkItem = useMemo(
-    () => (parentWorkItemId ? workItems.find((item) => item._id === parentWorkItemId) ?? null : null),
+    () =>
+      parentWorkItemId
+        ? (workItems.find((item) => item._id === parentWorkItemId) ?? null)
+        : null,
     [parentWorkItemId, workItems],
   );
 
@@ -146,8 +173,14 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     () =>
       projects.map((project) => ({
         value: project._id,
-        label: project.code ? `[${project.code}] ${project.name}` : project.name,
-        keywords: [project.name, project.code ?? ""],
+        label: project.code
+          ? `[${project.code}] ${getLocalProjectDisplayName(project)}`
+          : getLocalProjectDisplayName(project),
+        keywords: [
+          project.name,
+          getLocalProjectDisplayName(project),
+          project.code ?? "",
+        ],
       })),
     [projects],
   );
@@ -177,21 +210,32 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       return "";
     }
 
-    return workItems.find((item) => item.sourceId === workItem.parentSourceId)?._id ?? "";
+    return (
+      workItems.find((item) => item.sourceId === workItem.parentSourceId)
+        ?._id ?? ""
+    );
   }, [parentWorkItemId, workItem, workItems]);
 
   const blockedParentIds = useMemo(
-    () => (workItem ? collectBlockedParentIds(workItem, workItems) : new Set<string>()),
+    () =>
+      workItem
+        ? collectBlockedParentIds(workItem, workItems)
+        : new Set<string>(),
     [workItem, workItems],
   );
   const canChangeParentTask = useMemo(
-    () => (workItem ? getDirectChildWorkItems(workItem, workItems).length === 0 : true),
+    () =>
+      workItem
+        ? getDirectChildWorkItems(workItem, workItems).length === 0
+        : true,
     [workItem, workItems],
   );
   const parentTaskOptions = useMemo(
     () =>
       workItems
-        .filter((item) => !isSubtaskItem(item) && !blockedParentIds.has(item._id))
+        .filter(
+          (item) => !isSubtaskItem(item) && !blockedParentIds.has(item._id),
+        )
         .map((item) => ({
           value: item._id,
           label: item.title,
@@ -215,7 +259,10 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     [availableTasks],
   );
 
-  const parsedDurationMs = useMemo(() => parseHoursInput(durationHours), [durationHours]);
+  const parsedDurationMs = useMemo(
+    () => parseHoursInput(durationHours),
+    [durationHours],
+  );
   const hasDurationDraft = durationHours.trim().length > 0;
   const durationError = !hasDurationDraft
     ? null
@@ -230,13 +277,21 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       ? "Enter a whole number"
       : null;
   const originalEstimateError =
-    parseEstimateInput(originalEstimateHours) === null ? "Enter a non-negative number" : null;
+    parseEstimateInput(originalEstimateHours) === null
+      ? "Enter a non-negative number"
+      : null;
   const remainingEstimateError =
-    parseEstimateInput(remainingEstimateHours) === null ? "Enter a non-negative number" : null;
+    parseEstimateInput(remainingEstimateHours) === null
+      ? "Enter a non-negative number"
+      : null;
   const completedEstimateError =
-    parseEstimateInput(completedEstimateHours) === null ? "Enter a non-negative number" : null;
+    parseEstimateInput(completedEstimateHours) === null
+      ? "Enter a non-negative number"
+      : null;
   const canSubmitDuration = Boolean(parsedDurationMs && parsedDurationMs > 0);
-  const canStartTimer = Boolean(!currentTimer && workItem?.status !== "archived");
+  const canStartTimer = Boolean(
+    !currentTimer && workItem?.status !== "archived",
+  );
   const canCreateSubtask =
     title.trim().length > 0 &&
     Boolean(parentTaskId) &&
@@ -263,50 +318,52 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       workItem
         ? [
             isSubtaskItem(workItem) ? "Subtask" : undefined,
-            workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceConnectionLabel : undefined,
-            workItem.source !== "manual" && workItem.source !== "outlook" ? workItem.sourceProjectName : undefined,
+            workItem.source !== "manual" && workItem.source !== "outlook"
+              ? workItem.sourceConnectionLabel
+              : undefined,
+            workItem.source !== "manual" && workItem.source !== "outlook"
+              ? workItem.sourceProjectName
+              : undefined,
             workItem.sourceWorkItemType,
           ].filter(Boolean)
         : [],
     [workItem],
   );
   const timeEntryMetaParts = useMemo(
-    () => [selectedProject?.name, selectedTask?.name].filter(Boolean),
-    [selectedProject?.name, selectedTask?.name],
+    () =>
+      [
+        selectedProject
+          ? getLocalProjectDisplayName(selectedProject)
+          : undefined,
+        selectedTask?.name,
+      ].filter(Boolean),
+    [selectedProject, selectedTask?.name],
   );
-  const sourceReference = workItem?.source === "azure_devops" ? parseWorkItemReference(workItem.sourceId) : undefined;
+  const sourceReference =
+    workItem?.source === "azure_devops"
+      ? parseWorkItemReference(workItem.sourceId)
+      : undefined;
   const sourceUrl =
     workItem && workItem.source !== "manual" && workItem.source !== "outlook"
       ? workItem.sourceId
       : undefined;
-  const sourceMetaLabel = [sourceReference ? `#${sourceReference}` : undefined, ...sourceMetaParts].filter(Boolean).join(" · ");
+  const sourceMetaLabel = [
+    sourceReference ? `#${sourceReference}` : undefined,
+    ...sourceMetaParts,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const hasEstimateSyncIssue = Boolean(
     workItem?.estimateSync?.originalEstimateHours?.conflict ||
-      workItem?.estimateSync?.remainingEstimateHours?.conflict ||
-      workItem?.estimateSync?.completedEstimateHours?.conflict ||
-      workItem?.estimateSync?.originalEstimateHours?.error ||
-      workItem?.estimateSync?.remainingEstimateHours?.error ||
-      workItem?.estimateSync?.completedEstimateHours?.error,
+    workItem?.estimateSync?.remainingEstimateHours?.conflict ||
+    workItem?.estimateSync?.completedEstimateHours?.conflict ||
+    workItem?.estimateSync?.originalEstimateHours?.error ||
+    workItem?.estimateSync?.remainingEstimateHours?.error ||
+    workItem?.estimateSync?.completedEstimateHours?.error,
   );
-  const showConnectorIcon =
-    workItem?.source !== "manual" &&
-    workItem?.source !== "outlook" &&
-    Boolean(workItem?.source && connectorIconsBySource[workItem.source]);
-
-  useEffect(() => {
-    void getConnectorsOverview()
-      .then((overview) => {
-        const nextIcons = Object.fromEntries(
-          overview.plugins
-            .filter((plugin) => plugin.iconSvg)
-            .map((plugin) => [plugin.id, plugin.iconSvg as string]),
-        );
-        setConnectorIconsBySource(nextIcons);
-      })
-      .catch(() => {
-        setConnectorIconsBySource({});
-      });
-  }, []);
+  const resolvedWorkItemIcon = workItem
+    ? resolveWorkItemIcon(workItem, workItemIconData)
+    : null;
 
   useEffect(() => {
     if (isCreateSubtaskMode) {
@@ -341,9 +398,15 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     setNote(workItem.note ?? "");
     setTimeEntryNote("");
     setPriority(formatPriorityInput(workItem.priority));
-    setOriginalEstimateHours(formatEstimateInput(workItem.originalEstimateHours));
-    setRemainingEstimateHours(formatEstimateInput(workItem.remainingEstimateHours));
-    setCompletedEstimateHours(formatEstimateInput(workItem.completedEstimateHours));
+    setOriginalEstimateHours(
+      formatEstimateInput(workItem.originalEstimateHours),
+    );
+    setRemainingEstimateHours(
+      formatEstimateInput(workItem.remainingEstimateHours),
+    );
+    setCompletedEstimateHours(
+      formatEstimateInput(workItem.completedEstimateHours),
+    );
     setBacklogStatusId(workItem.backlogStatusId ?? "");
     setParentTaskId(resolvedParentTaskId);
     setProjectId(workItem.projectId ?? "");
@@ -351,7 +414,13 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
     setDurationHours("");
     setIsArchivePending(false);
     setIsDeletePending(false);
-  }, [isCreateSubtaskMode, onClose, parentWorkItem, resolvedParentTaskId, workItem]);
+  }, [
+    isCreateSubtaskMode,
+    onClose,
+    parentWorkItem,
+    resolvedParentTaskId,
+    workItem,
+  ]);
 
   useEffect(() => {
     if (backlogStatusId && !backlogStatusNameById.has(backlogStatusId)) {
@@ -403,9 +472,15 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       if (!parentTaskId && parsedPriority === null) {
         return null;
       }
-      const parsedOriginalEstimateHours = parseEstimateInput(originalEstimateHours);
-      const parsedRemainingEstimateHours = parseEstimateInput(remainingEstimateHours);
-      const parsedCompletedEstimateHours = parseEstimateInput(completedEstimateHours);
+      const parsedOriginalEstimateHours = parseEstimateInput(
+        originalEstimateHours,
+      );
+      const parsedRemainingEstimateHours = parseEstimateInput(
+        remainingEstimateHours,
+      );
+      const parsedCompletedEstimateHours = parseEstimateInput(
+        completedEstimateHours,
+      );
       if (
         parsedOriginalEstimateHours === null ||
         parsedRemainingEstimateHours === null ||
@@ -502,7 +577,11 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
       workItemId: workItem._id,
       projectId: projectId || undefined,
       taskId: taskId || undefined,
-      note: buildManualTimeEntryNote(timeEntryNote, nextTitle, workItem.sourceId),
+      note: buildManualTimeEntryNote(
+        timeEntryNote,
+        nextTitle,
+        workItem.sourceId,
+      ),
       durationMs: parsedDurationMs,
     });
     syncBacklogWorkItemToSource(workItem);
@@ -682,7 +761,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
                 onChange={setTaskId}
                 placeholder={projectId ? "Select task" : "Pick a project first"}
                 clearLabel={projectId ? "No task" : undefined}
-                emptyMessage={projectId ? "No matching tasks" : "Pick a project first"}
+                emptyMessage={
+                  projectId ? "No matching tasks" : "Pick a project first"
+                }
                 ariaLabel="Task mapping"
                 disabled={!projectId || availableTasks.length === 0}
               />
@@ -701,7 +782,12 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
           </div>
 
           <div className="time-entry-modal-actions">
-            <Button type="button" className="gap-1.5" onClick={submitCreatedSubtask} disabled={!canCreateSubtask}>
+            <Button
+              type="button"
+              className="gap-1.5"
+              onClick={submitCreatedSubtask}
+              disabled={!canCreateSubtask}
+            >
               <Plus className="h-3.5 w-3.5" />
               Add subtask
             </Button>
@@ -729,8 +815,8 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
         <div className="time-entry-modal-header">
           <div className="backlog-modal-header-content">
             <div className="backlog-modal-readonly-title-row">
-              {showConnectorIcon ? (
-                <ConnectorSourceIcon svg={workItem ? connectorIconsBySource[workItem.source] : undefined} />
+              {resolvedWorkItemIcon ? (
+                <WorkItemIcon icon={resolvedWorkItemIcon} />
               ) : null}
               <span className="backlog-modal-readonly-title">{title}</span>
             </div>
@@ -793,7 +879,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
               onChange={setTaskId}
               placeholder={projectId ? "Select task" : "Pick a project first"}
               clearLabel={projectId ? "No task" : undefined}
-              emptyMessage={projectId ? "No matching tasks" : "Pick a project first"}
+              emptyMessage={
+                projectId ? "No matching tasks" : "Pick a project first"
+              }
               ariaLabel="Task mapping"
               disabled={!projectId || availableTasks.length === 0}
             />
@@ -828,7 +916,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
                 style={{ fontFamily: "var(--font-mono)" }}
                 value={durationHours}
                 onChange={(event) => setDurationHours(event.target.value)}
-                onBlur={(event) => setDurationHours(normalizeHoursInput(event.target.value))}
+                onBlur={(event) =>
+                  setDurationHours(normalizeHoursInput(event.target.value))
+                }
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
@@ -868,7 +958,10 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
                 ) : (
                   <button
                     type="button"
-                    className={cn("inline-hours-action", "inline-hours-action-play")}
+                    className={cn(
+                      "inline-hours-action",
+                      "inline-hours-action-play",
+                    )}
                     aria-label={`Start timer for ${title.trim() || editingWorkItem.title}`}
                     title={timerTitle}
                     disabled={!canStartTimer}
@@ -880,7 +973,9 @@ export function BacklogTaskModal({ workItemId, parentWorkItemId, onClose }: Back
                 )}
               </div>
             </div>
-            {durationError ? <span className="field-error">{durationError}</span> : null}
+            {durationError ? (
+              <span className="field-error">{durationError}</span>
+            ) : null}
           </div>
         </div>
       </div>

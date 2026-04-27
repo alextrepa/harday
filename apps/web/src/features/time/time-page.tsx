@@ -83,7 +83,7 @@ export function TimePage({ date }: { date: string }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="time-page-stack">
       <DayViewerCard
         date={date}
         today={today}

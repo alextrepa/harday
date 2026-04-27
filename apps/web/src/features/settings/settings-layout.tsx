@@ -1,3 +1,4 @@
+import { type CSSProperties, useEffect, useState } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   RiBugLine as Bug,
@@ -8,7 +9,16 @@ import {
   RiPlugLine as Plug,
   RiSettings3Line as Settings,
 } from "@remixicon/react";
-import { cn } from "@/lib/utils";
+import {
+  CustomSidebar,
+  CustomSidebarLayout,
+  CustomSidebarMenuButton,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuItem,
+} from "@/components/custom-sidebar";
 
 const settingsTabs = [
   { to: "/settings/general", label: "General", icon: Settings },
@@ -19,35 +29,72 @@ const settingsTabs = [
   { to: "/settings/imports", label: "Sync Review", icon: Inbox },
   { to: "/settings/debug", label: "Debug", icon: Bug },
 ] as const;
+const SECTION_SIDEBAR_COLLAPSE_BREAKPOINT = 1520;
 
 export function SettingsLayout() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(() =>
+    typeof window === "undefined"
+      ? true
+      : window.innerWidth > SECTION_SIDEBAR_COLLAPSE_BREAKPOINT,
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(
+      `(max-width: ${SECTION_SIDEBAR_COLLAPSE_BREAKPOINT}px)`,
+    );
+    const handleViewportChange = () => {
+      setIsSettingsSidebarOpen(!mediaQuery.matches);
+    };
+
+    handleViewportChange();
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () => mediaQuery.removeEventListener("change", handleViewportChange);
+  }, []);
 
   return (
-    <div className="settings-layout">
-      <nav className="settings-sidebar" aria-label="Settings sections">
-        {settingsTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = pathname.startsWith(tab.to);
-          return (
-            <Link
-              key={tab.to}
-              to={tab.to}
-              className={cn(
-                "settings-sidebar-item",
-                isActive && "settings-sidebar-item-active",
-              )}
-            >
-              <Icon className="settings-sidebar-icon" />
-              <span className="settings-sidebar-label">{tab.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+    <CustomSidebarLayout
+      className="harday-settings-layout"
+      style={
+        {
+          "--sidebar-width": "200px",
+          "--sidebar-width-icon": "48px",
+        } as CSSProperties
+      }
+      open={isSettingsSidebarOpen}
+      onOpenChange={setIsSettingsSidebarOpen}
+    >
+      <CustomSidebar aria-label="Settings sections" collapsible="icon">
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {settingsTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = pathname.startsWith(tab.to);
+                  return (
+                    <SidebarMenuItem key={tab.to}>
+                      <CustomSidebarMenuButton
+                        render={<Link to={tab.to} />}
+                        isActive={isActive}
+                      >
+                        <Icon />
+                        <span data-sidebar-collapsed="hide">{tab.label}</span>
+                      </CustomSidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+      </CustomSidebar>
 
       <div className="settings-content">
         <Outlet />
       </div>
-    </div>
+    </CustomSidebarLayout>
   );
 }

@@ -13,6 +13,20 @@ export type AzureDevOpsQueryScope = (typeof azureDevOpsQueryScopes)[number];
 export const jiraQueryScopes = ["assigned_to_me", "project_open_issues"] as const;
 export type JiraQueryScope = (typeof jiraQueryScopes)[number];
 
+export const connectorTaskIconDisplayModes = [
+  "always",
+  "fallback",
+  "never",
+] as const;
+export const connectorTaskIconDisplayModeSchema = z.enum(
+  connectorTaskIconDisplayModes,
+);
+export type ConnectorTaskIconDisplayMode = z.infer<
+  typeof connectorTaskIconDisplayModeSchema
+>;
+export const DEFAULT_CONNECTOR_TASK_ICON_DISPLAY_MODE: ConnectorTaskIconDisplayMode =
+  "always";
+
 export const connectorImportDepthSchema = z.union([z.literal(0), z.literal(1)]);
 export type ConnectorImportDepth = z.infer<typeof connectorImportDepthSchema>;
 

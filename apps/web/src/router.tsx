@@ -53,7 +53,8 @@ const SettingsExportPage = lazy(async () => {
   return { default: module.SettingsExportPage };
 });
 const SettingsImportReviewPage = lazy(async () => {
-  const module = await import("@/features/settings/settings-import-review-page");
+  const module =
+    await import("@/features/settings/settings-import-review-page");
   return { default: module.SettingsImportReviewPage };
 });
 const SettingsDebugPage = lazy(async () => {
@@ -131,7 +132,9 @@ const timeRoute = createRoute({
     const params = timeRoute.useParams();
     return (
       <RouteSuspense>
-        <TimePage date={params.date === "today" ? todayIsoDate() : params.date} />
+        <TimePage
+          date={params.date === "today" ? todayIsoDate() : params.date}
+        />
       </RouteSuspense>
     );
   },
@@ -143,19 +146,23 @@ const reviewRoute = createRoute({
   validateSearch: reviewSearchSchema,
   component: () => {
     const params = reviewRoute.useParams();
-    return (
-      <Navigate
-        to="/time/$date"
-        params={{ date: params.date }}
-        replace
-      />
-    );
+    return <Navigate to="/time/$date" params={{ date: params.date }} replace />;
   },
 });
 
 const projectsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/projects",
+  component: () => (
+    <RouteSuspense>
+      <ProjectsPage />
+    </RouteSuspense>
+  ),
+});
+
+const projectsArchiveRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/projects/archive",
   component: () => (
     <RouteSuspense>
       <ProjectsPage />
@@ -298,6 +305,7 @@ const routeTree = rootRoute.addChildren([
     reviewRoute,
     backlogRoute,
     projectsRoute,
+    projectsArchiveRoute,
     projectDetailRoute,
     rulesRoute,
     settingsRoute.addChildren([

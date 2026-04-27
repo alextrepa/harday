@@ -1007,7 +1007,10 @@ export function AppShell() {
             </DropdownMenu>
             {showMobileModeToggle ? (
               <ToggleGroup
-                className="harday-mobile-mode-toggle"
+                className={cn(
+                  "harday-mobile-mode-toggle",
+                  isDesktopShell && "desktop-no-drag",
+                )}
                 aria-label="Primary navigation"
                 value={mobileModeValue}
                 onValueChange={(value) => {
@@ -1031,7 +1034,10 @@ export function AppShell() {
                   value="time"
                   size="sm"
                   variant="default"
-                  className="harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0"
+                  className={cn(
+                    "harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0",
+                    isDesktopShell && "desktop-no-drag",
+                  )}
                   aria-label="Time"
                   title="Time"
                 >
@@ -1042,7 +1048,10 @@ export function AppShell() {
                   value="backlog"
                   size="sm"
                   variant="default"
-                  className="harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0"
+                  className={cn(
+                    "harday-mobile-mode-toggle-item !h-6 !w-7 !min-w-7 !gap-0 !rounded-[4px] !px-0",
+                    isDesktopShell && "desktop-no-drag",
+                  )}
                   aria-label="Backlog"
                   title="Backlog"
                 >

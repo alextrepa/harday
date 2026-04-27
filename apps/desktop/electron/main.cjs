@@ -255,7 +255,7 @@ async function createMainWindow() {
     width: 1320,
     height: 900,
     minWidth: 390,
-    minHeight: 720,
+    minHeight: 550,
     autoHideMenuBar: true,
     backgroundColor: "#f4eee5",
     icon: iconPath,

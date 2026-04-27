@@ -386,6 +386,51 @@
     cursor: pointer;
   }
 
+  .harday-titlebar-date-trigger {
+    display: none;
+    align-items: center;
+    height: 24px;
+    padding: 0 0.25rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 120ms var(--ease),
+      color 120ms var(--ease);
+  }
+
+  .harday-titlebar-date-trigger:hover,
+  .harday-titlebar-date-trigger[data-popup-open] {
+    background: var(--hover-bg);
+    color: var(--text);
+  }
+
+  .harday-titlebar-date-trigger:focus-visible {
+    outline: 1px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .harday-titlebar-date-popover {
+    width: auto;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    background: var(--popover);
+  }
+
+  .harday-titlebar-calendar {
+    --cell-size: 2rem;
+    --cell-radius: 5px;
+    border-radius: 10px;
+    background: var(--popover);
+  }
+
   .harday-mobile-mode-toggle {
     display: inline-flex;
     align-items: center;
@@ -587,6 +632,18 @@
     flex-direction: column;
     gap: 0;
     margin-top: calc(-1.5rem - 1px);
+  }
+
+  .backlog-page-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
+  }
+
+  .page-container:has(> .backlog-page-stack) {
+    height: 100%;
+    min-height: 0;
   }
 
   .desktop-page-container .time-page-stack {
@@ -1805,65 +1862,46 @@
     white-space: nowrap;
   }
 
-  /* ----------------------------------------------------------------
-     Quick-timer play button
-     ---------------------------------------------------------------- */
+  .quick-timer-button-group {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
 
-  .quick-timer-play-btn {
+  .quick-timer-group-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
+    width: 30px;
     height: 28px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
     transition:
       background 0.15s ease,
-      border-color 0.15s ease,
       color 0.15s ease;
-    flex-shrink: 0;
   }
 
-  .quick-timer-play-btn:hover {
-    background: var(--success-bg);
-    border-color: var(--success-muted);
-    color: var(--success);
+  .quick-timer-group-button + .quick-timer-group-button {
+    border-left: 1px solid var(--border);
   }
 
-  .quick-timer-secondary-btn {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    height: 28px;
-    padding: 0 0.75rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition:
-      background 0.15s ease,
-      border-color 0.15s ease,
-      color 0.15s ease;
-    flex-shrink: 0;
-  }
-
-  .quick-timer-secondary-btn:hover {
+  .quick-timer-group-button:hover,
+  .quick-timer-group-button[data-popup-open] {
     background: var(--surface-high);
-    border-color: var(--border-hover);
     color: var(--text);
   }
 
-  .quick-timer-btn-label {
-    display: none;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
+  .quick-timer-group-button-play:hover {
+    background: var(--success-bg);
+    color: var(--success);
   }
 
   .stat-pill-active-clickable {
@@ -1986,6 +2024,29 @@
 
   .quick-timer-popup-actions > button {
     flex: 1;
+  }
+
+  .quick-timer-create-popover {
+    width: min(320px, calc(100vw - 1rem));
+    max-width: calc(100vw - 1rem);
+    gap: 0;
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    background: var(--popup-bg);
+    backdrop-filter: blur(16px) saturate(1.3);
+  }
+
+  .quick-timer-create-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .quick-timer-create-date {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-weight: 600;
   }
 
   @keyframes popup-enter {
@@ -2950,12 +3011,28 @@
     gap: 1px;
   }
 
+  .day-viewer-date-kicker {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+  }
+
   .day-viewer-weekday-label {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--sidebar-primary);
+    line-height: 1;
+  }
+
+  .day-viewer-today-muted {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
     line-height: 1;
   }
 
@@ -3430,7 +3507,12 @@
   }
 
   .entries-table-scroll-shell-backlog {
-    --entries-table-scroll-height: clamp(20rem, calc(100dvh - 16rem), 48rem);
+    --entries-table-scroll-height: 100%;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow: visible;
   }
 
   .entries-table-scroll-shell-project {
@@ -3453,6 +3535,13 @@
 
   .entries-table-header-table {
     flex: 0 0 auto;
+    position: relative;
+    z-index: 3;
+    overflow: visible;
+  }
+
+  .entries-table-header-table th {
+    overflow: visible;
   }
 
   .entries-table-header-table .backlog-task-heading-content {
@@ -3471,7 +3560,10 @@
   }
 
   .entries-table-scroll-shell-backlog .entries-table-scroll-area {
-    height: var(--entries-table-scroll-height);
+    min-height: 0;
+    flex: 1 1 auto;
+    height: auto;
+    max-height: none;
   }
 
   .entries-table-scroll-area [data-slot="scroll-area-viewport"] {
@@ -3485,6 +3577,7 @@
     .entries-table-scroll-area
     [data-slot="scroll-area-viewport"] {
     height: 100% !important;
+    max-height: none;
   }
 
   .entries-table-scroll-area [data-slot="scroll-area-scrollbar"] {
@@ -3973,15 +4066,43 @@
     top: calc(100% + 0.5rem);
     right: 0;
     z-index: 40;
-    min-width: 10rem;
+    min-width: 13rem;
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.45rem;
     padding: 0.35rem;
     border: 1px solid var(--border);
     border-radius: calc(var(--radius-md) - 2px);
     background: color-mix(in srgb, var(--surface-lowest) 96%, white 4%);
     box-shadow: var(--shadow-card);
+  }
+
+  .backlog-filter-menu-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .backlog-filter-menu-label {
+    padding: 0.2rem 0.55rem 0.1rem;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .backlog-filter-menu-divider {
+    height: 1px;
+    background: color-mix(in srgb, var(--border) 84%, transparent);
+  }
+
+  .backlog-filter-option-copy {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .backlog-sort-option {
@@ -5814,7 +5935,31 @@
 
 @media (max-width: 1040px) {
   .desktop-shell-nav-inner {
-    padding-left: 11rem;
+    padding-left: 7.5rem;
+  }
+}
+
+@media (max-width: 1023px) {
+  .page-container:has(> .time-page-stack),
+  .page-container:has(> .backlog-page-stack) {
+    max-width: none;
+    padding-inline: 0;
+  }
+
+  .page-container:has(> .backlog-page-stack) {
+    padding-top: 0;
+  }
+
+  .harday-titlebar-date-trigger {
+    display: inline-flex;
+  }
+
+  .time-page-stack .day-viewer {
+    display: none;
+  }
+
+  .time-page-stack .entries-table-scroll-shell-time .entries-table-header-table {
+    display: none;
   }
 }
 
@@ -6341,17 +6486,6 @@
 
   .quick-timer-popup-anchor {
     margin-left: auto;
-  }
-
-  .quick-timer-secondary-btn,
-  .quick-timer-play-btn {
-    width: auto;
-    padding: 0 0.75rem;
-    gap: 0.45rem;
-  }
-
-  .quick-timer-btn-label {
-    display: inline-flex;
   }
 
   .quick-timer-popup {

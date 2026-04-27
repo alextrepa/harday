@@ -72,7 +72,10 @@ export function DayViewerCard({
             </button>
           </div>
           <div>
-            <p className="day-viewer-weekday-label">{formatWeekdayLong(date)}</p>
+            <p className="day-viewer-date-kicker">
+              <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
+              {date === today ? <span className="day-viewer-today-muted">Today</span> : null}
+            </p>
             <p className="day-viewer-date-big">{formatMonthDay(date).toUpperCase()}</p>
           </div>
         </div>
@@ -111,7 +114,10 @@ export function DayViewerCard({
             </button>
           </div>
           <div className="day-viewer-date-text">
-            <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
+            <span className="day-viewer-date-kicker">
+              <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
+              {date === today ? <span className="day-viewer-today-muted">Today</span> : null}
+            </span>
             <span className="day-viewer-date-big">{formatMonthDay(date).toUpperCase()}</span>
           </div>
         </div>

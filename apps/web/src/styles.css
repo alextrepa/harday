@@ -1249,6 +1249,14 @@
     width: 100%;
   }
 
+  .harday-project-layout[data-slot="sidebar-wrapper"]
+    [data-slot="sidebar"][data-collapsible="icon"]
+    .harday-section-sidebar
+    [data-sidebar="content"] {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   [data-slot="sidebar"][data-collapsible="icon"]
     .harday-project-sidebar-archive-trigger {
     justify-content: center;

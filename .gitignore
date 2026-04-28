@@ -27,8 +27,6 @@ output/playwright/
 # Web and extension build outputs
 apps/web/dist/
 apps/web/dist-desktop/
-apps/extension/dist/
-apps/extension/dist-firefox/
 
 # Desktop packaging outputs
 apps/desktop/out/

@@ -102,22 +102,43 @@ function internalAppApiPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), ...(mode === "desktop" ? [] : [internalAppApiPlugin()])],
-  build: {
-    outDir: mode === "desktop" ? "dist-desktop" : "dist",
-    chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: vendorChunk,
+export default defineConfig(({ mode }) => {
+  const isDesktopMode = mode === "desktop";
+
+  return {
+    define: {
+      "import.meta.env.VITE_DESKTOP_SHELL": JSON.stringify(
+        isDesktopMode ? "true" : "false",
+      ),
+      ...(isDesktopMode
+        ? {
+            "import.meta.env.VITE_ENABLE_OUTLOOK": JSON.stringify("false"),
+          }
+        : {}),
+    },
+    plugins: [
+      react(),
+      tailwindcss(),
+      ...(isDesktopMode ? [] : [internalAppApiPlugin()]),
+    ],
+    build: {
+      outDir: isDesktopMode ? "dist-desktop" : "dist",
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks: vendorChunk,
+        },
       },
     },
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@timetracker/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+        "@timetracker/shared": path.resolve(
+          __dirname,
+          "../../packages/shared/src/index.ts",
+        ),
+      },
+      dedupe: ["react", "react-dom", "react/jsx-runtime"],
     },
-    dedupe: ["react", "react-dom", "react/jsx-runtime"],
-  },
-}));
+  };
+});

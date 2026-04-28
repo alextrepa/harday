@@ -246,10 +246,11 @@
      ---------------------------------------------------------------- */
 
   .harday-nav {
+    --app-shell-nav-height: 48px;
     position: sticky;
     top: 0;
     z-index: 50;
-    height: 48px;
+    height: var(--app-shell-nav-height);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -616,7 +617,9 @@
     padding: 1.5rem 2rem;
   }
 
-  .page-container:has(> .settings-layout[data-slot="sidebar-wrapper"]) {
+  .page-container:has(> .settings-layout[data-slot="sidebar-wrapper"]),
+  .page-container:has(> .harday-project-layout[data-slot="sidebar-wrapper"]),
+  .page-container:has(> .harday-settings-layout[data-slot="sidebar-wrapper"]) {
     height: 100%;
     max-width: none;
     min-height: 100%;
@@ -625,8 +628,15 @@
   }
 
   .app-content-shell {
+    --app-shell-nav-height: 48px;
+    --app-content-height: calc(100dvh - var(--app-shell-nav-height));
+    height: var(--app-content-height);
     min-height: 0;
     overflow: hidden;
+  }
+
+  .desktop-shell-app .app-content-shell {
+    --app-shell-nav-height: var(--desktop-shell-chrome-height);
   }
 
   .app-content-scroll-area {
@@ -652,9 +662,12 @@
 
   .backlog-page-stack {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 0;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
   .page-container:has(> .backlog-page-stack) {
@@ -888,7 +901,9 @@
 
   .harday-project-layout[data-slot="sidebar-wrapper"],
   .harday-settings-layout[data-slot="sidebar-wrapper"] {
+    height: var(--app-content-height);
     max-width: 960px;
+    min-height: var(--app-content-height);
     margin: 0 auto;
   }
 
@@ -3534,12 +3549,16 @@
   }
 
   .entries-table-scroll-shell-backlog {
-    --entries-table-scroll-height: 100%;
+    --entries-table-header-height: 3.25rem;
+    --entries-table-scroll-height: calc(
+      var(--app-content-height) - 3rem - var(--entries-table-header-height)
+    );
     display: flex;
+    max-height: calc(var(--app-content-height) - 3rem);
     min-height: 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     flex-direction: column;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .entries-table-scroll-shell-project {
@@ -3588,9 +3607,8 @@
 
   .entries-table-scroll-shell-backlog .entries-table-scroll-area {
     min-height: 0;
-    flex: 1 1 auto;
-    height: auto;
-    max-height: none;
+    flex: 0 1 auto;
+    max-height: var(--entries-table-scroll-height);
   }
 
   .entries-table-scroll-area [data-slot="scroll-area-viewport"] {
@@ -3603,8 +3621,8 @@
   .entries-table-scroll-shell-backlog
     .entries-table-scroll-area
     [data-slot="scroll-area-viewport"] {
-    height: 100% !important;
-    max-height: none;
+    height: auto !important;
+    max-height: var(--entries-table-scroll-height);
   }
 
   .entries-table-scroll-area [data-slot="scroll-area-scrollbar"] {

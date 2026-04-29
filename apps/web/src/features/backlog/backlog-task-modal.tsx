@@ -9,6 +9,7 @@ import {
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import {
   buildBacklogStatusNameLookup,
   buildBacklogStatusOptions,
@@ -138,6 +139,7 @@ export function BacklogTaskModal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const currentTimer = state.timers[0] ?? null;
   const isCreateSubtaskMode = Boolean(parentWorkItemId && !workItemId);
+  const isCreateRootMode = Boolean(!parentWorkItemId && !workItemId);
 
   const workItem = useMemo(
     () =>
@@ -251,11 +253,7 @@ export function BacklogTaskModal({
     [projectId, projects],
   );
   const taskOptions = useMemo(
-    () =>
-      availableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(availableTasks),
     [availableTasks],
   );
 
@@ -298,6 +296,7 @@ export function BacklogTaskModal({
     !originalEstimateError &&
     !remainingEstimateError &&
     !completedEstimateError;
+  const canCreateRootTask = title.trim().length > 0;
   const canSaveTask =
     title.trim().length > 0 &&
     (isSubtaskDraft || parsePriorityInput(priority) !== null) &&
@@ -366,6 +365,24 @@ export function BacklogTaskModal({
     : null;
 
   useEffect(() => {
+    if (isCreateRootMode) {
+      setTitle("");
+      setNote("");
+      setTimeEntryNote("");
+      setPriority("");
+      setOriginalEstimateHours("");
+      setRemainingEstimateHours("");
+      setCompletedEstimateHours("");
+      setBacklogStatusId("");
+      setParentTaskId("");
+      setProjectId("");
+      setTaskId("");
+      setDurationHours("");
+      setIsArchivePending(false);
+      setIsDeletePending(false);
+      return;
+    }
+
     if (isCreateSubtaskMode) {
       if (!parentWorkItem) {
         onClose();
@@ -415,6 +432,7 @@ export function BacklogTaskModal({
     setIsArchivePending(false);
     setIsDeletePending(false);
   }, [
+    isCreateRootMode,
     isCreateSubtaskMode,
     onClose,
     parentWorkItem,
@@ -670,6 +688,130 @@ export function BacklogTaskModal({
       taskId: taskId || undefined,
     });
     onClose();
+  }
+
+  function submitCreatedTask() {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      return;
+    }
+
+    localStore.addWorkItem({
+      title: trimmedTitle,
+      note: note.trim() || undefined,
+      backlogStatusId: backlogStatusId || undefined,
+      projectId: projectId || undefined,
+      taskId: taskId || undefined,
+    });
+    onClose();
+  }
+
+  if (isCreateRootMode) {
+    return (
+      <div ref={overlayRef} className="time-entry-modal-overlay">
+        <div className="time-entry-modal">
+          <div className="time-entry-modal-header">
+            <span className="time-entry-modal-title">New task</span>
+            <button
+              type="button"
+              className="time-entry-modal-close"
+              onClick={onClose}
+              aria-label="Close task creation"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="time-entry-modal-form">
+            <label className="field backlog-field-title-full">
+              <span className="field-label">Task</span>
+              <input
+                className="field-input"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitCreatedTask();
+                  }
+                }}
+                placeholder="Task name"
+                aria-label="Task name"
+                autoFocus
+              />
+            </label>
+
+            <label className="field backlog-field-project">
+              <span className="field-label">Status</span>
+              <SearchableSelect
+                value={backlogStatusId}
+                options={backlogStatusOptions}
+                onChange={setBacklogStatusId}
+                placeholder="No status"
+                clearLabel="No status"
+                emptyMessage="No matching statuses"
+                ariaLabel="Backlog status"
+              />
+            </label>
+
+            <label className="field backlog-field-project">
+              <span className="field-label">Project</span>
+              <SearchableSelect
+                value={projectId}
+                options={projectOptions}
+                onChange={setProjectId}
+                placeholder="No project"
+                clearLabel="No project"
+                emptyMessage="No matching projects"
+                ariaLabel="Project"
+              />
+            </label>
+
+            <label className="field backlog-field-task">
+              <span className="field-label">Task mapping</span>
+              <SearchableSelect
+                value={taskId}
+                options={taskOptions}
+                onChange={setTaskId}
+                placeholder={projectId ? "Select task" : "Pick a project first"}
+                clearLabel={projectId ? "No task" : undefined}
+                emptyMessage={
+                  projectId ? "No matching tasks" : "Pick a project first"
+                }
+                ariaLabel="Task mapping"
+                disabled={!projectId || availableTasks.length === 0}
+              />
+            </label>
+
+            <label className="field entry-field-note">
+              <span className="field-label">Description</span>
+              <textarea
+                className="field-input entry-note-input"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+              />
+            </label>
+          </div>
+
+          <div className="time-entry-modal-actions">
+            <Button
+              type="button"
+              className="gap-1.5"
+              onClick={submitCreatedTask}
+              disabled={!canCreateRootTask}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add task
+            </Button>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (isCreateSubtaskMode && !parentWorkItem) {

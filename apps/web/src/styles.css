@@ -880,11 +880,19 @@
   }
 
   .settings-content {
-    flex: 1;
-    min-width: 0;
     max-width: 960px;
     margin: 0 auto;
     padding: 1.5rem 2rem;
+  }
+
+  .settings-content-shell {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .settings-content-scroll-area {
+    height: 100%;
   }
 
   .settings-layout[data-slot="sidebar-wrapper"] {
@@ -899,12 +907,20 @@
     overflow: visible;
   }
 
-  .harday-project-layout[data-slot="sidebar-wrapper"],
+  .harday-project-layout[data-slot="sidebar-wrapper"] {
+    height: var(--app-content-height);
+    max-width: 960px;
+    min-height: var(--app-content-height);
+    margin: 0 auto;
+  }
+
   .harday-settings-layout[data-slot="sidebar-wrapper"] {
     height: var(--app-content-height);
     max-width: 960px;
     min-height: var(--app-content-height);
     margin: 0 auto;
+    align-items: stretch;
+    overflow: visible;
   }
 
   .harday-project-layout[data-slot="sidebar-wrapper"] .settings-content,
@@ -913,9 +929,27 @@
     margin: 0 auto;
   }
 
+  .harday-settings-layout[data-slot="sidebar-wrapper"]
+    .settings-content-scroll-area {
+    height: 100%;
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+
+  .harday-settings-layout[data-slot="sidebar-wrapper"]
+    .settings-content-scroll-area
+    [data-slot="scroll-area-viewport"] {
+    height: 100%;
+    overflow-x: hidden !important;
+  }
+
   .harday-project-layout[data-slot="sidebar-wrapper"] [data-slot="sidebar-gap"],
   .harday-settings-layout[data-slot="sidebar-wrapper"] [data-slot="sidebar-gap"] {
     width: 0 !important;
+  }
+
+  .harday-project-layout[data-slot="sidebar-wrapper"] .harday-section-sidebar {
+    transform: translateX(calc(-100% - 1px));
   }
 
   .harday-section-sidebar {
@@ -945,6 +979,17 @@
     height: 100% !important;
     max-height: none;
     background: var(--background) !important;
+  }
+
+  .harday-settings-layout[data-slot="sidebar-wrapper"] .harday-section-sidebar,
+  .harday-settings-layout[data-slot="sidebar-wrapper"]
+    .harday-section-sidebar-inner {
+    height: var(--app-content-height) !important;
+  }
+
+  .harday-settings-layout[data-slot="sidebar-wrapper"] .harday-section-sidebar {
+    transform: translateX(calc(-100% - 1px));
+    z-index: 1;
   }
 
   [data-slot="sidebar"][data-collapsible="icon"] .harday-section-sidebar {
@@ -3683,8 +3728,7 @@
     grid-template-columns: 32% minmax(0, 1fr) 8.5rem;
     align-items: stretch;
     overflow: hidden;
-    border: 1px solid
-      color-mix(in srgb, var(--success) 18%, var(--border-hover));
+    border: 1px solid color-mix(in srgb, var(--indigo) 72%, var(--border));
     border-radius: calc(var(--radius-md) - 1px);
     background: var(--surface-lowest);
     box-shadow: var(--shadow-drag);
@@ -3794,6 +3838,7 @@
   }
 
   .project-task-row.is-pressing {
+    cursor: grabbing;
     background: color-mix(in srgb, var(--surface-high) 70%, transparent);
   }
 
@@ -3803,6 +3848,11 @@
 
   .project-task-row.is-drag-source td {
     border-color: transparent;
+  }
+
+  .project-tasks-table .entry-hours-cell,
+  .project-tasks-table .entry-hours-heading {
+    width: 10rem;
   }
 
   .project-tasks-table.is-task-dragging tbody tr:not(.is-drag-source):hover {
@@ -3837,6 +3887,91 @@
     color: var(--text-tertiary);
   }
 
+  .project-task-budget-badge {
+    justify-content: center;
+    min-width: 7.5rem;
+  }
+
+  .project-task-budget-badge.is-success {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: color-mix(in srgb, var(--success) 82%, white 18%);
+    border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+  }
+
+  .project-task-budget-badge.is-warning {
+    background: color-mix(in srgb, #e9c46a 18%, transparent);
+    color: #f0cb73;
+    border-color: color-mix(in srgb, #e9c46a 30%, var(--border));
+  }
+
+  .project-task-budget-badge.is-danger {
+    background: var(--danger-muted);
+    color: var(--danger-light);
+    border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+  }
+
+  .project-task-budget-badge.is-danger-strong {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: color-mix(in srgb, var(--danger-light) 88%, white 12%);
+    border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  }
+
+  .project-task-billable-badge {
+    flex-shrink: 0;
+  }
+
+  .project-task-edit-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr);
+    gap: 1rem;
+  }
+
+  .project-task-edit-primary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    min-width: 0;
+  }
+
+  .project-task-edit-billable {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .project-task-billable-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 40px;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--field-border);
+    border-radius: var(--control-radius);
+    background: var(--field-bg);
+    color: var(--text);
+    font-size: 0.92rem;
+  }
+
+  .project-task-billable-toggle input {
+    margin: 0;
+  }
+
+  .project-task-edit-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  .project-task-edit-footer {
+    margin: 0 -1rem -0.75rem;
+    padding: 0.9rem 1rem;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-high) 72%, black 28%);
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+  }
+
   .project-task-drag-preview {
     position: fixed;
     top: 0;
@@ -3848,10 +3983,9 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.75rem 1rem;
-    border: 1px solid
-      color-mix(in srgb, var(--success) 18%, var(--border-hover));
+    border: 1px solid color-mix(in srgb, var(--indigo) 72%, var(--border));
     border-radius: calc(var(--radius-md) - 1px);
-    background: color-mix(in srgb, var(--surface-lowest) 88%, white 12%);
+    background: var(--surface-lowest);
     box-shadow: var(--shadow-drag);
     transform-origin: top left;
     animation: task-drag-lift 180ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -4283,8 +4417,12 @@
     background: transparent;
   }
 
-  .backlog-row-child td {
+  .backlog-row-child {
     background: var(--surface-low);
+  }
+
+  .backlog-row-child td {
+    background: transparent;
     border-bottom-color: color-mix(
       in srgb,
       var(--border) 30%,
@@ -5686,6 +5824,12 @@
     grid-column: span 2;
   }
 
+  .entry-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
   .entry-field-description {
     grid-column: 1 / -1;
   }
@@ -5728,6 +5872,11 @@
   .field-input:focus {
     border-color: var(--border-focus);
     box-shadow: 0 0 0 2px var(--hover-bg);
+  }
+
+  .field-input:read-only {
+    background: color-mix(in srgb, var(--field-bg) 82%, white 18%);
+    color: var(--text-secondary);
   }
 
   .field-input:disabled {
@@ -6519,7 +6668,36 @@
   .backlog-table.entries-table-body-table
     tr.entry-edit-row
     > td {
+    display: block;
+    width: 100%;
     padding: 0 !important;
+  }
+
+  .entries-table
+    tbody
+    tr.entry-row-expanded:not(.backlog-row-child)
+    .backlog-priority-cell {
+    box-shadow: none;
+  }
+
+  .backlog-table.entries-table-body-table
+    tr.backlog-row-child:not(.entry-edit-row) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backlog-table.entries-table-body-table
+    tr.backlog-row-child:not(.entry-edit-row)
+    .backlog-priority-cell {
+    display: none !important;
+  }
+
+  .backlog-table.entries-table-body-table
+    tr.backlog-row-child:not(.entry-edit-row)
+    .backlog-task-cell,
+  .backlog-table.entries-table-body-table
+    tr.backlog-row-child:not(.entry-edit-row)
+    .backlog-estimate-cell {
+    grid-column: 1;
   }
 
   .entry-edit-dropdown.backlog-subtasks-panel {
@@ -6544,6 +6722,12 @@
     grid-template-columns: 1fr;
   }
   .entry-edit-dropdown-grid {
+    grid-template-columns: 1fr;
+  }
+  .project-task-edit-layout {
+    grid-template-columns: 1fr;
+  }
+  .project-task-edit-metrics {
     grid-template-columns: 1fr;
   }
   .time-entry-modal-form {

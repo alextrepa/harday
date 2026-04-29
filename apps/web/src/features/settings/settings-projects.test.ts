@@ -22,6 +22,9 @@ const projects: LocalProject[] = [
         name: "Feature Work",
         status: "active",
         createdAt: 1,
+        billable: true,
+        budgetMs: 2 * 60 * 60 * 1000,
+        adjustmentMs: -30 * 60 * 1000,
       },
       {
         _id: "task-2",
@@ -29,6 +32,7 @@ const projects: LocalProject[] = [
         status: "archived",
         createdAt: 2,
         archivedAt: 3,
+        billable: false,
       },
     ],
   },
@@ -57,6 +61,9 @@ describe("buildProjectTransferRows", () => {
         status: "active",
         task: "Feature Work",
         taskStatus: "active",
+        billable: "billable",
+        budgetHours: 2,
+        adjustmentHours: -0.5,
       },
       {
         project: "Project Mercury",
@@ -65,6 +72,9 @@ describe("buildProjectTransferRows", () => {
         status: "active",
         task: "Archive Me",
         taskStatus: "archived",
+        billable: "non_billable",
+        budgetHours: "",
+        adjustmentHours: "",
       },
       {
         project: "Project Gemini",
@@ -73,6 +83,9 @@ describe("buildProjectTransferRows", () => {
         status: "archived",
         task: "",
         taskStatus: "",
+        billable: "",
+        budgetHours: "",
+        adjustmentHours: "",
       },
     ]);
   });
@@ -96,18 +109,49 @@ describe("project workbook round-trip", () => {
     for (let rowNumber = 1; rowNumber <= sheet!.rowCount; rowNumber += 1) {
       const row = sheet!.getRow(rowNumber);
       rows.push(
-        Array.from({ length: 6 }, (_, index) => {
-          const value = row.getCell(index + 1).value;
+        Array.from({ length: 9 }, (_, index) => {
+          const cellIndex = index + 1;
+          const value = row.getCell(cellIndex).value;
           return value ?? "";
         }),
       );
     }
 
     expect(rows).toEqual([
-      ["project", "code", "color", "status", "task", "task_status"],
-      ["Project Mercury", "MER", "#123456", "active", "Feature Work", "active"],
-      ["Project Mercury", "MER", "#123456", "active", "Archive Me", "archived"],
-      ["Project Gemini", "", "#654321", "archived", "", ""],
+      [
+        "project",
+        "code",
+        "color",
+        "status",
+        "task",
+        "task_status",
+        "billable",
+        "budget_hours",
+        "adjustment_hours",
+      ],
+      [
+        "Project Mercury",
+        "MER",
+        "#123456",
+        "active",
+        "Feature Work",
+        "active",
+        "billable",
+        2,
+        -0.5,
+      ],
+      [
+        "Project Mercury",
+        "MER",
+        "#123456",
+        "active",
+        "Archive Me",
+        "archived",
+        "non_billable",
+        "",
+        "",
+      ],
+      ["Project Gemini", "", "#654321", "archived", "", "", "", "", ""],
     ]);
 
     await expect(parseProjectTransferWorkbook(workbookBytes)).resolves.toEqual([
@@ -118,6 +162,9 @@ describe("project workbook round-trip", () => {
         status: "active",
         task: "Feature Work",
         taskStatus: "active",
+        billable: "billable",
+        budgetHours: 2,
+        adjustmentHours: -0.5,
       },
       {
         project: "Project Mercury",
@@ -126,6 +173,9 @@ describe("project workbook round-trip", () => {
         status: "active",
         task: "Archive Me",
         taskStatus: "archived",
+        billable: "non_billable",
+        budgetHours: "",
+        adjustmentHours: "",
       },
       {
         project: "Project Gemini",
@@ -134,6 +184,9 @@ describe("project workbook round-trip", () => {
         status: "archived",
         task: "",
         taskStatus: "",
+        billable: "",
+        budgetHours: "",
+        adjustmentHours: "",
       },
     ]);
   });

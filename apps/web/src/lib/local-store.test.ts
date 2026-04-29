@@ -290,6 +290,136 @@ describe("localStore backlog status sync", () => {
     });
   });
 
+  it("updates a subtask mapping when it follows the parent's mapping", async () => {
+    const { localStore } = await import("./local-store");
+
+    const projectId = localStore.addProject({
+      name: "Project Mercury",
+      color: "#123456",
+      tasks: [{ name: "Feature Work" }, { name: "Bugfixing" }],
+    });
+    const project = localStore
+      .snapshot()
+      .projects.find((candidate) => candidate._id === projectId);
+    const featureTaskId = project?.tasks[0]?._id;
+    const bugfixTaskId = project?.tasks[1]?._id;
+
+    expect(featureTaskId).toBeTruthy();
+    expect(bugfixTaskId).toBeTruthy();
+
+    const parentId = localStore.addWorkItem({
+      title: "Parent task",
+      projectId,
+      taskId: featureTaskId,
+    });
+    const childId = localStore.addSubtask(parentId, {
+      title: "Child task",
+      projectId,
+      taskId: featureTaskId,
+    });
+
+    localStore.updateWorkItem(parentId, {
+      projectId,
+      taskId: bugfixTaskId,
+    });
+
+    expect(
+      localStore.snapshot().workItems.find((item) => item._id === childId),
+    ).toMatchObject({
+      _id: childId,
+      projectId,
+      taskId: bugfixTaskId,
+    });
+  });
+
+  it("updates an unmapped subtask when the parent later gains a mapping", async () => {
+    const { localStore } = await import("./local-store");
+
+    const projectId = localStore.addProject({
+      name: "Project Mercury",
+      color: "#123456",
+      tasks: [{ name: "Feature Work" }],
+    });
+    const taskId = localStore
+      .snapshot()
+      .projects.find((candidate) => candidate._id === projectId)?.tasks[0]?._id;
+
+    expect(taskId).toBeTruthy();
+
+    const parentId = localStore.addWorkItem({
+      title: "Parent task",
+    });
+    const childId = localStore.addSubtask(parentId, {
+      title: "Child task",
+    });
+
+    localStore.updateWorkItem(parentId, {
+      projectId,
+      taskId,
+    });
+
+    expect(
+      localStore.snapshot().workItems.find((item) => item._id === childId),
+    ).toMatchObject({
+      _id: childId,
+      projectId,
+      taskId,
+    });
+  });
+
+  it("preserves a subtask mapping when it has its own mapping", async () => {
+    const { localStore } = await import("./local-store");
+
+    const parentProjectId = localStore.addProject({
+      name: "Project Mercury",
+      color: "#123456",
+      tasks: [{ name: "Feature Work" }, { name: "Bugfixing" }],
+    });
+    const ownProjectId = localStore.addProject({
+      name: "Project Apollo",
+      color: "#654321",
+      tasks: [{ name: "Operations" }],
+    });
+
+    const parentProject = localStore
+      .snapshot()
+      .projects.find((candidate) => candidate._id === parentProjectId);
+    const ownProject = localStore
+      .snapshot()
+      .projects.find((candidate) => candidate._id === ownProjectId);
+    const featureTaskId = parentProject?.tasks[0]?._id;
+    const bugfixTaskId = parentProject?.tasks[1]?._id;
+    const ownTaskId = ownProject?.tasks[0]?._id;
+
+    expect(featureTaskId).toBeTruthy();
+    expect(bugfixTaskId).toBeTruthy();
+    expect(ownTaskId).toBeTruthy();
+
+    const parentId = localStore.addWorkItem({
+      title: "Parent task",
+      projectId: parentProjectId,
+      taskId: featureTaskId,
+    });
+    const childId = localStore.addSubtask(parentId, {
+      title: "Child task",
+      projectId: ownProjectId,
+      taskId: ownTaskId,
+    });
+
+    localStore.updateWorkItem(parentId, {
+      projectId: parentProjectId,
+      taskId: bugfixTaskId,
+    });
+
+    expect(
+      localStore.snapshot().workItems.find((item) => item._id === childId),
+    ).toMatchObject({
+      _id: childId,
+      projectId: ownProjectId,
+      taskId: ownTaskId,
+    });
+  });
+
   it("reverses unmapped backlog estimate deltas when the linked time entry is deleted", async () => {
     const { localStore } = await import("./local-store");
 
@@ -687,6 +817,9 @@ describe("localStore backlog status sync", () => {
         status: "active",
         task: "Feature Work",
         taskStatus: "archived",
+        billable: "billable",
+        budgetHours: "",
+        adjustmentHours: "",
       },
       {
         project: "Project Mercury",
@@ -695,6 +828,9 @@ describe("localStore backlog status sync", () => {
         status: "active",
         task: "Planning",
         taskStatus: "active",
+        billable: "billable",
+        budgetHours: "",
+        adjustmentHours: "",
       },
       {
         project: "Project Apollo",
@@ -703,6 +839,9 @@ describe("localStore backlog status sync", () => {
         status: "archived",
         task: "",
         taskStatus: "",
+        billable: "",
+        budgetHours: "",
+        adjustmentHours: "",
       },
     ]);
 
@@ -740,6 +879,64 @@ describe("localStore backlog status sync", () => {
       color: "#111111",
       status: "archived",
       tasks: [],
+    });
+  });
+
+  it("stores task budget and adjustment fields and updates them from project workbook rows", async () => {
+    const { localStore } = await import("./local-store");
+
+    const projectId = localStore.addProject({
+      name: "Project Mercury",
+      color: "#123456",
+      tasks: [{ name: "Feature Work" }],
+    });
+    const taskId = localStore.snapshot().projects.find((project) => project._id === projectId)?.tasks[0]?._id;
+
+    expect(taskId).toBeTruthy();
+
+    localStore.updateProjectTask(projectId, taskId!, {
+      billable: false,
+      budgetMs: 2 * 60 * 60 * 1000,
+      adjustmentMs: -30 * 60 * 1000,
+    });
+
+    expect(
+      localStore.snapshot().projects.find((project) => project._id === projectId)?.tasks[0],
+    ).toMatchObject({
+      _id: taskId,
+      billable: false,
+      budgetMs: 2 * 60 * 60 * 1000,
+      adjustmentMs: -30 * 60 * 1000,
+    });
+
+    const result = localStore.importProjectWorkbookRows([
+      {
+        project: "Project Mercury",
+        code: "",
+        color: "#123456",
+        status: "active",
+        task: "Feature Work",
+        taskStatus: "active",
+        billable: "billable",
+        budgetHours: 3.5,
+        adjustmentHours: 0.25,
+      },
+    ]);
+
+    expect(result).toEqual({
+      createdProjectCount: 0,
+      mergedProjectCount: 1,
+      addedTaskCount: 0,
+      updatedTaskCount: 1,
+    });
+
+    expect(
+      localStore.snapshot().projects.find((project) => project._id === projectId)?.tasks[0],
+    ).toMatchObject({
+      _id: taskId,
+      billable: true,
+      budgetMs: 3.5 * 60 * 60 * 1000,
+      adjustmentMs: 0.25 * 60 * 60 * 1000,
     });
   });
 

@@ -19,6 +19,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
 } from "@/components/custom-sidebar";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const settingsTabs = [
   { to: "/settings/general", label: "General", icon: Settings },
@@ -92,8 +93,12 @@ export function SettingsLayout() {
         </SidebarContent>
       </CustomSidebar>
 
-      <div className="settings-content">
-        <Outlet />
+      <div className="settings-content-shell">
+        <ScrollArea className="settings-content-scroll-area">
+          <div className="settings-content">
+            <Outlet />
+          </div>
+        </ScrollArea>
       </div>
     </CustomSidebarLayout>
   );

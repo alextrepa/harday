@@ -10,6 +10,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { getProjectTaskBillableValueLabel } from "@/features/projects/project-task-options";
 import {
   Table,
   TableBody,
@@ -180,6 +181,7 @@ interface EnrichedEntry {
   taskId?: string;
   taskLabel: string;
   taskName?: string;
+  taskBillableLabel?: string;
   taskKey: string;
   comments: string[];
 }
@@ -195,6 +197,7 @@ interface EntryCollection {
   taskKey: string;
   taskLabel: string;
   taskName?: string;
+  taskBillableLabel?: string;
 }
 
 interface DaySection {
@@ -225,6 +228,7 @@ function mergeEntries(entries: EnrichedEntry[]): EntryCollection {
     taskKey: firstEntry?.taskKey ?? "unknown",
     taskLabel: firstEntry?.taskLabel ?? "No task",
     taskName: firstEntry?.taskName,
+    taskBillableLabel: firstEntry?.taskBillableLabel,
   };
 }
 
@@ -269,6 +273,9 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
           taskKey: createTaskKey(project?._id, task?._id, taskLabel),
           taskLabel,
           taskName: task?.name,
+          taskBillableLabel: task
+            ? getProjectTaskBillableValueLabel(task)
+            : undefined,
           comments: entry.note?.trim() ? [entry.note.trim()] : [],
         };
       }),
@@ -470,6 +477,12 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
         >
           <CopyHoverRow label="Project" value={collection.projectName} />
           <CopyHoverRow label="Task" value={collection.taskLabel} />
+          {collection.taskBillableLabel ? (
+            <CopyHoverRow
+              label="Billable"
+              value={collection.taskBillableLabel}
+            />
+          ) : null}
           <CopyHoverRow label="Time" value={durationLabel} />
           <CopyHoverRow label="Comments" value={commentSummary} />
         </HoverCardContent>

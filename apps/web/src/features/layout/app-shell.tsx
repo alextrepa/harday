@@ -35,6 +35,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
 import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
@@ -180,11 +181,7 @@ function TitlebarNewEntryPopover({ date }: { date: string }) {
     [projectId, projects],
   );
   const taskOptions = useMemo(
-    () =>
-      availableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(availableTasks),
     [availableTasks],
   );
   const parsedDurationMs = useMemo(
@@ -487,11 +484,7 @@ function QuickTimerPopup({
     [projectId, projects],
   );
   const taskOptions = useMemo(
-    () =>
-      availableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(availableTasks),
     [availableTasks],
   );
 

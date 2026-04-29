@@ -62,14 +62,28 @@ import {
   SidebarMenu,
   SidebarMenuItem,
 } from "@/components/custom-sidebar";
+import {
+  formatProjectTaskConsumedBadge,
+  formatSignedDurationHoursInput,
+  getProjectTaskConsumedTone,
+  parseSignedHoursInput,
+  type ProjectTaskConsumedTone,
+} from "@/features/projects/project-task-budget";
+import {
+  getProjectTaskBillableValueLabel,
+  isProjectTaskBillable,
+} from "@/features/projects/project-task-options";
 import type { ProjectTaskImportResult } from "@/features/projects/project-task-import-utils";
+import { formatDurationHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { useCurrentTeam } from "@/lib/session";
 import { useLocalState } from "@/lib/local-hooks";
 import {
   getLocalProjectDisplayName,
   localStore,
   type LocalProject,
+  type LocalProjectTask,
 } from "@/lib/local-store";
+import { shouldStartSharedTableDrag } from "@/lib/table-drag";
 import {
   DEFAULT_PROJECT_ICON,
   PROJECT_ICON_PRESETS,
@@ -95,6 +109,13 @@ type ProjectDraft = {
   icon: LocalProjectIcon;
 };
 
+type TaskEditDraft = {
+  name: string;
+  billable: boolean;
+  budget: string;
+  adjustment: string;
+};
+
 type ProjectModalState =
   | { mode: "create" }
   | { mode: "edit"; projectId: string };
@@ -111,6 +132,21 @@ const defaultProjectDraft: ProjectDraft = {
   icon: DEFAULT_PROJECT_ICON,
 };
 
+const defaultTaskEditDraft: TaskEditDraft = {
+  name: "",
+  billable: true,
+  budget: "",
+  adjustment: "",
+};
+
+const projectTaskToneClassName: Record<ProjectTaskConsumedTone, string> = {
+  default: "",
+  success: "project-task-budget-badge is-success",
+  warning: "project-task-budget-badge is-warning",
+  danger: "project-task-budget-badge is-danger",
+  "danger-strong": "project-task-budget-badge is-danger-strong",
+};
+
 function getProjectDisplayName(project: LocalProject) {
   return getLocalProjectDisplayName(project);
 }
@@ -118,11 +154,6 @@ function getProjectDisplayName(project: LocalProject) {
 function shouldShowProjectFullName(project: LocalProject) {
   return getProjectDisplayName(project) !== project.name;
 }
-
-const TASK_DRAG_MOUSE_DELAY_MS = 180;
-const TASK_DRAG_TOUCH_DELAY_MS = 260;
-const TASK_DRAG_MOUSE_TOLERANCE_PX = 6;
-const TASK_DRAG_TOUCH_TOLERANCE_PX = 12;
 
 type TaskDragState = {
   taskId: string;
@@ -214,18 +245,6 @@ function formatImportSummary(result: ProjectTaskImportResult) {
   return skipped.length > 0
     ? `Imported ${importedLabel}. Skipped ${skipped.join(", ")}.`
     : `Imported ${importedLabel}.`;
-}
-
-function getTaskDragDelay(pointerType: string) {
-  return pointerType === "touch"
-    ? TASK_DRAG_TOUCH_DELAY_MS
-    : TASK_DRAG_MOUSE_DELAY_MS;
-}
-
-function getTaskDragTolerance(pointerType: string) {
-  return pointerType === "touch"
-    ? TASK_DRAG_TOUCH_TOLERANCE_PX
-    : TASK_DRAG_MOUSE_TOLERANCE_PX;
 }
 
 function isTaskDragBlockedTarget(target: EventTarget | null) {
@@ -879,13 +898,14 @@ function ProjectDetail({
 }) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const taskRowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const taskEditDropdownRef = useRef<HTMLDivElement | null>(null);
   const taskPointerSessionRef = useRef<PendingTaskPointerSession | null>(null);
   const taskDragStateRef = useRef<TaskDragState | null>(null);
   const suppressTaskClickUntilRef = useRef(0);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [taskDraft, setTaskDraft] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [editingTaskName, setEditingTaskName] = useState("");
+  const [taskEditDraft, setTaskEditDraft] = useState(defaultTaskEditDraft);
   const [pendingArchiveTaskId, setPendingArchiveTaskId] = useState<
     string | null
   >(null);
@@ -912,6 +932,29 @@ function ProjectDetail({
     { label: "Tracked", value: hoursLabel(metrics.durationMs) },
     { label: "Entries", value: `${metrics.entryCount}` },
   ];
+  const editingTask =
+    editingTaskId
+      ? (project.tasks.find((task) => task._id === editingTaskId) ?? null)
+      : null;
+  const editingTaskTrackedMs = editingTask
+    ? (taskMetrics.get(editingTask._id)?.durationMs ?? 0)
+    : 0;
+  const parsedBudgetMs =
+    taskEditDraft.budget.trim().length === 0
+      ? undefined
+      : parseHoursInput(taskEditDraft.budget);
+  const parsedAdjustmentMs =
+    taskEditDraft.adjustment.trim().length === 0
+      ? undefined
+      : parseSignedHoursInput(taskEditDraft.adjustment);
+  const budgetError =
+    taskEditDraft.budget.trim().length > 0 && parsedBudgetMs === null
+      ? "Enter a valid non-negative duration."
+      : null;
+  const adjustmentError =
+    taskEditDraft.adjustment.trim().length > 0 && parsedAdjustmentMs === null
+      ? "Enter a valid signed duration."
+      : null;
   const taskFilters: {
     value: ProjectTaskFilter;
     label: string;
@@ -942,6 +985,7 @@ function ProjectDetail({
     setShowTaskForm(false);
     setTaskDraft("");
     setEditingTaskId(null);
+    setTaskEditDraft(defaultTaskEditDraft);
     setPendingArchiveTaskId(null);
     setImportMessage(null);
     setImportError(null);
@@ -1085,27 +1129,89 @@ function ProjectDetail({
     setPendingArchiveTaskId(taskId);
   }
 
-  function handleTaskClick(taskId: string, taskName: string) {
+  function handleTaskClick(task: LocalProjectTask) {
     if (isArchived) return;
     if (performance.now() < suppressTaskClickUntilRef.current) return;
-    if (editingTaskId === taskId) return;
+    if (editingTaskId === task._id) return;
     setPendingArchiveTaskId(null);
-    setEditingTaskId(taskId);
-    setEditingTaskName(taskName);
+    setEditingTaskId(task._id);
+    setTaskEditDraft({
+      name: task.name,
+      billable: isProjectTaskBillable(task),
+      budget:
+        typeof task.budgetMs === "number"
+          ? formatDurationHoursInput(task.budgetMs)
+          : "",
+      adjustment:
+        typeof task.adjustmentMs === "number"
+          ? formatSignedDurationHoursInput(task.adjustmentMs)
+          : "",
+    });
   }
 
-  function commitTaskRename() {
-    if (!editingTaskId) return;
-    const trimmed = editingTaskName.trim();
-    if (
-      trimmed &&
-      trimmed !== project.tasks.find((t) => t._id === editingTaskId)?.name
-    ) {
-      localStore.renameProjectTask(project._id, editingTaskId, trimmed);
-    }
+  function closeTaskEditor() {
     setEditingTaskId(null);
-    setEditingTaskName("");
+    setTaskEditDraft(defaultTaskEditDraft);
   }
+
+  function commitTaskEdit() {
+    if (!editingTaskId) {
+      return false;
+    }
+    const trimmed = taskEditDraft.name.trim();
+    if (!trimmed || parsedBudgetMs === null || parsedAdjustmentMs === null) {
+      closeTaskEditor();
+      return false;
+    }
+
+    localStore.updateProjectTask(project._id, editingTaskId, {
+      name: trimmed,
+      billable: taskEditDraft.billable,
+      budgetMs: parsedBudgetMs,
+      adjustmentMs: parsedAdjustmentMs,
+    });
+    closeTaskEditor();
+    return true;
+  }
+
+  function autosaveTaskEditor() {
+    if (!editingTaskId) {
+      return;
+    }
+
+    commitTaskEdit();
+  }
+
+  useEffect(() => {
+    if (!editingTaskId) {
+      return;
+    }
+
+    function handleDocumentMouseDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      const footerZone =
+        target instanceof Element
+          ? target.closest(".project-task-edit-footer")
+          : null;
+      if (footerZone) {
+        autosaveTaskEditor();
+        return;
+      }
+
+      if (taskEditDropdownRef.current?.contains(target)) {
+        return;
+      }
+
+      autosaveTaskEditor();
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
+  }, [autosaveTaskEditor, editingTaskId]);
 
   function handleTaskPointerDown(
     taskId: string,
@@ -1129,10 +1235,13 @@ function ProjectDetail({
     setPressedTaskId(taskId);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    const delay = getTaskDragDelay(pointerType);
-    const tolerance = getTaskDragTolerance(pointerType);
+    let latestPointerX = clientX;
+    let latestPointerY = clientY;
 
-    const startDrag = () => {
+    const startDrag = (
+      pointerX = latestPointerX,
+      pointerY = latestPointerY,
+    ) => {
       const row = taskRowRefs.current.get(taskId);
       if (!row) {
         setPressedTaskId(null);
@@ -1154,10 +1263,10 @@ function ProjectDetail({
         pointerId,
         originIndex: sourceIndex,
         targetIndex: sourceIndex,
-        pointerX: clientX,
-        pointerY: clientY,
-        offsetX: clientX - rect.left,
-        offsetY: clientY - rect.top,
+        pointerX,
+        pointerY,
+        offsetX: pointerX - rect.left,
+        offsetY: pointerY - rect.top,
         originLeft: rect.left,
         minTop: firstRowRect?.top ?? rect.top,
         width: rect.width,
@@ -1191,14 +1300,25 @@ function ProjectDetail({
         return;
       }
 
+      latestPointerX = pointerEvent.clientX;
+      latestPointerY = pointerEvent.clientY;
+
       if (
-        Math.hypot(
-          pointerEvent.clientX - clientX,
-          pointerEvent.clientY - clientY,
-        ) > tolerance
+        shouldStartSharedTableDrag({
+          pointerType,
+          originX: clientX,
+          originY: clientY,
+          currentX: pointerEvent.clientX,
+          currentY: pointerEvent.clientY,
+        })
       ) {
-        clearTaskPointerSession();
-        setPressedTaskId(null);
+        const session = taskPointerSessionRef.current;
+        if (session?.pointerId === pointerId) {
+          window.clearTimeout(session.timeoutId);
+        }
+
+        pointerEvent.preventDefault();
+        startDrag(pointerEvent.clientX, pointerEvent.clientY);
       }
     };
 
@@ -1225,7 +1345,7 @@ function ProjectDetail({
 
     taskPointerSessionRef.current = {
       pointerId,
-      timeoutId: window.setTimeout(startDrag, delay),
+      timeoutId: 0,
       removeListeners: () => {
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", handlePointerEnd);
@@ -1516,6 +1636,9 @@ function ProjectDetail({
                             <span className="project-task-name">
                               {task.name}
                             </span>
+                            <Badge className="project-task-billable-badge bg-muted">
+                              {getProjectTaskBillableValueLabel(task)}
+                            </Badge>
                             <Badge className="project-task-status-badge">
                               Archived
                             </Badge>
@@ -1542,8 +1665,23 @@ function ProjectDetail({
                                 </span>
                               </div>
                             ) : null}
-                            <span className="hours-badge">
-                              {formatTrackedDuration(trackedMetrics.durationMs)}
+                            <span
+                              className={cn(
+                                "hours-badge",
+                                projectTaskToneClassName[
+                                  getProjectTaskConsumedTone({
+                                    budgetMs: task.budgetMs,
+                                    trackedMs: trackedMetrics.durationMs,
+                                    adjustmentMs: task.adjustmentMs,
+                                  })
+                                ],
+                              )}
+                            >
+                              {formatProjectTaskConsumedBadge({
+                                budgetMs: task.budgetMs,
+                                trackedMs: trackedMetrics.durationMs,
+                                adjustmentMs: task.adjustmentMs,
+                              })}
                             </span>
                           </div>
                         </td>
@@ -1579,31 +1717,137 @@ function ProjectDetail({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <td colSpan={2}>
-                          <div className="entry-edit-dropdown">
-                            <div className="entry-edit-dropdown-grid">
-                              <label className="field entry-field-span-2">
-                                <span className="field-label">Task name</span>
-                                <input
-                                  autoFocus
-                                  className="field-input"
-                                  value={editingTaskName}
-                                  onChange={(e) =>
-                                    setEditingTaskName(e.target.value)
-                                  }
-                                  onBlur={commitTaskRename}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      commitTaskRename();
+                          <div
+                            ref={taskEditDropdownRef}
+                            className="entry-edit-dropdown"
+                            onBlur={(event) => {
+                              const nextTarget = event.relatedTarget;
+                              if (
+                                nextTarget instanceof Node &&
+                                event.currentTarget.contains(nextTarget)
+                              ) {
+                                return;
+                              }
+
+                              autosaveTaskEditor();
+                            }}
+                          >
+                            <div className="project-task-edit-layout">
+                              <div className="project-task-edit-primary">
+                                <label className="field">
+                                  <span className="field-label">Task name</span>
+                                  <input
+                                    autoFocus
+                                    className="field-input"
+                                    value={taskEditDraft.name}
+                                    onChange={(e) =>
+                                      setTaskEditDraft((current) => ({
+                                        ...current,
+                                        name: e.target.value,
+                                      }))
                                     }
-                                    if (e.key === "Escape") {
-                                      setEditingTaskId(null);
-                                      setEditingTaskName("");
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitTaskEdit();
+                                      }
+                                      if (e.key === "Escape") {
+                                        autosaveTaskEditor();
+                                      }
+                                    }}
+                                  />
+                                </label>
+                                <div className="project-task-edit-billable">
+                                  <span className="field-label">Billable</span>
+                                  <label className="project-task-billable-toggle">
+                                    <input
+                                      type="checkbox"
+                                      checked={taskEditDraft.billable}
+                                      onChange={(event) =>
+                                        setTaskEditDraft((current) => ({
+                                          ...current,
+                                          billable: event.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    <span>
+                                      {taskEditDraft.billable
+                                        ? "Billable"
+                                        : "Non-billable"}
+                                    </span>
+                                  </label>
+                                </div>
+                              </div>
+                              <div className="project-task-edit-metrics">
+                                <label className="field">
+                                  <span className="field-label">Tracked time</span>
+                                  <input
+                                    className="field-input"
+                                    value={formatDurationHoursInput(
+                                      editingTaskTrackedMs,
+                                    )}
+                                    readOnly
+                                  />
+                                </label>
+                                <label className="field">
+                                  <span className="field-label">Budget</span>
+                                  <input
+                                    className="field-input"
+                                    value={taskEditDraft.budget}
+                                    placeholder="Optional"
+                                    onChange={(e) =>
+                                      setTaskEditDraft((current) => ({
+                                        ...current,
+                                        budget: e.target.value,
+                                      }))
                                     }
-                                  }}
-                                />
-                              </label>
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitTaskEdit();
+                                      }
+                                      if (e.key === "Escape") {
+                                        autosaveTaskEditor();
+                                      }
+                                    }}
+                                  />
+                                  {budgetError ? (
+                                    <span className="field-error">
+                                      {budgetError}
+                                    </span>
+                                  ) : null}
+                                </label>
+                                <label className="field">
+                                  <span className="field-label">Adjustment</span>
+                                  <input
+                                    className="field-input"
+                                    value={taskEditDraft.adjustment}
+                                    placeholder="Optional"
+                                    onChange={(e) =>
+                                      setTaskEditDraft((current) => ({
+                                        ...current,
+                                        adjustment: e.target.value,
+                                      }))
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitTaskEdit();
+                                      }
+                                      if (e.key === "Escape") {
+                                        autosaveTaskEditor();
+                                      }
+                                    }}
+                                  />
+                                  {adjustmentError ? (
+                                    <span className="field-error">
+                                      {adjustmentError}
+                                    </span>
+                                  ) : null}
+                                </label>
+                              </div>
                             </div>
+                            <div className="project-task-edit-footer" aria-hidden="true" />
                           </div>
                         </td>
                       </tr>
@@ -1631,7 +1875,7 @@ function ProjectDetail({
                             : undefined
                         }
                         aria-grabbed={isDraggedTask}
-                        onClick={() => handleTaskClick(task._id, task.name)}
+                        onClick={() => handleTaskClick(task)}
                         onPointerDown={(event) =>
                           handleTaskPointerDown(task._id, event)
                         }
@@ -1641,6 +1885,9 @@ function ProjectDetail({
                             <span className="project-task-name">
                               {task.name}
                             </span>
+                            <Badge className="project-task-billable-badge bg-muted">
+                              {getProjectTaskBillableValueLabel(task)}
+                            </Badge>
                           </div>
                         </td>
                         <td className="entry-hours-cell">
@@ -1679,8 +1926,23 @@ function ProjectDetail({
                                 </span>
                               </div>
                             ) : null}
-                            <span className="hours-badge">
-                              {formatTrackedDuration(trackedMetrics.durationMs)}
+                            <span
+                              className={cn(
+                                "hours-badge",
+                                projectTaskToneClassName[
+                                  getProjectTaskConsumedTone({
+                                    budgetMs: task.budgetMs,
+                                    trackedMs: trackedMetrics.durationMs,
+                                    adjustmentMs: task.adjustmentMs,
+                                  })
+                                ],
+                              )}
+                            >
+                              {formatProjectTaskConsumedBadge({
+                                budgetMs: task.budgetMs,
+                                trackedMs: trackedMetrics.durationMs,
+                                adjustmentMs: task.adjustmentMs,
+                              })}
                             </span>
                           </div>
                         </td>
@@ -1703,12 +1965,31 @@ function ProjectDetail({
         >
           <div className="project-task-name-cell">
             <span className="project-task-name">{draggedTask.name}</span>
+            <Badge className="project-task-billable-badge bg-muted">
+              {getProjectTaskBillableValueLabel(draggedTask)}
+            </Badge>
           </div>
-          <span className="hours-badge">
-            {formatTrackedDuration(
-              (taskMetrics.get(draggedTask._id) ?? { durationMs: 0 })
-                .durationMs,
+          <span
+            className={cn(
+              "hours-badge",
+              projectTaskToneClassName[
+                getProjectTaskConsumedTone({
+                  budgetMs: draggedTask.budgetMs,
+                  trackedMs:
+                    (taskMetrics.get(draggedTask._id) ?? { durationMs: 0 })
+                      .durationMs,
+                  adjustmentMs: draggedTask.adjustmentMs,
+                })
+              ],
             )}
+          >
+            {formatProjectTaskConsumedBadge({
+              budgetMs: draggedTask.budgetMs,
+              trackedMs:
+                (taskMetrics.get(draggedTask._id) ?? { durationMs: 0 })
+                  .durationMs,
+              adjustmentMs: draggedTask.adjustmentMs,
+            })}
           </span>
         </div>
       ) : null}
@@ -1942,7 +2223,6 @@ export function ProjectsPage() {
     setPressedProjectId(projectId);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    const tolerance = getTaskDragTolerance(pointerType);
     let latestPointerX = clientX;
     let latestPointerY = clientY;
 
@@ -2018,10 +2298,13 @@ export function ProjectsPage() {
       }
 
       if (
-        Math.hypot(
-          pointerEvent.clientX - clientX,
-          pointerEvent.clientY - clientY,
-        ) > tolerance
+        shouldStartSharedTableDrag({
+          pointerType,
+          originX: clientX,
+          originY: clientY,
+          currentX: pointerEvent.clientX,
+          currentY: pointerEvent.clientY,
+        })
       ) {
         const session = projectPointerSessionRef.current;
         if (session?.pointerId === pointerId) {

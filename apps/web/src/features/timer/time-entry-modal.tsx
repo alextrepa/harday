@@ -8,6 +8,7 @@ import {
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import {
   formatDurationHoursInput,
   normalizeHoursInput,
@@ -88,11 +89,7 @@ export function TimeEntryModal({
     [projectId, projects],
   );
   const taskOptions = useMemo(
-    () =>
-      availableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(availableTasks),
     [availableTasks],
   );
 

@@ -6,8 +6,34 @@ import {
 } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useLocalState, useOutlookIntegration } from "@/lib/local-hooks";
+import { cn } from "@/lib/utils";
 import {
   deleteConnectorConnection,
   getAppApiBaseUrl,
@@ -22,14 +48,21 @@ import type {
   ConnectorField,
   ConnectorFieldValue,
   ConnectorFieldValues,
-  ConnectorOverviewGroup,
   ConnectorPluginManifest,
   ConnectorsOverview,
 } from "@timetracker/shared";
+import {
+  areConnectorFormValuesEqual,
+  buildConnectorFormValues,
+  canSubmitConnectorForm,
+  normalizeConnectorFormValuesForSave,
+  SAVED_SECRET_MASK,
+} from "./connector-form-state";
 
 type ConnectorFormState = {
   pluginId: string;
   editingConnectionId: string | null;
+  initialValues: ConnectorFieldValues;
   values: ConnectorFieldValues;
 };
 
@@ -48,62 +81,10 @@ function prettifySummaryKey(key: string) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function buildDefaultValue(field: ConnectorField): ConnectorFieldValue {
-  if (field.defaultValue !== undefined) {
-    return field.defaultValue;
-  }
-
-  switch (field.type) {
-    case "checkbox":
-      return false;
-    case "number":
-      return typeof field.min === "number" ? field.min : 0;
-    default:
-      return "";
-  }
-}
-
-function buildFormValues(
-  plugin: ConnectorPluginManifest,
-  editableValues?: ConnectorFieldValues,
-): ConnectorFieldValues {
-  const values: ConnectorFieldValues = {};
-
-  for (const field of plugin.connectionFields) {
-    values[field.id] =
-      editableValues?.[field.id] ??
-      (field.secret ? "" : buildDefaultValue(field));
-  }
-
-  return values;
-}
-
-function isFieldEmpty(value: ConnectorFieldValue | undefined) {
-  return value === undefined || value === "" || value === null;
-}
-
-function canSubmitPluginForm(plugin: ConnectorPluginManifest | undefined, values: ConnectorFieldValues) {
-  if (!plugin) {
-    return false;
-  }
-
-  return plugin.connectionFields.every((field) => {
-    if (!field.required) {
-      return true;
-    }
-
-    if (field.id === "autoSyncIntervalMinutes" && values.autoSync !== true) {
-      return true;
-    }
-
-    return !isFieldEmpty(values[field.id]);
-  });
-}
-
 function ConnectorPluginIcon({ plugin }: { plugin: ConnectorPluginManifest }) {
   return (
     <span
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted/40 text-foreground [&>svg]:h-5 [&>svg]:w-5"
+      className="inline-flex size-10 items-center justify-center rounded-2xl bg-muted/60 text-foreground [&>svg]:size-5"
       aria-hidden="true"
       dangerouslySetInnerHTML={{ __html: plugin.iconSvg }}
     />
@@ -119,30 +100,41 @@ function ConnectorFieldInput({
   value: ConnectorFieldValue | undefined;
   onChange: (nextValue: ConnectorFieldValue) => void;
 }) {
+  const isWideField =
+    field.type === "checkbox" ||
+    field.type === "password" ||
+    Boolean(field.helpText);
+
   if (field.type === "checkbox") {
     return (
-      <label className="connector-form-toggle connector-form-field-wide">
+      <Field
+        orientation="horizontal"
+        className="rounded-3xl border border-border/60 bg-muted/10 p-4 md:col-span-2"
+      >
         <input
           type="checkbox"
+          id={field.id}
           checked={value === true}
           onChange={(event) => onChange(event.target.checked)}
+          className="mt-0.5 size-4 rounded-sm border border-border bg-background accent-foreground"
         />
-        <span>
-          <span className="connector-form-toggle-title">{field.label}</span>
+        <FieldContent>
+          <FieldTitle>{field.label}</FieldTitle>
           {field.helpText ? (
-            <span className="connector-form-toggle-description">{field.helpText}</span>
+            <FieldDescription>{field.helpText}</FieldDescription>
           ) : null}
-        </span>
-      </label>
+        </FieldContent>
+      </Field>
     );
   }
 
   if (field.type === "select") {
     return (
-      <label className="field connector-form-field-wide">
-        <span className="field-label">{field.label}</span>
-        <select
-          className="field-input"
+      <Field className={cn(isWideField && "md:col-span-2")}>
+        <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
+        <FieldContent>
+          <NativeSelect
+            id={field.id}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -151,41 +143,97 @@ function ConnectorFieldInput({
               {option.label}
             </option>
           ))}
-        </select>
-        {field.helpText ? <span className="field-help">{field.helpText}</span> : null}
-      </label>
+          </NativeSelect>
+          {field.helpText ? (
+            <FieldDescription>{field.helpText}</FieldDescription>
+          ) : null}
+        </FieldContent>
+      </Field>
     );
   }
 
   return (
-    <label className={`field ${field.type === "password" || field.helpText ? "connector-form-field-wide" : ""}`}>
-      <span className="field-label">{field.label}</span>
-      <Input
-        type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
-        value={
-          typeof value === "number"
-            ? String(value)
-            : typeof value === "boolean"
-              ? (value ? "true" : "false")
-              : (value ?? "")
-        }
-        min={field.min}
-        max={field.max}
-        step={field.step}
-        onChange={(event) => {
-          if (field.type === "number") {
-            const nextValue = Number(event.target.value);
-            onChange(Number.isFinite(nextValue) ? nextValue : 0);
-            return;
+    <Field className={cn(isWideField && "md:col-span-2")}>
+      <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
+      <FieldContent>
+        <Input
+          id={field.id}
+          type={
+            field.type === "number"
+              ? "number"
+              : field.type === "password"
+                ? "password"
+                : "text"
           }
+          value={
+            typeof value === "number"
+              ? String(value)
+              : typeof value === "boolean"
+                ? value
+                  ? "true"
+                  : "false"
+                : (value ?? "")
+          }
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          onFocus={() => {
+            if (
+              field.type === "password" &&
+              field.secret &&
+              value === SAVED_SECRET_MASK
+            ) {
+              onChange("");
+            }
+          }}
+          onChange={(event) => {
+            if (field.type === "number") {
+              const nextValue = Number(event.target.value);
+              onChange(Number.isFinite(nextValue) ? nextValue : 0);
+              return;
+            }
 
-          onChange(event.target.value);
-        }}
-        placeholder={field.placeholder}
-        autoComplete="off"
-      />
-      {field.helpText ? <span className="field-help">{field.helpText}</span> : null}
-    </label>
+            onChange(event.target.value);
+          }}
+          placeholder={field.placeholder}
+          autoComplete="off"
+        />
+        {field.helpText ? (
+          <FieldDescription>{field.helpText}</FieldDescription>
+        ) : null}
+      </FieldContent>
+    </Field>
+  );
+}
+
+function ConnectorMessageCard({
+  label,
+  message,
+  destructive = false,
+}: {
+  label: string;
+  message: string;
+  destructive?: boolean;
+}) {
+  return (
+    <Card
+      size="sm"
+      className={cn(
+        "gap-3",
+        destructive && "border border-destructive/30 bg-destructive/5",
+      )}
+    >
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Badge variant={destructive ? "destructive" : "secondary"}>
+            {label}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">{message}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -232,6 +280,14 @@ export function SettingsConnectorsPage() {
     [connectors?.plugins],
   );
   const activePlugin = formState ? pluginsById.get(formState.pluginId) : undefined;
+  const isFormDirty =
+    formState && activePlugin
+      ? !areConnectorFormValuesEqual(
+          activePlugin,
+          formState.values,
+          formState.initialValues,
+        )
+      : false;
 
   const handleOutlookConnect = async () => {
     setIsUpdatingOutlook(true);
@@ -252,22 +308,29 @@ export function SettingsConnectorsPage() {
   };
 
   const handleCreate = (plugin: ConnectorPluginManifest) => {
+    const initialValues = buildConnectorFormValues(plugin);
     setConnectorError(null);
     setStatusMessage(null);
     setFormState({
       pluginId: plugin.id,
       editingConnectionId: null,
-      values: buildFormValues(plugin),
+      initialValues,
+      values: initialValues,
     });
   };
 
   const handleEdit = (plugin: ConnectorPluginManifest, connection: ConnectorConnectionSummary) => {
+    const initialValues = buildConnectorFormValues(
+      plugin,
+      connection.editableValues,
+    );
     setConnectorError(null);
     setStatusMessage(null);
     setFormState({
       pluginId: plugin.id,
       editingConnectionId: connection.id,
-      values: buildFormValues(plugin, connection.editableValues),
+      initialValues,
+      values: initialValues,
     });
   };
 
@@ -286,7 +349,13 @@ export function SettingsConnectorsPage() {
     try {
       const result = await saveConnectorConnection(
         formState.pluginId,
-        formState.values,
+        normalizeConnectorFormValuesForSave(
+          activePlugin!,
+          formState.values,
+          {
+            allowSavedSecrets: Boolean(formState.editingConnectionId),
+          },
+        ),
         formState.editingConnectionId ?? undefined,
       );
       setConnectors(result.overview);
@@ -361,220 +430,348 @@ export function SettingsConnectorsPage() {
 
   return (
     <div className="settings-sections">
-      {connectorGroups.map((group) => (
-        <section key={group.plugin.id} className="settings-section">
-          <div className="flex items-start gap-3">
-            <ConnectorPluginIcon plugin={group.plugin} />
-            <div className="min-w-0 flex-1">
-              <h2 className="settings-section-title">{group.plugin.displayName}</h2>
-              <p className="settings-section-desc">
-                {group.plugin.description ?? "Configure this connector and sync imported work into backlog."}
-              </p>
-            </div>
-          </div>
+      {connectorGroups.map((group) => {
+        const groupFormState =
+          formState?.pluginId === group.plugin.id ? formState : null;
 
-          <div className="settings-panel space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge>{group.connections.length} connection{group.connections.length === 1 ? "" : "s"}</Badge>
-              <Badge className="bg-muted">
-                {group.connections.reduce((sum, connection) => sum + connection.pendingImportCount, 0)} staged imports
-              </Badge>
-              <Badge className="bg-muted">
-                {group.connections.reduce((sum, connection) => sum + connection.selectedImportCount, 0)} selected for sync
-              </Badge>
-              <Badge className="bg-muted">
-                {importedCountsByPlugin[group.plugin.id] ?? 0} backlog items imported
-              </Badge>
-            </div>
-
-            <div className="space-y-1 text-sm text-foreground/70">
-              <p>Connector API: {getAppApiDescription()}</p>
-              {getAppApiDescription() !== getAppApiBaseUrl() ? (
-                <p className="text-foreground/50">Endpoint: {getAppApiBaseUrl()}</p>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Button size="sm" disabled={isMutatingConnector} onClick={() => handleCreate(group.plugin)}>
-                Add a connection
-              </Button>
-            </div>
-          </div>
-
-          {formState?.pluginId === group.plugin.id ? (
-            <div className="settings-panel connector-form-panel">
-              <div className="connector-form-header">
-                <div>
-                  <div className="connector-form-kicker">
-                    {formState.editingConnectionId ? "Edit connection" : "Add connection"}
-                  </div>
-                  <div className="connector-form-title">
-                    {formState.editingConnectionId
-                      ? `Replace ${group.plugin.displayName} settings`
-                      : `New ${group.plugin.displayName} source`}
+        return (
+          <section key={group.plugin.id} className="settings-section">
+            <Card>
+              <CardHeader>
+                <div className="flex items-start gap-3">
+                  <ConnectorPluginIcon plugin={group.plugin} />
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="font-sans tracking-normal">
+                      {group.plugin.displayName}
+                    </CardTitle>
+                    <CardDescription>
+                      {group.plugin.description ??
+                        "Configure this connector and sync imported work into backlog."}
+                    </CardDescription>
                   </div>
                 </div>
-              </div>
+                <CardAction>
+                  <Button
+                    size="sm"
+                    disabled={isMutatingConnector}
+                    onClick={() => handleCreate(group.plugin)}
+                  >
+                    Add a connection
+                  </Button>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">
+                    {group.connections.length} connection
+                    {group.connections.length === 1 ? "" : "s"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {group.connections.reduce(
+                      (sum, connection) => sum + connection.pendingImportCount,
+                      0,
+                    )}{" "}
+                    staged imports
+                  </Badge>
+                  <Badge variant="outline">
+                    {group.connections.reduce(
+                      (sum, connection) =>
+                        sum + connection.selectedImportCount,
+                      0,
+                    )}{" "}
+                    selected for sync
+                  </Badge>
+                  <Badge variant="outline">
+                    {importedCountsByPlugin[group.plugin.id] ?? 0} backlog items
+                    imported
+                  </Badge>
+                </div>
+                <Separator />
+                <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  <p>Connector API: {getAppApiDescription()}</p>
+                  {getAppApiDescription() !== getAppApiBaseUrl() ? (
+                    <p>Endpoint: {getAppApiBaseUrl()}</p>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
 
-              <div className="connector-form-grid">
-                {group.plugin.connectionFields.map((field) => {
-                  if (field.id === "autoSyncIntervalMinutes" && formState.values.autoSync !== true) {
-                    return null;
-                  }
-
-                  return (
-                    <ConnectorFieldInput
-                      key={field.id}
-                      field={field}
-                      value={formState.values[field.id]}
-                      onChange={(nextValue) =>
-                        setFormState((current) =>
-                          current
-                            ? {
-                                ...current,
-                                values: {
-                                  ...current.values,
-                                  [field.id]: nextValue,
-                                },
-                              }
-                            : current,
-                        )
+            {groupFormState ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-sans tracking-normal">
+                    {groupFormState.editingConnectionId
+                      ? `Replace ${group.plugin.displayName} settings`
+                      : `New ${group.plugin.displayName} source`}
+                  </CardTitle>
+                  <CardDescription>
+                    {groupFormState.editingConnectionId
+                      ? "Update this connection without re-entering unchanged values."
+                      : "Add a new connector source and save it locally in the app."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FieldGroup className="md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-5">
+                    {group.plugin.connectionFields.map((field) => {
+                      if (
+                        field.id === "autoSyncIntervalMinutes" &&
+                        groupFormState.values.autoSync !== true
+                      ) {
+                        return null;
                       }
-                    />
-                  );
-                })}
-              </div>
 
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  disabled={isMutatingConnector || !canSubmitPluginForm(activePlugin, formState.values)}
-                  onClick={() => void handleSave()}
-                >
-                  {formState.editingConnectionId ? "Update Connection" : "Add Connection"}
-                </Button>
-                <Button variant="outline" disabled={isMutatingConnector} onClick={handleCancel}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : null}
+                      return (
+                        <ConnectorFieldInput
+                          key={field.id}
+                          field={field}
+                          value={groupFormState.values[field.id]}
+                          onChange={(nextValue) =>
+                            setFormState((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    values: {
+                                      ...current.values,
+                                      [field.id]: nextValue,
+                                    },
+                                  }
+                                : current,
+                            )
+                          }
+                        />
+                      );
+                    })}
+                  </FieldGroup>
+                </CardContent>
+                <CardFooter className="flex flex-wrap justify-end gap-3 border-t border-border/60">
+                  <Button
+                    variant="outline"
+                    disabled={isMutatingConnector}
+                    onClick={handleCancel}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={
+                      isMutatingConnector ||
+                      !isFormDirty ||
+                      !canSubmitConnectorForm(activePlugin, groupFormState.values, {
+                        allowSavedSecrets: Boolean(
+                          groupFormState.editingConnectionId,
+                        ),
+                      })
+                    }
+                    onClick={() => void handleSave()}
+                  >
+                    {groupFormState.editingConnectionId
+                      ? "Update Connection"
+                      : "Add Connection"}
+                  </Button>
+                </CardFooter>
+              </Card>
+            ) : null}
 
-          {group.connections.length === 0 ? (
-            <div className="message-panel">No {group.plugin.displayName} connections configured yet.</div>
-          ) : (
-            <div className="connector-groups">
-              <section className="connector-tenant-group">
-                <div className="connector-card-grid">
-                  {group.connections.map((connection) => (
-                    <article key={connection.id} className="connector-card">
-                      <div className="connector-card-topline">
-                        <div>
-                          <div className="connector-card-title">{connection.label}</div>
-                          <div className="connector-card-subtitle">{connection.tenantLabel}</div>
-                        </div>
-                        <Badge className={connection.lastError ? "bg-[var(--danger-muted)] text-[var(--danger)]" : "bg-muted"}>
+            {group.connections.length === 0 ? (
+              <Card size="sm">
+                <CardContent>
+                  <Empty className="border border-dashed border-border/70 bg-muted/10 py-10">
+                    <EmptyHeader>
+                      <EmptyTitle>No connections yet</EmptyTitle>
+                      <EmptyDescription>
+                        No {group.plugin.displayName} connections are configured
+                        yet.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {group.connections.map((connection) => (
+                  <Card key={connection.id} size="sm">
+                    <CardHeader>
+                      <div>
+                        <CardTitle className="font-sans tracking-normal">
+                          {connection.label}
+                        </CardTitle>
+                        <CardDescription>
+                          {connection.tenantLabel}
+                        </CardDescription>
+                      </div>
+                      <CardAction>
+                        <Badge
+                          variant={
+                            connection.lastError ? "destructive" : "outline"
+                          }
+                        >
                           {connection.autoSync
                             ? `Auto every ${connection.autoSyncIntervalMinutes} min`
                             : "Stage for review"}
                         </Badge>
-                      </div>
-
-                      <div className="connector-card-meta">
-                        {Object.entries(connection.configSummary).map(([key, value]) => (
-                          <span key={key}>
-                            {prettifySummaryKey(key)}: {String(value)}
-                          </span>
-                        ))}
-                        <span>Last sync: {formatConnectorTimestamp(connection.lastSyncAt)}</span>
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                        {Object.entries(connection.configSummary).map(
+                          ([key, value]) => (
+                            <span key={key}>
+                              {prettifySummaryKey(key)}: {String(value)}
+                            </span>
+                          ),
+                        )}
+                        <span>
+                          Last sync:{" "}
+                          {formatConnectorTimestamp(connection.lastSyncAt)}
+                        </span>
                         {!connection.autoSync ? (
-                          <span>{connection.pendingImportCount} staged · {connection.selectedImportCount} selected</span>
+                          <span>
+                            {connection.pendingImportCount} staged ·{" "}
+                            {connection.selectedImportCount} selected
+                          </span>
                         ) : null}
                       </div>
-
-                      <div className="connector-card-message">
+                      <p
+                        className={cn(
+                          "text-sm text-muted-foreground",
+                          connection.lastError && "text-destructive",
+                        )}
+                      >
                         {connection.lastError ??
                           (connection.autoSync
                             ? "Connection ready to sync directly into backlog."
                             : "Connection ready to stage imports.")}
-                      </div>
+                      </p>
+                    </CardContent>
+                    <CardFooter className="flex flex-wrap gap-2 border-t border-border/60">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isMutatingConnector}
+                        onClick={() => handleEdit(group.plugin, connection)}
+                      >
+                        <Pencil data-icon="inline-start" />
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isMutatingConnector}
+                        onClick={() =>
+                          void handleSync(group.plugin.id, connection.id)
+                        }
+                      >
+                        <RefreshCw data-icon="inline-start" />
+                        Sync
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={isMutatingConnector}
+                        onClick={() =>
+                          void handleDelete(group.plugin.id, connection.id)
+                        }
+                      >
+                        <Trash2 data-icon="inline-start" />
+                        Remove
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
 
-                      <div className="connector-card-actions">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={isMutatingConnector}
-                          onClick={() => handleEdit(group.plugin, connection)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={isMutatingConnector}
-                          onClick={() => void handleSync(group.plugin.id, connection.id)}
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                          Sync
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={isMutatingConnector}
-                          onClick={() => void handleDelete(group.plugin.id, connection.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Remove
-                        </Button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
-        </section>
-      ))}
-
-      {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
-      {connectorError ? <div className="message-panel message-panel-warning">{connectorError}</div> : null}
+      {statusMessage ? (
+        <ConnectorMessageCard label="Status" message={statusMessage} />
+      ) : null}
+      {connectorError ? (
+        <ConnectorMessageCard
+          label="Error"
+          message={connectorError}
+          destructive
+        />
+      ) : null}
 
       <section className="settings-section">
-        <h2 className="settings-section-title">Outlook Calendar</h2>
-        <p className="settings-section-desc">
-          Imported meetings stay local in this browser until you explicitly commit them to the timesheet.
-        </p>
-
-        <div className="settings-panel">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={outlook.connected ? "" : "bg-muted text-foreground/70"}>
-              {outlook.connected
-                ? "Outlook connected"
-                : outlook.configured
-                  ? "Outlook not connected"
-                  : "Outlook not configured"}
-            </Badge>
-            {state.outlookMeetingDrafts.length > 0 ? (
-              <Badge className="bg-muted">{state.outlookMeetingDrafts.length} meetings imported</Badge>
-            ) : null}
-          </div>
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle className="font-sans tracking-normal">
+                Outlook Calendar
+              </CardTitle>
+              <CardDescription>
+                Imported meetings stay local in this browser until you
+                explicitly commit them to the timesheet.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <div className="flex flex-wrap gap-2">
+              <Badge
+                variant={
+                  outlook.connected
+                    ? "secondary"
+                    : outlook.configured
+                      ? "outline"
+                      : "outline"
+                }
+              >
+                {outlook.connected
+                  ? "Outlook connected"
+                  : outlook.configured
+                    ? "Outlook not connected"
+                    : "Outlook not configured"}
+              </Badge>
+              {state.outlookMeetingDrafts.length > 0 ? (
+                <Badge variant="outline">
+                  {state.outlookMeetingDrafts.length} meetings imported
+                </Badge>
+              ) : null}
+            </div>
+            <Separator />
+            {outlook.configured ? (
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <p>
+                  {outlook.connected
+                    ? "Connected to Outlook"
+                    : "Outlook not connected yet"}
+                </p>
+                <p>
+                  Account:{" "}
+                  {outlook.accountEmail ?? "No active Microsoft account"}
+                </p>
+                <p>
+                  Imported meetings buffered locally:{" "}
+                  {state.outlookMeetingDrafts.length}
+                </p>
+                <p>
+                  {outlook.lastError ??
+                    (outlook.connected
+                      ? "Timed Outlook meetings are pulled into local review drafts until you commit them."
+                      : "Sign in with Microsoft to pull meetings from your calendar.")}
+                </p>
+              </div>
+            ) : (
+              <Empty className="border border-dashed border-border/70 bg-muted/10 py-10">
+                <EmptyHeader>
+                  <EmptyTitle>Outlook is not configured</EmptyTitle>
+                  <EmptyDescription>
+                    Set <code>VITE_MICROSOFT_CLIENT_ID</code> to enable Outlook
+                    import. <code>VITE_MICROSOFT_TENANT_ID</code> is optional
+                    and defaults to <code>common</code>.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </CardContent>
           {outlook.configured ? (
-            <p className="text-foreground/65">
-              {outlook.connected
-                ? outlook.lastError ?? "Timed Outlook meetings are pulled into local review drafts until you commit them."
-                : "Connect Outlook to import meetings from your calendar into the daily review queue."}
-            </p>
-          ) : null}
-        </div>
-
-        {outlook.configured ? (
-          <div className="space-y-3 text-sm text-foreground/70">
-            <p>{outlook.connected ? "Connected to Outlook" : "Outlook not connected yet"}</p>
-            <p>Account: {outlook.accountEmail ?? "No active Microsoft account"}</p>
-            <p>Imported meetings buffered locally: {state.outlookMeetingDrafts.length}</p>
-            <p>{outlook.lastError ?? "Sign in with Microsoft to pull meetings from your calendar."}</p>
-            <div className="flex flex-wrap gap-3">
-              <Button disabled={isUpdatingOutlook || outlook.connected} onClick={() => void handleOutlookConnect()}>
+            <CardFooter className="flex flex-wrap gap-3 border-t border-border/60">
+              <Button
+                disabled={isUpdatingOutlook || outlook.connected}
+                onClick={() => void handleOutlookConnect()}
+              >
                 Connect Outlook
               </Button>
               <Button
@@ -584,13 +781,9 @@ export function SettingsConnectorsPage() {
               >
                 Disconnect
               </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="message-panel">
-            Set <code>VITE_MICROSOFT_CLIENT_ID</code> to enable Outlook import. <code>VITE_MICROSOFT_TENANT_ID</code> is optional and defaults to <code>common</code>.
-          </div>
-        )}
+            </CardFooter>
+          ) : null}
+        </Card>
       </section>
     </div>
   );

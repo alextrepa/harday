@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 export interface SearchableSelectOption {
   value: string;
   label: string;
+  group?: string;
   keywords?: string[];
 }
 
@@ -105,6 +106,34 @@ export function SearchableSelect({
     () => (clearLabel && !normalizedQuery ? [{ value: "", label: clearLabel }, ...filteredOptions] : filteredOptions),
     [clearLabel, filteredOptions, normalizedQuery],
   );
+  const groupedVisibleOptions = useMemo(() => {
+    const groups: Array<{
+      key: string;
+      label?: string;
+      options: Array<{ option: SearchableSelectOption; index: number }>;
+    }> = [];
+    const groupIndexByKey = new Map<string, number>();
+
+    visibleOptions.forEach((option, index) => {
+      const key = option.group ?? "__ungrouped__";
+      const existingIndex = groupIndexByKey.get(key);
+      const entry = { option, index };
+
+      if (existingIndex === undefined) {
+        groupIndexByKey.set(key, groups.length);
+        groups.push({
+          key,
+          label: option.group,
+          options: [entry],
+        });
+        return;
+      }
+
+      groups[existingIndex]!.options.push(entry);
+    });
+
+    return groups;
+  }, [visibleOptions]);
   const inputValue = isOpen ? (isTyping ? query : selectedLabel) : selectedLabel;
 
   useEffect(() => {
@@ -369,35 +398,37 @@ export function SearchableSelect({
             >
               {visibleOptions.length > 0 ? (
                 <CommandList>
-                  <CommandGroup>
-                    {visibleOptions.map((option, index) => (
-                      <CommandItem
-                        key={`${option.value || "empty"}-${option.label}`}
-                        ref={(element) => {
-                          optionRefs.current[index] = element;
-                        }}
-                        id={`${listboxId}-option-${index}`}
-                        role="option"
-                        tabIndex={-1}
-                        value={`${option.value || "empty"}-${option.label}`}
-                        data-checked={option.value === value ? "true" : undefined}
-                        aria-selected={option.value === value}
-                        className={cn(
-                          "searchable-select-option",
-                          highlightedIndex === index && "is-active",
-                          option.value === "" && "is-clear",
-                        )}
-                        onMouseEnter={() => setHighlightedIndex(index)}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          commitSelection(option.value);
-                        }}
-                        onSelect={() => commitSelection(option.value)}
-                      >
-                        <span>{option.label}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
+                  {groupedVisibleOptions.map((group) => (
+                    <CommandGroup key={group.key} heading={group.label}>
+                      {group.options.map(({ option, index }) => (
+                        <CommandItem
+                          key={`${option.value || "empty"}-${option.label}`}
+                          ref={(element) => {
+                            optionRefs.current[index] = element;
+                          }}
+                          id={`${listboxId}-option-${index}`}
+                          role="option"
+                          tabIndex={-1}
+                          value={`${option.value || "empty"}-${option.label}`}
+                          data-checked={option.value === value ? "true" : undefined}
+                          aria-selected={option.value === value}
+                          className={cn(
+                            "searchable-select-option",
+                            highlightedIndex === index && "is-active",
+                            option.value === "" && "is-clear",
+                          )}
+                          onMouseEnter={() => setHighlightedIndex(index)}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            commitSelection(option.value);
+                          }}
+                          onSelect={() => commitSelection(option.value)}
+                        >
+                          <span>{option.label}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))}
                 </CommandList>
               ) : (
                 <CommandEmpty className="searchable-select-empty">{emptyMessage}</CommandEmpty>

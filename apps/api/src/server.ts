@@ -23,6 +23,7 @@ import {
   connectorImportSelectionUpdateSchema,
   connectorsOverviewSchema,
 } from "../../../packages/shared/src/connectors.ts";
+import { mergeConnectionConfigForSave } from "./connection-values.ts";
 import { ConnectorPluginManager } from "./plugin-host.ts";
 import { AppApiStorage } from "./storage.ts";
 
@@ -265,7 +266,23 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
         if (request.method === "POST" && !rawConnectionId && !action) {
           const payload = connectorConnectionSaveRequestSchema.parse(await readJsonBody(request));
           const parsedValues = parseConnectionValues(payload.values);
-          const validation = await pluginManager.validateConnection(pluginId, parsedValues.config);
+          const plugin = (await pluginManager.listPlugins()).find(
+            (candidate) => candidate.id === pluginId,
+          );
+          const existingConnection = payload.id
+            ? await storage.getConnection(pluginId, payload.id)
+            : null;
+          const configForSave = plugin
+            ? mergeConnectionConfigForSave(
+                plugin,
+                parsedValues.config,
+                existingConnection?.config,
+              )
+            : parsedValues.config;
+          const validation = await pluginManager.validateConnection(
+            pluginId,
+            configForSave,
+          );
           const storedConnection = await storage.upsertConnection(pluginId, {
             id: payload.id,
             label: parsedValues.label,

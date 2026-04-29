@@ -46,6 +46,7 @@ import {
   useWorkItemIconData,
 } from "@/features/backlog/work-item-icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BacklogTaskModal } from "@/features/backlog/backlog-task-modal";
 import {
@@ -73,11 +74,11 @@ import {
   type BacklogSortMode,
   type LocalWorkItem,
 } from "@/lib/local-store";
+import { isInlineEditorOutsideClick } from "@/lib/inline-editor-close";
+import { shouldStartSharedTableDrag } from "@/lib/table-drag";
 import { cn, todayIsoDate } from "@/lib/utils";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
-const BACKLOG_DRAG_MOUSE_TOLERANCE_PX = 4;
-const BACKLOG_DRAG_TOUCH_TOLERANCE_PX = 8;
 const BACKLOG_TABLE_COLUMN_COUNT = 4;
 
 type BacklogFilter = "active" | "archived";
@@ -281,12 +282,6 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   return nextItems;
 }
 
-function getBacklogDragTolerance(pointerType: string) {
-  return pointerType === "touch"
-    ? BACKLOG_DRAG_TOUCH_TOLERANCE_PX
-    : BACKLOG_DRAG_MOUSE_TOLERANCE_PX;
-}
-
 function isBacklogDragBlockedTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
     ? Boolean(
@@ -334,6 +329,7 @@ export function BacklogPage() {
   const expandedNoteModalOverlayRef = useRef<HTMLDivElement>(null);
   const expandedNoteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const inlineDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const activeInlineEditorRef = useRef<HTMLDivElement>(null);
   const backlogPointerSessionRef = useRef<PendingBacklogPointerSession | null>(
     null,
   );
@@ -396,6 +392,7 @@ export function BacklogPage() {
   const [pendingDeleteWorkItemId, setPendingDeleteWorkItemId] = useState<
     string | null
   >(null);
+  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [modalWorkItemId, setModalWorkItemId] = useState<string | null>(null);
   const [subtaskModalParentId, setSubtaskModalParentId] = useState<
     string | null
@@ -561,11 +558,7 @@ export function BacklogPage() {
     [newProjectId, projects],
   );
   const newTaskOptions = useMemo(
-    () =>
-      newAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(newAvailableTasks),
     [newAvailableTasks],
   );
 
@@ -577,11 +570,7 @@ export function BacklogPage() {
     [expandedProjectId, projects],
   );
   const expandedTaskOptions = useMemo(
-    () =>
-      expandedAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(expandedAvailableTasks),
     [expandedAvailableTasks],
   );
   const expandedParsedDurationMs = useMemo(
@@ -596,11 +585,7 @@ export function BacklogPage() {
     [expandedChildEditor.projectId, projects],
   );
   const expandedChildTaskOptions = useMemo(
-    () =>
-      expandedChildAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(expandedChildAvailableTasks),
     [expandedChildAvailableTasks],
   );
   const expandedChildParsedDurationMs = useMemo(
@@ -616,11 +601,7 @@ export function BacklogPage() {
     [projects, subtaskProjectId],
   );
   const subtaskTaskOptions = useMemo(
-    () =>
-      subtaskAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(subtaskAvailableTasks),
     [subtaskAvailableTasks],
   );
   const expandedNoteModalTitle = useMemo(() => {
@@ -670,7 +651,9 @@ export function BacklogPage() {
     : expandedNoteModalTarget === "child"
       ? expandedChildEditor.note
       : expandedNote;
-  const isAnyModalOpen = Boolean(modalWorkItemId || subtaskModalParentId);
+  const isAnyModalOpen = Boolean(
+    isCreateTaskModalOpen || modalWorkItemId || subtaskModalParentId,
+  );
   const canReorderVisibleRootItems =
     backlogSortMode === "custom" &&
     !isCreatingItem &&
@@ -692,6 +675,14 @@ export function BacklogPage() {
     mediaQuery.addEventListener("change", syncLayout);
     return () => mediaQuery.removeEventListener("change", syncLayout);
   }, []);
+
+  useEffect(() => {
+    if (isDesktopLayout || !isCreatingItem) {
+      return;
+    }
+
+    resetNewItem();
+  }, [isCreatingItem, isDesktopLayout]);
 
   useEffect(() => {
     if (!isSortMenuOpen) {
@@ -747,6 +738,44 @@ export function BacklogPage() {
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
   }, [expandedNoteModalTarget, standaloneNoteModalState]);
+
+  useEffect(() => {
+    if (!isDesktopLayout) {
+      return;
+    }
+
+    if (expandedViewMode !== "edit" && !expandedChildWorkItemId) {
+      return;
+    }
+
+    function handleDocumentMouseDown(event: MouseEvent) {
+      if (
+        !isInlineEditorOutsideClick(event.target, activeInlineEditorRef.current, [
+          `[data-backlog-root-id="${expandedRootWorkItemId}"]`,
+        ])
+      ) {
+        return;
+      }
+
+      if (expandedChildWorkItemId) {
+        closeExpandedChildItem();
+        return;
+      }
+
+      closeExpandedItem();
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, [
+    closeExpandedChildItem,
+    closeExpandedItem,
+    expandedChildWorkItemId,
+    expandedViewMode,
+    isDesktopLayout,
+  ]);
 
   useEffect(() => {
     backlogDragStateRef.current = backlogDragState;
@@ -1328,6 +1357,23 @@ export function BacklogPage() {
   }, [subtaskAvailableTasks, subtaskProjectId, subtaskTaskId]);
 
   function handleCreateToggle() {
+    if (!isDesktopLayout) {
+      if (isCreateTaskModalOpen) {
+        setIsCreateTaskModalOpen(false);
+        return;
+      }
+
+      setIsSortMenuOpen(false);
+      closeExpandedItem();
+      setPendingArchiveWorkItemId(null);
+      setPendingDeleteWorkItemId(null);
+      setModalWorkItemId(null);
+      setSubtaskModalParentId(null);
+      setIsCreatingItem(false);
+      setIsCreateTaskModalOpen(true);
+      return;
+    }
+
     if (isCreatingItem) {
       closeNewItem();
       return;
@@ -1364,7 +1410,6 @@ export function BacklogPage() {
     setPressedWorkItemId(workItem._id);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    const tolerance = getBacklogDragTolerance(pointerType);
     let latestPointerX = clientX;
     let latestPointerY = clientY;
 
@@ -1435,10 +1480,13 @@ export function BacklogPage() {
       }
 
       if (
-        Math.hypot(
-          pointerEvent.clientX - clientX,
-          pointerEvent.clientY - clientY,
-        ) > tolerance
+        shouldStartSharedTableDrag({
+          pointerType,
+          originX: clientX,
+          originY: clientY,
+          currentX: pointerEvent.clientX,
+          currentY: pointerEvent.clientY,
+        })
       ) {
         const session = backlogPointerSessionRef.current;
         if (session?.pointerId === pointerId) {
@@ -1576,6 +1624,7 @@ export function BacklogPage() {
       closeNewItem();
     }
 
+    setIsCreateTaskModalOpen(false);
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
     setModalWorkItemId(workItemId);
@@ -1586,6 +1635,7 @@ export function BacklogPage() {
       closeNewItem();
     }
 
+    setIsCreateTaskModalOpen(false);
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
     setSubtaskModalParentId(parentWorkItemId);
@@ -2005,6 +2055,7 @@ export function BacklogPage() {
     return (
       <tr
         className="entry-edit-row"
+        data-backlog-root-id={workItem._id}
         onClick={(event) => event.stopPropagation()}
       >
         <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
@@ -2032,6 +2083,10 @@ export function BacklogPage() {
     const isEditingChildItem = expandedChildWorkItem?._id === workItem._id;
     const isRootExpanded =
       !isLogicalChild && expandedRootWorkItemId === workItem._id;
+    const rootSectionId =
+      isLogicalChild && workItem.parentWorkItemId
+        ? workItem.parentWorkItemId
+        : workItem._id;
     const showInlineEditor =
       (isEditingRootItem || isEditingChildItem) && isDesktopLayout;
     const isMobileLayout = !isDesktopLayout;
@@ -2435,6 +2490,7 @@ export function BacklogPage() {
       return (
         <tr
           key={workItem._id}
+          data-backlog-root-id={rootSectionId}
           className={cn(
             "entry-edit-row backlog-inline-editor-row",
             isLogicalChild && "backlog-row-child",
@@ -2443,6 +2499,7 @@ export function BacklogPage() {
         >
           <td colSpan={BACKLOG_TABLE_COLUMN_COUNT}>
             <div
+              ref={showInlineEditor ? activeInlineEditorRef : null}
               className={cn(
                 "entry-edit-dropdown backlog-inline-editor",
                 isLogicalChild && "entry-edit-dropdown-child",
@@ -2969,6 +3026,7 @@ export function BacklogPage() {
     return (
       <tr
         key={workItem._id}
+        data-backlog-root-id={rootSectionId}
         ref={(node) => {
           if (!isReorderableRoot) {
             backlogRowRefs.current.delete(workItem._id);
@@ -3414,10 +3472,12 @@ export function BacklogPage() {
                       type="button"
                       className={cn(
                         "entries-header-add entries-header-bubble",
-                        isCreatingItem && "is-open",
+                        (isCreatingItem || isCreateTaskModalOpen) && "is-open",
                       )}
                       aria-label={
-                        isCreatingItem ? "Close new task" : "Add new task"
+                        isCreatingItem || isCreateTaskModalOpen
+                          ? "Close new task"
+                          : "Add new task"
                       }
                       onClick={handleCreateToggle}
                     >
@@ -3438,7 +3498,7 @@ export function BacklogPage() {
             )}
           >
             <tbody className="entries-table-scroll-region">
-              {isCreatingItem ? (
+              {isCreatingItem && isDesktopLayout ? (
                 <tr
                   className="entry-edit-row"
                   onClick={(event) => event.stopPropagation()}
@@ -3676,6 +3736,9 @@ export function BacklogPage() {
           workItemId={modalWorkItemId}
           onClose={() => setModalWorkItemId(null)}
         />
+      ) : null}
+      {isCreateTaskModalOpen ? (
+        <BacklogTaskModal onClose={() => setIsCreateTaskModalOpen(false)} />
       ) : null}
       {subtaskModalParentId ? (
         <BacklogTaskModal

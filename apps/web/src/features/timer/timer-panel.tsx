@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import {
   formatDurationHoursInput,
   normalizeHoursInput,
@@ -34,15 +35,15 @@ import {
   localStore,
   type LocalTimesheetEntry,
 } from "@/lib/local-store";
+import { isInlineEditorOutsideClick } from "@/lib/inline-editor-close";
+import {
+  shouldStartSharedTableDrag,
+} from "@/lib/table-drag";
 import { ProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 
 const DESKTOP_ENTRY_MEDIA_QUERY = "(min-width: 641px)";
-const ENTRY_DRAG_MOUSE_DELAY_MS = 180;
-const ENTRY_DRAG_TOUCH_DELAY_MS = 260;
-const ENTRY_DRAG_MOUSE_TOLERANCE_PX = 6;
-const ENTRY_DRAG_TOUCH_TOLERANCE_PX = 12;
 
 type EntryDragState = {
   entryId: string;
@@ -89,18 +90,6 @@ function isRunningEntry(
   entry: LocalTimesheetEntry | RunningEntryRow,
 ): entry is RunningEntryRow {
   return "isRunning" in entry && entry.isRunning;
-}
-
-function getEntryDragDelay(pointerType: string) {
-  return pointerType === "touch"
-    ? ENTRY_DRAG_TOUCH_DELAY_MS
-    : ENTRY_DRAG_MOUSE_DELAY_MS;
-}
-
-function getEntryDragTolerance(pointerType: string) {
-  return pointerType === "touch"
-    ? ENTRY_DRAG_TOUCH_TOLERANCE_PX
-    : ENTRY_DRAG_MOUSE_TOLERANCE_PX;
 }
 
 function isEntryDragBlockedTarget(target: EventTarget | null) {
@@ -175,6 +164,7 @@ export function TimerPanel({
     string | null
   >(null);
   const entryRowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const expandedEntryEditorRef = useRef<HTMLDivElement>(null);
   const entryPointerSessionRef = useRef<PendingEntryPointerSession | null>(
     null,
   );
@@ -234,11 +224,7 @@ export function TimerPanel({
     [expandedProjectId, projects],
   );
   const expandedTaskOptions = useMemo(
-    () =>
-      expandedAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(expandedAvailableTasks),
     [expandedAvailableTasks],
   );
   const expandedParsedDurationMs = useMemo(
@@ -268,11 +254,7 @@ export function TimerPanel({
     [newProjectId, projects],
   );
   const newTaskOptions = useMemo(
-    () =>
-      newAvailableTasks.map((task) => ({
-        value: task._id,
-        label: task.name,
-      })),
+    () => buildProjectTaskOptions(newAvailableTasks),
     [newAvailableTasks],
   );
   const newParsedDurationMs = useMemo(
@@ -673,6 +655,30 @@ export function TimerPanel({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [expandedEntryId]);
 
+  useEffect(() => {
+    if (!expandedEntryId) {
+      return;
+    }
+
+    function handleDocumentMouseDown(event: MouseEvent) {
+      if (
+        !isInlineEditorOutsideClick(
+          event.target,
+          expandedEntryEditorRef.current,
+        )
+      ) {
+        return;
+      }
+
+      closeExpandedEntry();
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, [expandedEntryId]);
+
   function handleExpandedProjectChange(nextProjectId: string) {
     const nextTaskId =
       nextProjectId === expandedProjectId ? expandedTaskId : "";
@@ -751,10 +757,13 @@ export function TimerPanel({
     setPressedEntryId(entry._id);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    const delay = getEntryDragDelay(pointerType);
-    const tolerance = getEntryDragTolerance(pointerType);
+    let latestPointerX = clientX;
+    let latestPointerY = clientY;
 
-    const startDrag = () => {
+    const startDrag = (
+      pointerX = latestPointerX,
+      pointerY = latestPointerY,
+    ) => {
       const row = entryRowRefs.current.get(entry._id);
       if (!row) {
         setPressedEntryId(null);
@@ -776,10 +785,10 @@ export function TimerPanel({
         pointerId,
         originIndex: sourceIndex,
         targetIndex: sourceIndex,
-        pointerX: clientX,
-        pointerY: clientY,
-        offsetX: clientX - rect.left,
-        offsetY: clientY - rect.top,
+        pointerX,
+        pointerY,
+        offsetX: pointerX - rect.left,
+        offsetY: pointerY - rect.top,
         originLeft: rect.left,
         minTop: firstRowRect?.top ?? rect.top,
         width: rect.width,
@@ -819,14 +828,25 @@ export function TimerPanel({
         return;
       }
 
+      latestPointerX = pointerEvent.clientX;
+      latestPointerY = pointerEvent.clientY;
+
       if (
-        Math.hypot(
-          pointerEvent.clientX - clientX,
-          pointerEvent.clientY - clientY,
-        ) > tolerance
+        shouldStartSharedTableDrag({
+          pointerType,
+          originX: clientX,
+          originY: clientY,
+          currentX: pointerEvent.clientX,
+          currentY: pointerEvent.clientY,
+        })
       ) {
-        clearEntryPointerSession();
-        setPressedEntryId(null);
+        const session = entryPointerSessionRef.current;
+        if (session?.pointerId === pointerId) {
+          window.clearTimeout(session.timeoutId);
+        }
+
+        pointerEvent.preventDefault();
+        startDrag(pointerEvent.clientX, pointerEvent.clientY);
       }
     };
 
@@ -853,7 +873,7 @@ export function TimerPanel({
 
     entryPointerSessionRef.current = {
       pointerId,
-      timeoutId: window.setTimeout(startDrag, delay),
+      timeoutId: 0,
       removeListeners: () => {
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", handlePointerEnd);
@@ -1241,7 +1261,10 @@ export function TimerPanel({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <td colSpan={3}>
-                          <div className="entry-edit-dropdown">
+                          <div
+                            ref={expandedEntryEditorRef}
+                            className="entry-edit-dropdown"
+                          >
                             <div className="entry-edit-dropdown-grid">
                               {/* Project */}
                               <label className="field entry-field-span-2">

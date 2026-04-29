@@ -1,4 +1,8 @@
-import { connectorFieldValuesSchema, type ConnectorFieldValues } from "../../../../packages/shared/src/connectors.ts";
+import {
+  connectorFieldValuesSchema,
+  connectorTaskIconDisplayModeSchema,
+  type ConnectorFieldValues,
+} from "../../../../packages/shared/src/connectors.ts";
 import { syncJiraConnection, type JiraConnectionInput, validateJiraConnection } from "../../src/connectors/jira.ts";
 
 function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string; label: string; tenantLabel: string }): JiraConnectionInput {
@@ -48,8 +52,24 @@ function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string
 }
 
 export async function validateConnection(config: ConnectorFieldValues) {
+  const parsed = connectorFieldValuesSchema.parse(config);
   const jiraConfig = buildJiraConfig(config);
-  return await validateJiraConnection(jiraConfig);
+  const validation = await validateJiraConnection(jiraConfig);
+  const taskIconDisplayMode = connectorTaskIconDisplayModeSchema.safeParse(
+    parsed.taskIconDisplayMode,
+  );
+
+  if (!taskIconDisplayMode.success) {
+    return validation;
+  }
+
+  return {
+    ...validation,
+    normalizedConfig: {
+      ...validation.normalizedConfig,
+      taskIconDisplayMode: taskIconDisplayMode.data,
+    },
+  };
 }
 
 export async function syncConnection(connection: {

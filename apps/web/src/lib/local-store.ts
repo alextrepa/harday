@@ -24,6 +24,7 @@ import {
   normalizeTaskImportName,
   type ProjectTaskImportResult,
 } from "@/features/projects/project-task-import-utils";
+import { durationHoursValueToMs } from "@/features/projects/project-task-budget";
 import {
   normalizeProjectIcon,
   type LocalProjectIcon,
@@ -58,6 +59,9 @@ export interface LocalProjectTask {
   status: "active" | "archived";
   createdAt: number;
   archivedAt?: number;
+  billable?: boolean;
+  budgetMs?: number;
+  adjustmentMs?: number;
 }
 
 export type LocalWorkItemEstimateFieldKey =
@@ -129,6 +133,9 @@ export interface LocalProjectDraft {
 export interface LocalProjectTaskDraft {
   name: string;
   status?: "active" | "archived";
+  billable?: boolean;
+  budgetMs?: number;
+  adjustmentMs?: number;
 }
 
 export interface LocalTeam {
@@ -230,6 +237,7 @@ export interface LocalWorkItem {
   sourceStatusLabel?: string;
   projectId?: string;
   taskId?: string;
+  inheritsParentMapping?: boolean;
   note?: string;
   originalEstimateHours?: number;
   remainingEstimateHours?: number;
@@ -250,6 +258,7 @@ export interface LocalWorkItemDraft {
   note?: string;
   projectId?: string;
   taskId?: string;
+  inheritsParentMapping?: boolean;
   parentWorkItemId?: string;
   priority?: number;
   backlogStatusId?: string;
@@ -702,6 +711,34 @@ function assertValidParentWorkItem(
   }
 }
 
+function doesWorkItemMappingMatch(
+  left: Pick<LocalWorkItem, "projectId" | "taskId">,
+  right: Pick<LocalWorkItem, "projectId" | "taskId">,
+) {
+  return left.projectId === right.projectId && left.taskId === right.taskId;
+}
+
+function inferInheritedParentMapping(
+  workItem: Pick<
+    LocalWorkItem,
+    "parentWorkItemId" | "projectId" | "taskId" | "inheritsParentMapping"
+  >,
+  parent: Pick<LocalWorkItem, "projectId" | "taskId"> | undefined,
+) {
+  if (!workItem.parentWorkItemId || !parent) {
+    return undefined;
+  }
+
+  if (typeof workItem.inheritsParentMapping === "boolean") {
+    return workItem.inheritsParentMapping;
+  }
+
+  return (
+    (!workItem.projectId && !workItem.taskId) ||
+    doesWorkItemMappingMatch(workItem, parent)
+  );
+}
+
 function createDefaultState(): LocalAppState {
   return ensureLocalWorkspace({
     user: {
@@ -733,6 +770,22 @@ function createDefaultState(): LocalAppState {
   });
 }
 
+function normalizeTaskBudgetMs(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  return Math.round(value);
+}
+
+function normalizeTaskAdjustmentMs(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
+    return undefined;
+  }
+
+  return Math.round(value);
+}
+
 function createProjectTask(task: LocalProjectTaskDraft): LocalProjectTask {
   const createdAt = Date.now();
   const status = task.status ?? "active";
@@ -743,6 +796,9 @@ function createProjectTask(task: LocalProjectTaskDraft): LocalProjectTask {
     status,
     createdAt,
     archivedAt: status === "archived" ? createdAt : undefined,
+    billable: task.billable ?? true,
+    budgetMs: normalizeTaskBudgetMs(task.budgetMs),
+    adjustmentMs: normalizeTaskAdjustmentMs(task.adjustmentMs),
   };
 }
 
@@ -789,6 +845,9 @@ function groupProjectWorkbookRows(
     status: "active" | "archived";
     task: string;
     taskStatus: "active" | "archived" | "";
+    billable: "billable" | "non_billable" | "";
+    budgetHours: number | "";
+    adjustmentHours: number | "";
   }>,
 ) {
   const grouped = new Map<
@@ -798,7 +857,13 @@ function groupProjectWorkbookRows(
       code?: string;
       color?: string;
       status: "active" | "archived";
-      tasks: Array<{ name: string; status: "active" | "archived" }>;
+      tasks: Array<{
+        name: string;
+        status: "active" | "archived";
+        billable?: boolean;
+        budgetMs?: number;
+        adjustmentMs?: number;
+      }>;
     }
   >();
 
@@ -829,6 +894,15 @@ function groupProjectWorkbookRows(
       const nextTask = {
         name: taskName,
         status: row.taskStatus || "active",
+        billable: row.billable ? row.billable === "billable" : true,
+        budgetMs: durationHoursValueToMs(
+          typeof row.budgetHours === "number" ? row.budgetHours : undefined,
+        ),
+        adjustmentMs: durationHoursValueToMs(
+          typeof row.adjustmentHours === "number"
+            ? row.adjustmentHours
+            : undefined,
+        ),
       } as const;
 
       if (existingTaskIndex >= 0) {
@@ -861,6 +935,9 @@ function normalizeProject(project: LocalProject): LocalProject {
         (task.status === "archived"
           ? (task.createdAt ?? Date.now())
           : undefined),
+      billable: task.billable ?? true,
+      budgetMs: normalizeTaskBudgetMs(task.budgetMs),
+      adjustmentMs: normalizeTaskAdjustmentMs(task.adjustmentMs),
     })),
   };
 }
@@ -1137,6 +1214,9 @@ function createWorkItem(workItem: LocalWorkItemDraft): LocalWorkItem {
     sourceStatusLabel: undefined,
     projectId: workItem.projectId,
     taskId: workItem.taskId,
+    inheritsParentMapping: isSubtask
+      ? workItem.inheritsParentMapping
+      : undefined,
     note: workItem.note?.trim() || undefined,
     originalEstimateHours: normalizeEstimateValue(
       workItem.originalEstimateHours,
@@ -2357,6 +2437,9 @@ export const localStore = {
       status: "active" | "archived";
       task: string;
       taskStatus: "active" | "archived" | "";
+      billable: "billable" | "non_billable" | "";
+      budgetHours: number | "";
+      adjustmentHours: number | "";
     }>,
   ) {
     let importResult = {
@@ -2384,6 +2467,9 @@ export const localStore = {
             tasks: group.tasks.map((task) => ({
               name: task.name,
               status: task.status,
+              billable: task.billable,
+              budgetMs: task.budgetMs,
+              adjustmentMs: task.adjustmentMs,
             })),
           });
           nextProject.status = group.status;
@@ -2406,13 +2492,27 @@ export const localStore = {
               createProjectTask({
                 name: importedTask.name,
                 status: importedTask.status,
+                billable: importedTask.billable,
+                budgetMs: importedTask.budgetMs,
+                adjustmentMs: importedTask.adjustmentMs,
               }),
             );
             importResult.addedTaskCount += 1;
             continue;
           }
 
-          if (existingTask.status !== importedTask.status) {
+          const nextBudgetMs = normalizeTaskBudgetMs(importedTask.budgetMs);
+          const nextAdjustmentMs = normalizeTaskAdjustmentMs(
+            importedTask.adjustmentMs,
+          );
+          const nextBillable = importedTask.billable ?? true;
+
+          if (
+            existingTask.status !== importedTask.status ||
+            (existingTask.billable ?? true) !== nextBillable ||
+            existingTask.budgetMs !== nextBudgetMs ||
+            existingTask.adjustmentMs !== nextAdjustmentMs
+          ) {
             importResult.updatedTaskCount += 1;
           }
 
@@ -2427,6 +2527,9 @@ export const localStore = {
                 importedTask.status === "archived"
                   ? (existingTask.archivedAt ?? Date.now())
                   : undefined,
+              billable: nextBillable,
+              budgetMs: nextBudgetMs,
+              adjustmentMs: nextAdjustmentMs,
             };
           }
         }
@@ -2463,6 +2566,44 @@ export const localStore = {
               ...project,
               tasks: project.tasks.map((task) =>
                 task._id === taskId ? { ...task, name } : task,
+              ),
+            }
+          : project,
+      ),
+    }));
+  },
+  updateProjectTask(
+    projectId: string,
+    taskId: string,
+    patch: Partial<
+      Pick<LocalProjectTask, "name" | "billable" | "budgetMs" | "adjustmentMs">
+    >,
+  ) {
+    updateState((state) => ({
+      ...state,
+      projects: state.projects.map((project) =>
+        project._id === projectId
+          ? {
+              ...project,
+              tasks: project.tasks.map((task) =>
+                task._id === taskId
+                  ? {
+                      ...task,
+                      name: patch.name ?? task.name,
+                      billable:
+                        "billable" in patch
+                          ? patch.billable ?? true
+                          : (task.billable ?? true),
+                      budgetMs:
+                        "budgetMs" in patch
+                          ? normalizeTaskBudgetMs(patch.budgetMs)
+                          : task.budgetMs,
+                      adjustmentMs:
+                        "adjustmentMs" in patch
+                          ? normalizeTaskAdjustmentMs(patch.adjustmentMs)
+                          : task.adjustmentMs,
+                    }
+                  : task,
               ),
             }
           : project,
@@ -2904,6 +3045,10 @@ export const localStore = {
     let createdWorkItemId = "";
 
     updateState((state) => {
+      let inheritedParentMapping: boolean | undefined;
+      let inheritedProjectId = workItem.projectId;
+      let inheritedTaskId = workItem.taskId;
+
       if (workItem.parentWorkItemId) {
         const parent = state.workItems.find(
           (item) => item._id === workItem.parentWorkItemId,
@@ -2919,11 +3064,30 @@ export const localStore = {
         ) {
           throw new Error("Subtasks cannot have subtasks.");
         }
+
+        inheritedParentMapping =
+          inferInheritedParentMapping(
+            {
+              parentWorkItemId: workItem.parentWorkItemId,
+              projectId: workItem.projectId,
+              taskId: workItem.taskId,
+              inheritsParentMapping: workItem.inheritsParentMapping,
+            },
+            parent,
+          ) ?? false;
+
+        if (inheritedParentMapping) {
+          inheritedProjectId = parent.projectId;
+          inheritedTaskId = parent.taskId;
+        }
       }
 
       const createdWorkItem = createWorkItem({
         ...workItem,
         title,
+        projectId: inheritedProjectId,
+        taskId: inheritedTaskId,
+        inheritsParentMapping: inheritedParentMapping,
         priority: workItem.parentWorkItemId ? undefined : workItem.priority,
         backlogStatusId: workItem.backlogStatusId,
       });
@@ -3308,45 +3472,117 @@ export const localStore = {
         : priorityProvided
           ? normalizedPriority
           : target.priority;
+      const mappingProvided =
+        Object.prototype.hasOwnProperty.call(patch, "projectId") ||
+        Object.prototype.hasOwnProperty.call(patch, "taskId");
+      const nextParent = nextParentWorkItemId
+        ? state.workItems.find((workItem) => workItem._id === nextParentWorkItemId)
+        : undefined;
+      let nextProjectId = Object.prototype.hasOwnProperty.call(patch, "projectId")
+        ? patch.projectId
+        : target.projectId;
+      let nextTaskId = Object.prototype.hasOwnProperty.call(patch, "taskId")
+        ? patch.taskId
+        : target.taskId;
+      let nextInheritsParentMapping = inferInheritedParentMapping(
+        {
+          parentWorkItemId: nextParentWorkItemId,
+          projectId: nextProjectId,
+          taskId: nextTaskId,
+          inheritsParentMapping:
+            Object.prototype.hasOwnProperty.call(patch, "inheritsParentMapping")
+              ? patch.inheritsParentMapping
+              : target.inheritsParentMapping,
+        },
+        nextParent,
+      );
+
+      if (
+        nextParent &&
+        (mappingProvided ||
+          nextParentWorkItemId !== target.parentWorkItemId ||
+          nextInheritsParentMapping)
+      ) {
+        const shouldInherit =
+          mappingProvided || nextParentWorkItemId !== target.parentWorkItemId
+            ? inferInheritedParentMapping(
+                {
+                  parentWorkItemId: nextParentWorkItemId,
+                  projectId: nextProjectId,
+                  taskId: nextTaskId,
+                  inheritsParentMapping: undefined,
+                },
+                nextParent,
+              ) ?? false
+            : nextInheritsParentMapping ?? false;
+
+        nextInheritsParentMapping = shouldInherit;
+        if (shouldInherit) {
+          nextProjectId = nextParent.projectId;
+          nextTaskId = nextParent.taskId;
+        }
+      } else if (!nextParentWorkItemId) {
+        nextInheritsParentMapping = undefined;
+      }
+
+      const nextTarget: LocalWorkItem = {
+        ...target,
+        ...patch,
+        title:
+          typeof patch.title === "string" ? patch.title.trim() : target.title,
+        note:
+          typeof patch.note === "string"
+            ? patch.note.trim() || undefined
+            : "note" in patch
+              ? patch.note
+              : target.note,
+        parentWorkItemId: nextParentWorkItemId,
+        parentSourceId: nextParentWorkItemId ? undefined : nextParentSourceId,
+        hierarchyLevel: nextIsSubtask ? 1 : 0,
+        priority: nextPriority,
+        projectId: nextProjectId,
+        taskId: nextTaskId,
+        inheritsParentMapping: nextInheritsParentMapping,
+        originalEstimateHours:
+          "originalEstimateHours" in patch
+            ? normalizeEstimateValue(patch.originalEstimateHours)
+            : target.originalEstimateHours,
+        remainingEstimateHours:
+          "remainingEstimateHours" in patch
+            ? normalizeEstimateValue(patch.remainingEstimateHours)
+            : target.remainingEstimateHours,
+        completedEstimateHours:
+          "completedEstimateHours" in patch
+            ? normalizeEstimateValue(patch.completedEstimateHours)
+            : target.completedEstimateHours,
+      };
 
       return {
         ...state,
-        workItems: state.workItems.map((workItem) =>
-          workItem._id === workItemId
-            ? {
+        workItems: state.workItems.map((workItem) => {
+          if (workItem._id === workItemId) {
+            return nextTarget;
+          }
+
+          if (
+            workItem.parentWorkItemId === workItemId &&
+            (Object.prototype.hasOwnProperty.call(patch, "projectId") ||
+              Object.prototype.hasOwnProperty.call(patch, "taskId"))
+          ) {
+            const childInheritsParentMapping =
+              inferInheritedParentMapping(workItem, target) ?? false;
+            if (childInheritsParentMapping) {
+              return {
                 ...workItem,
-                ...patch,
-                title:
-                  typeof patch.title === "string"
-                    ? patch.title.trim()
-                    : workItem.title,
-                note:
-                  typeof patch.note === "string"
-                    ? patch.note.trim() || undefined
-                    : "note" in patch
-                      ? patch.note
-                      : workItem.note,
-                parentWorkItemId: nextParentWorkItemId,
-                parentSourceId: nextParentWorkItemId
-                  ? undefined
-                  : nextParentSourceId,
-                hierarchyLevel: nextIsSubtask ? 1 : 0,
-                priority: nextPriority,
-                originalEstimateHours:
-                  "originalEstimateHours" in patch
-                    ? normalizeEstimateValue(patch.originalEstimateHours)
-                    : workItem.originalEstimateHours,
-                remainingEstimateHours:
-                  "remainingEstimateHours" in patch
-                    ? normalizeEstimateValue(patch.remainingEstimateHours)
-                    : workItem.remainingEstimateHours,
-                completedEstimateHours:
-                  "completedEstimateHours" in patch
-                    ? normalizeEstimateValue(patch.completedEstimateHours)
-                    : workItem.completedEstimateHours,
-              }
-            : workItem,
-        ),
+                projectId: nextTarget.projectId,
+                taskId: nextTarget.taskId,
+                inheritsParentMapping: true,
+              };
+            }
+          }
+
+          return workItem;
+        }),
       };
     });
   },

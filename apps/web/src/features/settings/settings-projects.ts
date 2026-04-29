@@ -1,4 +1,8 @@
 import type ExcelJS from "exceljs";
+import {
+  durationHoursValueToMs,
+  durationMsToHoursValue,
+} from "@/features/projects/project-task-budget";
 import type { LocalProject } from "@/lib/local-store";
 import { formatTaskImportName } from "@/features/projects/project-task-import-utils";
 
@@ -11,6 +15,9 @@ export interface ProjectTransferRow {
   status: ProjectTransferStatus;
   task: string;
   taskStatus: ProjectTransferStatus | "";
+  billable: "billable" | "non_billable" | "";
+  budgetHours: number | "";
+  adjustmentHours: number | "";
 }
 
 interface ProjectTransferOptions {
@@ -19,7 +26,17 @@ interface ProjectTransferOptions {
 }
 
 const workbookMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const expectedImportHeaders = ["project", "code", "color", "status", "task", "task_status"] as const;
+const expectedImportHeaders = [
+  "project",
+  "code",
+  "color",
+  "status",
+  "task",
+  "task_status",
+  "billable",
+  "budget_hours",
+  "adjustment_hours",
+] as const;
 
 function toArrayBuffer(workbookBytes: ArrayBuffer | Uint8Array) {
   if (workbookBytes instanceof ArrayBuffer) {
@@ -39,6 +56,64 @@ function normalizeImportHeader(value: unknown) {
 
 function normalizeImportCell(value: unknown) {
   return formatTaskImportName(String(value ?? ""));
+}
+
+function normalizeHoursValue(
+  value: unknown,
+  options?: { allowBlank?: boolean },
+): number | "" {
+  if (value === null || value === undefined || value === "") {
+    return options?.allowBlank ? "" : 0;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("Duration hours must be a finite number.");
+    }
+
+    return value;
+  }
+
+  const normalized = normalizeImportCell(value).replace(",", ".");
+  if (!normalized) {
+    return options?.allowBlank ? "" : 0;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid duration hours "${normalized}".`);
+  }
+
+  return parsed;
+}
+
+function normalizeBillableValue(
+  value: unknown,
+  options?: { allowBlank?: boolean },
+): "billable" | "non_billable" | "" {
+  const normalized = normalizeImportCell(value).toLowerCase().replace(/\s+/g, "_");
+  if (!normalized) {
+    return options?.allowBlank ? "" : "billable";
+  }
+
+  if (
+    normalized === "billable" ||
+    normalized === "true" ||
+    normalized === "yes"
+  ) {
+    return "billable";
+  }
+
+  if (
+    normalized === "non_billable" ||
+    normalized === "non-billable" ||
+    normalized === "false" ||
+    normalized === "no"
+  ) {
+    return "non_billable";
+  }
+
+  throw new Error(`Invalid billable value "${normalized}". Expected billable or non_billable.`);
 }
 
 function normalizeStatus(
@@ -74,6 +149,9 @@ export function buildProjectTransferRows({
             status: project.status,
             task: "",
             taskStatus: "",
+            billable: "",
+            budgetHours: "",
+            adjustmentHours: "",
           },
         ];
       }
@@ -85,6 +163,9 @@ export function buildProjectTransferRows({
         status: project.status,
         task: task.name,
         taskStatus: task.status,
+        billable: task.billable === false ? "non_billable" : "billable",
+        budgetHours: durationMsToHoursValue(task.budgetMs) ?? "",
+        adjustmentHours: durationMsToHoursValue(task.adjustmentMs) ?? "",
       }));
     });
 }
@@ -102,6 +183,9 @@ export async function createProjectTransferWorkbook(options: ProjectTransferOpti
     { header: "status", key: "status", width: 14 },
     { header: "task", key: "task", width: 28 },
     { header: "task_status", key: "taskStatus", width: 16 },
+    { header: "billable", key: "billable", width: 16 },
+    { header: "budget_hours", key: "budgetHours", width: 16 },
+    { header: "adjustment_hours", key: "adjustmentHours", width: 18 },
   ];
 
   for (const row of rows) {
@@ -137,7 +221,9 @@ export async function parseProjectTransferWorkbook(
   const headerRow = sheet.getRow(1);
   const headers = expectedImportHeaders.map((_, index) => normalizeImportHeader(headerRow.getCell(index + 1).value));
   if (headers.join("|") !== expectedImportHeaders.join("|")) {
-    throw new Error("The Projects sheet must contain the columns project, code, color, status, task, and task_status.");
+    throw new Error(
+      "The Projects sheet must contain the columns project, code, color, status, task, task_status, billable, budget_hours, and adjustment_hours.",
+    );
   }
 
   const rows: ProjectTransferRow[] = [];
@@ -150,8 +236,20 @@ export async function parseProjectTransferWorkbook(
     const rawStatus = row.getCell(4).value;
     const task = normalizeImportCell(row.getCell(5).value);
     const rawTaskStatus = row.getCell(6).value;
+    const rawBillable = row.getCell(7).value;
+    const rawBudgetHours = row.getCell(8).value;
+    const rawAdjustmentHours = row.getCell(9).value;
 
-    const isBlankRow = !project && !code && !color && !normalizeImportCell(rawStatus) && !task && !normalizeImportCell(rawTaskStatus);
+    const isBlankRow =
+      !project &&
+      !code &&
+      !color &&
+      !normalizeImportCell(rawStatus) &&
+      !task &&
+      !normalizeImportCell(rawTaskStatus) &&
+      !normalizeImportCell(rawBillable) &&
+      rawBudgetHours === null &&
+      rawAdjustmentHours === null;
     if (isBlankRow) {
       continue;
     }
@@ -162,9 +260,16 @@ export async function parseProjectTransferWorkbook(
 
     const status = normalizeStatus(rawStatus, { fallback: "active" }) as ProjectTransferStatus;
     const taskStatus = normalizeStatus(rawTaskStatus, { allowBlank: true });
+    const billable = normalizeBillableValue(rawBillable, { allowBlank: true });
+    const budgetHours = normalizeHoursValue(rawBudgetHours, { allowBlank: true });
+    const adjustmentHours = normalizeHoursValue(rawAdjustmentHours, { allowBlank: true });
 
     if (!task && taskStatus) {
       throw new Error(`Row ${rowNumber} is invalid. Task status requires a task name.`);
+    }
+
+    if (!task && (billable !== "" || budgetHours !== "" || adjustmentHours !== "")) {
+      throw new Error(`Row ${rowNumber} is invalid. Billable, budget, or adjustment requires a task name.`);
     }
 
     rows.push({
@@ -174,6 +279,9 @@ export async function parseProjectTransferWorkbook(
       status,
       task,
       taskStatus,
+      billable,
+      budgetHours,
+      adjustmentHours,
     });
   }
 

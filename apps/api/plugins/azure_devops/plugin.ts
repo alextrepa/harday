@@ -1,4 +1,8 @@
-import { connectorFieldValuesSchema, type ConnectorFieldValues } from "../../../../packages/shared/src/connectors.ts";
+import {
+  connectorFieldValuesSchema,
+  connectorTaskIconDisplayModeSchema,
+  type ConnectorFieldValues,
+} from "../../../../packages/shared/src/connectors.ts";
 import {
   syncAzureDevOpsConnection,
   type AzureDevOpsConnectionInput,
@@ -47,6 +51,7 @@ function buildAzureConfig(values: ConnectorFieldValues, connection?: { id: strin
 }
 
 export async function validateConnection(config: ConnectorFieldValues) {
+  const parsed = connectorFieldValuesSchema.parse(config);
   const azureConfig = buildAzureConfig(config);
   const validation = await validateAzureDevOpsConnection(azureConfig);
 
@@ -55,6 +60,13 @@ export async function validateConnection(config: ConnectorFieldValues) {
     personalAccessToken: azureConfig.personalAccessToken,
     queryScope: azureConfig.queryScope,
   };
+
+  const taskIconDisplayMode = connectorTaskIconDisplayModeSchema.safeParse(
+    parsed.taskIconDisplayMode,
+  );
+  if (taskIconDisplayMode.success) {
+    normalizedConfig.taskIconDisplayMode = taskIconDisplayMode.data;
+  }
 
   if (azureConfig.priorityFieldName) {
     normalizedConfig.priorityFieldName = azureConfig.priorityFieldName;

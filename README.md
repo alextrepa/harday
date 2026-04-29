@@ -1,147 +1,191 @@
-# Time Tracker
+# TimeTracker
 
-A local-first time-tracking app for managing projects, running timers, and saving timesheet entries without a backend service.
+TimeTracker is a local-first time-tracking workspace with a web app, an Electron desktop shell, shared domain logic, and an optional local API for connector-driven imports.
 
-## What Works Today
+## What Exists Today
 
-- Create a local workspace and projects.
-- Start and stop a local timer.
-- Add and edit manual time entries.
-- Add local notes.
-- Manage backlog items and project tasks.
-- Package the Electron desktop app for local-first timer tracking.
+- local workspace onboarding
+- projects and tasks
+- start/stop timer flow
+- manual time entries and notes
+- backlog management
+- optional Outlook meeting import
+- desktop packaging for local use
 
-## Privacy Model
+## Privacy Boundary
 
-Time entries, timers, project metadata, and user preferences stay local in the current MVP.
-The app does not upload tracking data automatically.
+The default product direction is local-first:
+
+- timers, time entries, backlog items, and workspace metadata stay local
+- there is no automatic activity capture in the supported workflow
+- tracking data should not be uploaded without explicit user intent
+
+Read [docs/local-first-architecture.md](./docs/local-first-architecture.md) before changing sync or capture behavior.
 
 ## Requirements
 
 - Node.js 22+
 - Corepack
+- `just`
 
-This repo uses pnpm through Corepack. Use the root scripts rather than calling `pnpm` directly.
+This repo is meant to be driven through the root `Justfile`.
 
-## Install
+## Quick Start
 
-```sh
-corepack pnpm install
-```
-
-## Start The Web App
+Install dependencies:
 
 ```sh
-corepack pnpm dev:web
+just install
 ```
 
-Open the Vite URL from the terminal, usually:
+Start the web app:
+
+```sh
+just start
+```
+
+Open:
 
 ```text
-http://localhost:5173
+http://127.0.0.1:5173
 ```
 
-No `.env` file is required for the current local-first web workflow unless you want Outlook meeting import.
+To use a different port:
 
-To enable Outlook meeting import, register a Microsoft Entra single-page application and set:
+```sh
+just start --port 4173
+```
+
+## Common Commands
+
+List available commands:
+
+```sh
+just
+```
+
+Start the web app:
+
+```sh
+just start
+```
+
+Start the desktop app in development:
+
+```sh
+just desktop-start
+```
+
+Start the local API server:
+
+```sh
+just api-start
+```
+
+Run tests:
+
+```sh
+just test
+```
+
+Run type checks:
+
+```sh
+just typecheck
+```
+
+Build all workspace packages:
+
+```sh
+just build
+```
+
+Create desktop distributables:
+
+```sh
+just make --mac
+just make --windows
+just make
+```
+
+Clean local build output:
+
+```sh
+just clean --force
+```
+
+Remove dependencies and build output:
+
+```sh
+just clean-all --force
+```
+
+## Outlook Meeting Import
+
+Outlook import is optional. The local-first timer workflow does not require any environment variables.
+
+To enable Outlook meeting import in the web app, set:
 
 ```sh
 VITE_MICROSOFT_CLIENT_ID=your-app-client-id
 VITE_MICROSOFT_TENANT_ID=common
 ```
 
-For local development, add these SPA redirect URIs in the app registration:
+`VITE_MICROSOFT_TENANT_ID` is optional and defaults to `common`.
+
+For local development, add these SPA redirect URIs to the Microsoft Entra app registration:
 
 - `http://localhost:5173`
 - `http://127.0.0.1:5173`
 - `http://localhost:4173`
 - `http://127.0.0.1:4173`
 
-The app uses a browser-only Microsoft sign-in and requests `Calendars.ReadBasic` so it can import timed Outlook meetings into the local review queue.
+The browser client requests `Calendars.ReadBasic` and imports timed Outlook meetings into the local review flow.
 
-## Start The Desktop Timer
+## Runtime Surfaces
 
-The Electron app is timer-first and focused on local timers and projects.
+### Web app
 
-Run it in development:
+The main local-first UI lives in `apps/web`.
 
-```sh
-corepack pnpm dev:desktop
-```
+### Desktop app
 
-Build the desktop renderer assets:
+The Electron shell lives in `apps/desktop` and wraps the web renderer for desktop timer workflows.
 
-```sh
-corepack pnpm build:desktop
-```
-
-Run the built desktop wrapper:
+Useful commands:
 
 ```sh
-corepack pnpm start:desktop
+just desktop-start
+just desktop-build
+just desktop-package
+just desktop-make
 ```
 
-Package the desktop app for Windows on a Windows host:
+### Local API
 
-```sh
-corepack pnpm make:desktop:win
-```
-
-That command is wired to Electron Forge's Squirrel.Windows maker and emits an `x64` Windows installer `.exe`.
-Forge documentation recommends creating Windows distributables on Windows rather than from macOS or Linux hosts.
-
-The Electron shell serves the desktop renderer locally and opens it in a locked-down `BrowserWindow`. Desktop mode currently exposes:
-
-- local workspace onboarding
-- projects
-- manual time entries
-- start/stop timer flow
-
-## Basic App Flow
-
-1. Open the web or desktop app.
-2. Start a local workspace if prompted.
-3. Create or import projects and tasks.
-4. Start a timer or add a manual time entry for the day.
-5. Stop the timer when you are done.
-6. Edit the saved entry if needed.
-7. Review totals on the time page and adjust projects, tasks, or notes.
-
-## Local-Only Status
-
-This repo currently targets a local-only workflow.
-
-Do not introduce automatic activity collection or raw activity upload. Any future persistence changes should preserve the same privacy boundary: explicit user-approved records stay in control of the user.
+The optional local API lives in `apps/api` and defaults to `127.0.0.1:8787`. It supports connector configuration, sync, and local import review flows.
 
 ## Verification
 
-Run shared unit tests:
+The main verification path is:
 
 ```sh
-corepack pnpm test
+just test
+just typecheck
+just build
 ```
-
-Run TypeScript checks:
-
-```sh
-corepack pnpm typecheck
-```
-
-Run production builds:
-
-```sh
-corepack pnpm build
-```
-
-The root build creates the web app, the desktop renderer in `apps/web/dist-desktop`, the shared package, and the remaining extension assets in this repo.
 
 ## Repo Map
 
 ```text
-apps/web/          local-first React + TanStack Router app
-apps/extension/    browser extension sources retained in the repo
-packages/shared/   shared types, normalization, timeline aggregation, rules
-docs/              architecture notes
+apps/web/        React + Vite app for the main time-tracking UI
+apps/desktop/    Electron shell and packaging scripts
+apps/api/        local API for connectors and import flows
+packages/shared/ shared schemas, rules, and domain logic
+docs/            architecture and logging notes
 ```
 
-Read `docs/local-first-architecture.md` before changing sync behavior.
+## Related Docs
+
+- [docs/local-first-architecture.md](./docs/local-first-architecture.md)
+- [docs/logging-strategy.md](./docs/logging-strategy.md)

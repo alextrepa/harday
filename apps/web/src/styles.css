@@ -6148,7 +6148,15 @@
   }
 
   .page-container:has(> .backlog-page-stack) {
+    padding-bottom: 0;
     padding-top: 0;
+  }
+
+  .entries-table-scroll-shell-backlog {
+    --entries-table-scroll-height: calc(
+      var(--app-content-height) - var(--entries-table-header-height)
+    );
+    max-height: var(--app-content-height);
   }
 
   .harday-titlebar-date-trigger {
@@ -6506,6 +6514,15 @@
 
   .harday-section-sidebar {
     display: none;
+  }
+
+  .harday-project-layout[data-slot="sidebar-wrapper"] {
+    width: 100vw !important;
+    margin-left: 0 !important;
+  }
+
+  .harday-project-layout[data-slot="sidebar-wrapper"] .settings-content {
+    padding: 0;
   }
 
   .settings-content {

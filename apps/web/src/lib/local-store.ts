@@ -243,6 +243,7 @@ export interface LocalWorkItem {
   remainingEstimateHours?: number;
   completedEstimateHours?: number;
   estimateSync?: LocalWorkItemEstimateSyncState;
+  keepWhenMissingFromSync?: boolean;
   createdAt: number;
   archivedAt?: number;
 }
@@ -1228,6 +1229,7 @@ function createWorkItem(workItem: LocalWorkItemDraft): LocalWorkItem {
       workItem.completedEstimateHours,
     ),
     estimateSync: undefined,
+    keepWhenMissingFromSync: false,
     createdAt: Date.now(),
     archivedAt: undefined,
   };
@@ -1279,6 +1281,7 @@ function createConnectorWorkItem(
       workItem.completedEstimateHours,
     ),
     estimateSync: buildImportedEstimateSyncState(workItem),
+    keepWhenMissingFromSync: false,
     createdAt: workItem.pushedAt,
     archivedAt: undefined,
   };
@@ -1378,6 +1381,7 @@ function mergeConnectorWorkItem(
           }
         : existingWorkItem.estimateSync?.completedEstimateHours,
     },
+    keepWhenMissingFromSync: existingWorkItem.keepWhenMissingFromSync ?? false,
     status: "active",
     archivedAt: undefined,
   };
@@ -1423,6 +1427,7 @@ function normalizeWorkItem(workItem: PersistedLocalWorkItem): LocalWorkItem {
       workItem.completedEstimateHours,
     ),
     estimateSync: workItem.estimateSync,
+    keepWhenMissingFromSync: workItem.keepWhenMissingFromSync ?? false,
     createdAt: workItem.createdAt ?? Date.now(),
     archivedAt:
       workItem.archivedAt ??
@@ -3197,7 +3202,8 @@ export const localStore = {
             workItem.source === "manual" ||
             workItem.source === "outlook" ||
             workItem.sourceConnectionId !== archiveConnectionId ||
-            !sourceId
+            !sourceId ||
+            workItem.keepWhenMissingFromSync
           ) {
             return workItem;
           }

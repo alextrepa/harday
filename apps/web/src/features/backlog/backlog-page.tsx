@@ -124,6 +124,7 @@ type BacklogInlineEditorState = {
   remainingEstimateHours: string;
   completedEstimateHours: string;
   durationHours: string;
+  keepWhenMissingFromSync: boolean;
 };
 
 const EMPTY_BACKLOG_INLINE_EDITOR_STATE: BacklogInlineEditorState = {
@@ -139,6 +140,7 @@ const EMPTY_BACKLOG_INLINE_EDITOR_STATE: BacklogInlineEditorState = {
   remainingEstimateHours: "",
   completedEstimateHours: "",
   durationHours: "",
+  keepWhenMissingFromSync: false,
 };
 
 function buildBacklogInlineEditorState(
@@ -166,6 +168,7 @@ function buildBacklogInlineEditorState(
         ? String(workItem.completedEstimateHours)
         : "",
     durationHours: "",
+    keepWhenMissingFromSync: workItem.keepWhenMissingFromSync ?? false,
   };
 }
 
@@ -370,6 +373,8 @@ export function BacklogPage() {
   const [expandedCompletedEstimateHours, setExpandedCompletedEstimateHours] =
     useState("");
   const [expandedDurationHours, setExpandedDurationHours] = useState("");
+  const [expandedKeepWhenMissingFromSync, setExpandedKeepWhenMissingFromSync] =
+    useState(false);
   const [expandedNoteModalTarget, setExpandedNoteModalTarget] =
     useState<ExpandedNoteModalTarget | null>(null);
   const [standaloneNoteModalState, setStandaloneNoteModalState] =
@@ -937,6 +942,7 @@ export function BacklogPage() {
     setExpandedRemainingEstimateHours("");
     setExpandedCompletedEstimateHours("");
     setExpandedDurationHours("");
+    setExpandedKeepWhenMissingFromSync(false);
     setPendingArchiveWorkItemId(null);
     setPendingDeleteWorkItemId(null);
     resetSubtaskDraft();
@@ -1011,6 +1017,7 @@ export function BacklogPage() {
       originalEstimateHours,
       remainingEstimateHours,
       completedEstimateHours,
+      keepWhenMissingFromSync: expandedKeepWhenMissingFromSync,
     };
   }
 
@@ -1054,6 +1061,7 @@ export function BacklogPage() {
       backlogStatusId: expandedChildEditor.backlogStatusId || undefined,
       projectId: expandedChildEditor.projectId || undefined,
       taskId: expandedChildEditor.taskId || undefined,
+      keepWhenMissingFromSync: expandedChildEditor.keepWhenMissingFromSync,
       originalEstimateHours,
       remainingEstimateHours,
       completedEstimateHours,
@@ -1127,6 +1135,9 @@ export function BacklogPage() {
         : typeof workItem.completedEstimateHours === "number"
           ? String(workItem.completedEstimateHours)
           : "",
+    );
+    setExpandedKeepWhenMissingFromSync(
+      workItem.keepWhenMissingFromSync ?? false,
     );
     setExpandedDurationHours("");
     setPendingArchiveWorkItemId(null);
@@ -2130,6 +2141,9 @@ export function BacklogPage() {
     const editorCompletedEstimateHours = isEditingChildItem
       ? expandedChildEditor.completedEstimateHours
       : expandedCompletedEstimateHours;
+    const editorKeepWhenMissingFromSync = isEditingChildItem
+      ? expandedChildEditor.keepWhenMissingFromSync
+      : expandedKeepWhenMissingFromSync;
     const editorDurationHours = isEditingChildItem
       ? expandedChildEditor.durationHours
       : expandedDurationHours;
@@ -2391,6 +2405,17 @@ export function BacklogPage() {
         }
 
         setExpandedCompletedEstimateHours(value);
+      };
+      const setInlineKeepWhenMissingFromSync = (value: boolean) => {
+        if (isEditingChildItem) {
+          setExpandedChildEditor((current) => ({
+            ...current,
+            keepWhenMissingFromSync: value,
+          }));
+          return;
+        }
+
+        setExpandedKeepWhenMissingFromSync(value);
       };
       const resetInlineOriginalEstimate = () => {
         if (!childEstimateTotals) {
@@ -2804,6 +2829,30 @@ export function BacklogPage() {
                         </div>
                       ) : null}
                     </label>
+
+                    {workItem.source !== "manual" &&
+                    workItem.source !== "outlook" ? (
+                      <label className="connector-form-toggle backlog-sync-keep-toggle">
+                        <input
+                          type="checkbox"
+                          checked={editorKeepWhenMissingFromSync}
+                          onChange={(event) =>
+                            setInlineKeepWhenMissingFromSync(
+                              event.target.checked,
+                            )
+                          }
+                        />
+                        <span>
+                          <span className="connector-form-toggle-title">
+                            Keep when missing from sync
+                          </span>
+                          <span className="connector-form-toggle-description">
+                            Do not archive this item when it disappears from the
+                            synced source list.
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
 
                     <div className="backlog-field-estimates">
                       <label className="field backlog-field-estimate">

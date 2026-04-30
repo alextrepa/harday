@@ -203,6 +203,58 @@ describe("localStore backlog status sync", () => {
     });
   });
 
+  it("unarchives imported work items when they return during auto-sync reconciliation", async () => {
+    const { localStore } = await import("./local-store");
+
+    const candidate = buildImportCandidate();
+    localStore.importConnectorWorkItems([candidate]);
+    const importedItem = localStore.snapshot().workItems[0]!;
+
+    localStore.importConnectorWorkItems([], {
+      archiveMissingFromConnectionId: "ado-1",
+    });
+
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      _id: importedItem._id,
+      status: "archived",
+    });
+
+    const result = localStore.importConnectorWorkItems([candidate], {
+      archiveMissingFromConnectionId: "ado-1",
+    });
+
+    expect(result.updatedCount).toBe(1);
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      _id: importedItem._id,
+      status: "active",
+      archivedAt: undefined,
+    });
+  });
+
+  it("keeps opted-in imported work items during auto-sync reconciliation", async () => {
+    const { localStore } = await import("./local-store");
+
+    localStore.importConnectorWorkItems([buildImportCandidate()]);
+    const importedItem = localStore.snapshot().workItems[0]!;
+
+    expect(importedItem.keepWhenMissingFromSync).toBe(false);
+
+    localStore.updateWorkItem(importedItem._id, {
+      keepWhenMissingFromSync: true,
+    });
+
+    const result = localStore.importConnectorWorkItems([], {
+      archiveMissingFromConnectionId: "ado-1",
+    });
+
+    expect(result.archivedCount).toBe(0);
+    expect(localStore.snapshot().workItems[0]).toMatchObject({
+      _id: importedItem._id,
+      status: "active",
+      keepWhenMissingFromSync: true,
+    });
+  });
+
   it("initializes imported estimate fields from connector candidates", async () => {
     const { localStore } = await import("./local-store");
 

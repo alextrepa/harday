@@ -6187,6 +6187,12 @@
     max-height: var(--entries-table-scroll-height);
   }
 
+  .entries-table-scroll-shell-time,
+  .entries-table-scroll-shell-backlog {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
   .entries-table-scroll-shell-time .entries-table-scroll-area {
     min-height: 0;
     flex: 1 1 auto;

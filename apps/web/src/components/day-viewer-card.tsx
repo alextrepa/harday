@@ -99,16 +99,16 @@ export function DayViewerCard({
             <button
               type="button"
               className="day-viewer-arrow"
-              onClick={() => onSelectDate(addDaysIsoDate(date, -7))}
-              aria-label="Previous week"
+              onClick={() => onSelectDate(addDaysIsoDate(date, -1))}
+              aria-label="Previous day"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               type="button"
               className="day-viewer-arrow"
-              onClick={() => onSelectDate(addDaysIsoDate(date, 7))}
-              aria-label="Next week"
+              onClick={() => onSelectDate(addDaysIsoDate(date, 1))}
+              aria-label="Next day"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

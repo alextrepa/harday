@@ -6148,8 +6148,48 @@
   }
 
   .page-container:has(> .backlog-page-stack) {
+    height: 100%;
+    min-height: 0;
     padding-bottom: 0;
     padding-top: 0;
+  }
+
+  .page-container:has(> .time-page-stack) {
+    --time-page-top-inset: 0px;
+    height: 100%;
+    min-height: 0;
+    padding-bottom: 0;
+    padding-top: var(--time-page-top-inset);
+  }
+
+  .page-container:has(> .time-page-stack) .time-page-stack {
+    height: 100%;
+    margin-top: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .time-page-stack > .space-y-3 {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .entries-table-scroll-shell-time {
+    --entries-table-scroll-height: calc(
+      var(--app-content-height) - var(--time-page-top-inset)
+    );
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    max-height: var(--entries-table-scroll-height);
+  }
+
+  .entries-table-scroll-shell-time .entries-table-scroll-area {
+    min-height: 0;
+    flex: 1 1 auto;
   }
 
   .entries-table-scroll-shell-backlog {

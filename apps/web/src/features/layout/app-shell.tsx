@@ -10,6 +10,7 @@ import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   RiAddLine as Plus,
   RiArrowDownSLine as ChevronDown,
+  RiArrowGoBackLine as ReturnIcon,
   RiCheckLine as Check,
   RiCloseLine as X,
   RiFolderChartLine as FolderKanban,
@@ -931,7 +932,7 @@ export function AppShell() {
   return (
     <div
       className={cn(
-        "flex min-h-screen flex-col bg-background",
+        "flex h-dvh min-h-0 flex-col bg-background",
         isDesktopShell && "desktop-shell-app",
       )}
     >
@@ -1065,6 +1066,28 @@ export function AppShell() {
                 }
               }}
             />
+            {selectedTimeDate !== todayIsoDate() ? (
+              <button
+                type="button"
+                className={cn(
+                  "harday-nav-return-today",
+                  isDesktopShell && "desktop-no-drag",
+                )}
+                onClick={() => {
+                  const today = todayIsoDate();
+                  setSelectedTimeDate(today);
+                  if (isTimeActive) {
+                    void navigate({
+                      to: "/time/$date",
+                      params: { date: today },
+                    });
+                  }
+                }}
+                aria-label="Return to today"
+              >
+                <ReturnIcon className="h-2.5 w-2.5" />
+              </button>
+            ) : null}
           </div>
 
           <GlobalTimerBar selectedDate={selectedTimeDate} />

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   RiArrowLeftSLine as ChevronLeft,
   RiArrowRightSLine as ChevronRight,
+  RiArrowGoBackLine as ReturnIcon,
 } from "@remixicon/react";
 import { addDaysIsoDate, cn } from "@/lib/utils";
 
@@ -123,8 +124,9 @@ export function DayViewerCard({
                   type="button"
                   className="day-viewer-return-to-today"
                   onClick={() => onSelectDate(today)}
+                  aria-label="Return to today"
                 >
-                  Return to today
+                  <ReturnIcon className="h-2.5 w-2.5" />
                 </button>
               )}
             </span>

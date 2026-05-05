@@ -430,6 +430,21 @@
     outline-offset: 2px;
   }
 
+  .harday-nav-return-today {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+  }
+
+  .harday-nav-return-today:hover {
+    color: var(--text);
+  }
+
   .harday-titlebar-date-popover {
     width: auto;
     gap: 0;
@@ -3128,11 +3143,9 @@
   }
 
   .day-viewer-return-to-today {
+    display: flex;
+    align-items: center;
     color: var(--text-tertiary);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0;
-    line-height: 1;
     background: none;
     border: none;
     padding: 0;
@@ -6244,10 +6257,16 @@
     --entries-table-scroll-height: calc(
       var(--app-content-height) - var(--entries-table-header-height)
     );
+    height: var(--app-content-height);
+    flex: 1 1 auto;
     max-height: var(--app-content-height);
   }
 
   .harday-titlebar-date-trigger {
+    display: inline-flex;
+  }
+
+  .harday-nav-return-today {
     display: inline-flex;
   }
 
@@ -6257,6 +6276,46 @@
 
   .time-page-stack .entries-table-scroll-shell-time .entries-table-header-table {
     display: none;
+  }
+
+  /* Nav mobile layout - consolidated here from 640px */
+  .harday-nav {
+    height: 48px;
+    min-height: 48px;
+    padding: 0;
+  }
+
+  .harday-nav-inner {
+    padding: 0 1rem;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .harday-nav-menu-trigger {
+    display: none;
+  }
+
+  .desktop-shell-nav {
+    padding-top: 0;
+  }
+
+  .desktop-shell-nav-inner {
+    min-height: 40px;
+    padding-left: 5rem;
+    padding-right: 1rem;
+  }
+
+  .harday-nav-brand {
+    display: none;
+  }
+
+  .page-container {
+    padding: 1rem;
+  }
+
+  .page-container:has(> .settings-layout[data-slot="sidebar-wrapper"]) {
+    padding: 0;
   }
 }
 
@@ -6321,30 +6380,6 @@
 
   .connector-card-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 860px) and (min-width: 641px) {
-  .page-container {
-    padding: 1.25rem 1rem;
-  }
-
-  .page-container:has(> .settings-layout[data-slot="sidebar-wrapper"]) {
-    padding: 0;
-  }
-
-  .time-page-stack {
-    margin-top: calc(-1.25rem - 1px);
-  }
-
-  .desktop-shell-nav {
-    padding-top: 0;
-  }
-
-  .desktop-shell-nav-inner {
-    min-height: 48px;
-    padding-left: 5rem;
-    padding-right: 1rem;
   }
 }
 
@@ -6635,45 +6670,6 @@
   .import-review-item.is-child,
   .entry-edit-dropdown-child {
     margin-left: 0;
-  }
-
-  .desktop-shell-nav {
-    padding-top: 0;
-  }
-
-  .harday-nav {
-    height: 48px;
-    min-height: 48px;
-    padding: 0;
-  }
-
-  .harday-nav-inner {
-    padding: 0 1rem;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: flex-start;
-  }
-
-  .harday-nav-menu-trigger {
-    display: none;
-  }
-
-  .desktop-shell-nav-inner {
-    min-height: 40px;
-    padding-left: 5rem;
-    padding-right: 1rem;
-  }
-
-  .page-container {
-    padding: 1rem;
-  }
-
-  .time-page-stack {
-    margin-top: calc(-1rem - 1px);
-  }
-
-  .harday-nav-brand {
-    display: none;
   }
 
   .profile-bar {

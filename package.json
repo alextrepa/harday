@@ -1,6 +1,7 @@
 {
   "name": "timetracker",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@10.7.0",
   "scripts": {
     "build": "corepack pnpm -r build",

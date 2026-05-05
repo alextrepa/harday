@@ -116,7 +116,17 @@ export function DayViewerCard({
           <div className="day-viewer-date-text">
             <span className="day-viewer-date-kicker">
               <span className="day-viewer-weekday-label">{formatWeekdayLong(date)}</span>
-              {date === today ? <span className="day-viewer-today-muted">Today</span> : null}
+              {date === today ? (
+                <span className="day-viewer-today-muted">Today</span>
+              ) : (
+                <button
+                  type="button"
+                  className="day-viewer-return-to-today"
+                  onClick={() => onSelectDate(today)}
+                >
+                  Return to today
+                </button>
+              )}
             </span>
             <span className="day-viewer-date-big">{formatMonthDay(date).toUpperCase()}</span>
           </div>

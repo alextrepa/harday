@@ -3127,6 +3127,22 @@
     line-height: 1;
   }
 
+  .day-viewer-return-to-today {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .day-viewer-return-to-today:hover {
+    color: var(--text);
+  }
+
   .day-viewer-date-big {
     font-size: 38px;
     font-weight: 800;
@@ -3180,6 +3196,19 @@
 
   .day-viewer-day.is-selected {
     border-bottom-color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-name {
+    font-weight: 700;
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-number {
+    font-weight: 800;
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-hours {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .day-viewer-day-name {
@@ -3389,6 +3418,19 @@
 
   .day-viewer-day.is-selected {
     border-bottom-color: var(--sidebar-primary);
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-name {
+    font-weight: 700;
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-number {
+    font-weight: 800;
+  }
+
+  .day-viewer-day.is-today .day-viewer-day-hours {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .day-viewer-day-name {

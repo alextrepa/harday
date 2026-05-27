@@ -6,6 +6,10 @@ import { SubmitTimesheetModal } from "@/features/time/submit-timesheet-modal";
 import { TimerPanel } from "@/features/timer/timer-panel";
 import { TimeEntryModal } from "@/features/timer/time-entry-modal";
 import { useLocalState } from "@/lib/local-hooks";
+import {
+  getTimerContributionMs,
+  getTimerDurationsMs,
+} from "@/lib/timer-totals";
 import { getIsoWeekDates, todayIsoDate } from "@/lib/utils";
 
 function formatDuration(durationMs: number) {
@@ -50,8 +54,20 @@ export function TimePage({ date }: { date: string }) {
     }
 
     if (currentTimer && totals.has(currentTimer.localDate)) {
-      const runningDuration = currentTimer.accumulatedDurationMs + Math.max(0, now - currentTimer.startedAt);
-      totals.set(currentTimer.localDate, (totals.get(currentTimer.localDate) ?? 0) + runningDuration);
+      const { elapsedDurationMs, runningDurationMs } = getTimerDurationsMs(
+        currentTimer,
+        now,
+      );
+      const timerContribution = getTimerContributionMs({
+        timer: currentTimer,
+        timesheetEntries: state.timesheetEntries,
+        elapsedDurationMs,
+        runningDurationMs,
+      });
+      totals.set(
+        currentTimer.localDate,
+        (totals.get(currentTimer.localDate) ?? 0) + timerContribution,
+      );
     }
 
     return totals;

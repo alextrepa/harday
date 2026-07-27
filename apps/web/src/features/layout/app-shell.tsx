@@ -40,6 +40,10 @@ import { buildProjectTaskOptions } from "@/features/projects/project-task-option
 import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
 import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
 import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
+import {
+  getTimerContributionMs,
+  getTimerDurationsMs,
+} from "@/lib/timer-totals";
 import { isDesktopShell } from "@/lib/runtime";
 import { cn, getIsoWeekDates, todayIsoDate } from "@/lib/utils";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
@@ -727,10 +731,16 @@ function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
     return () => window.clearInterval(intervalId);
   }, [currentTimer]);
 
-  const runningDurationMs = currentTimer
-    ? currentTimer.accumulatedDurationMs +
-      Math.max(0, now - currentTimer.startedAt)
-    : 0;
+  const { elapsedDurationMs, runningDurationMs } = getTimerDurationsMs(
+    currentTimer,
+    now,
+  );
+  const timerContributionMs = getTimerContributionMs({
+    timer: currentTimer,
+    timesheetEntries: state.timesheetEntries,
+    elapsedDurationMs,
+    runningDurationMs,
+  });
 
   const todayTotalMs = useMemo(() => {
     let total = state.timesheetEntries
@@ -738,11 +748,11 @@ function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
       .reduce((sum, entry) => sum + entry.durationMs, 0);
 
     if (currentTimer && currentTimer.localDate === today) {
-      total += runningDurationMs;
+      total += timerContributionMs;
     }
 
     return total;
-  }, [state.timesheetEntries, today, currentTimer, runningDurationMs]);
+  }, [state.timesheetEntries, today, currentTimer, timerContributionMs]);
 
   const weekTotalMs = useMemo(() => {
     const weekDateSet = new Set(weekDates);
@@ -751,11 +761,11 @@ function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
       .reduce((sum, entry) => sum + entry.durationMs, 0);
 
     if (currentTimer && weekDateSet.has(currentTimer.localDate)) {
-      total += runningDurationMs;
+      total += timerContributionMs;
     }
 
     return total;
-  }, [currentTimer, runningDurationMs, state.timesheetEntries, weekDates]);
+  }, [currentTimer, state.timesheetEntries, timerContributionMs, weekDates]);
 
   const timerProject = currentTimer
     ? projects.find((p) => p._id === currentTimer.projectId)

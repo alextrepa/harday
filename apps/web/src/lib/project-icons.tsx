@@ -67,7 +67,21 @@ import {
   RiTerminalBoxLine as TerminalIcon,
   RiToolsLine as ToolsIcon,
 } from "@remixicon/react";
+import {
+  DEFAULT_PROJECT_ICON,
+  normalizeProjectIcon,
+  type LocalProjectIcon,
+  type ProjectIconName,
+} from "@/domain/projects/project-icon";
 import { cn } from "@/lib/utils";
+
+export {
+  DEFAULT_PROJECT_ICON,
+  isProjectIconName,
+  normalizeProjectIcon,
+  type LocalProjectIcon,
+  type ProjectIconName,
+} from "@/domain/projects/project-icon";
 
 function DotIcon({ className }: { className?: string }) {
   return (
@@ -147,74 +161,9 @@ export const PROJECT_ICON_PRESETS = [
   { name: "baseball", label: "Baseball", Icon: BaseballIcon },
 ] as const;
 
-export type ProjectIconName = (typeof PROJECT_ICON_PRESETS)[number]["name"];
-
-export type LocalProjectIcon =
-  | { kind: "preset"; name: ProjectIconName }
-  | {
-      kind: "upload";
-      src: string;
-      maskSrc?: string;
-      colorMode?: "tinted" | "native";
-    };
-
-export const DEFAULT_PROJECT_ICON: LocalProjectIcon = {
-  kind: "preset",
-  name: "dot",
-};
-
-const PROJECT_ICON_PRESET_SET = new Set<ProjectIconName>(
-  PROJECT_ICON_PRESETS.map((preset) => preset.name),
-);
-
 const PROJECT_ICON_COMPONENTS = Object.fromEntries(
   PROJECT_ICON_PRESETS.map((preset) => [preset.name, preset.Icon]),
 ) as Record<ProjectIconName, ComponentType<{ className?: string }>>;
-
-export function isProjectIconName(value: string): value is ProjectIconName {
-  return PROJECT_ICON_PRESET_SET.has(value as ProjectIconName);
-}
-
-export function normalizeProjectIcon(icon: unknown): LocalProjectIcon {
-  if (icon && typeof icon === "object") {
-    const kind =
-      "kind" in icon && typeof icon.kind === "string" ? icon.kind : undefined;
-
-    if (
-      kind === "preset" &&
-      "name" in icon &&
-      typeof icon.name === "string" &&
-      isProjectIconName(icon.name)
-    ) {
-      return { kind, name: icon.name };
-    }
-
-    if (
-      kind === "upload" &&
-      "src" in icon &&
-      typeof icon.src === "string" &&
-      icon.src.trim()
-    ) {
-      const colorMode =
-        "colorMode" in icon && icon.colorMode === "native" ? "native" : "tinted";
-      const maskSrc =
-        "maskSrc" in icon &&
-        typeof icon.maskSrc === "string" &&
-        icon.maskSrc.trim()
-          ? icon.maskSrc.trim()
-          : undefined;
-
-      return {
-        kind,
-        src: icon.src.trim(),
-        maskSrc,
-        colorMode,
-      };
-    }
-  }
-
-  return DEFAULT_PROJECT_ICON;
-}
 
 function loadImageFromObjectUrl(objectUrl: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {

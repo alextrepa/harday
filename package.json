@@ -17,7 +17,7 @@
     "dev:extension": "corepack pnpm --filter @timetracker/extension dev",
     "build:extension:firefox": "corepack pnpm --filter @timetracker/extension build:firefox",
     "start:desktop": "corepack pnpm --filter @timetracker/desktop start",
-    "test": "corepack pnpm --filter @timetracker/shared test",
+    "test": "corepack pnpm -r --if-present test",
     "typecheck": "corepack pnpm -r typecheck"
   },
   "devDependencies": {

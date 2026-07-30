@@ -1,6 +1,9 @@
 import type ExcelJS from "exceljs";
-import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
-import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import-utils";
+import type { LocalProject, LocalTimesheetEntry } from "@/domain/local-state";
+import {
+  formatTaskImportName,
+  normalizeTaskImportName,
+} from "@/domain/projects/task-import";
 
 export interface TimesheetExportRow {
   date: string;

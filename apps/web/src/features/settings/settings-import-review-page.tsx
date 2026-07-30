@@ -9,8 +9,10 @@ import {
   RiNodeTree as FolderTree,
   RiRefreshLine as RefreshCw,
 } from "@remixicon/react";
+import { AppPanel, MessagePanel } from "@/components/app-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   buildImportHierarchy,
   commitSelectedConnectorImportsToLocalStore,
@@ -22,10 +24,10 @@ import {
 import { useLocalWorkItems } from "@/lib/local-hooks";
 import {
   hasWorkItemEstimateSyncIssue,
-  localStore,
   type LocalWorkItem,
   type LocalWorkItemEstimateFieldKey,
-} from "@/lib/local-store";
+} from "@/domain/local-state";
+import { localStore } from "@/lib/local-store";
 import type { ConnectorImportCandidate, ConnectorsOverview } from "@timetracker/shared";
 import { cn } from "@/lib/utils";
 
@@ -210,7 +212,7 @@ export function SettingsImportReviewPage() {
         </p>
 
         {syncIssues.length > 0 ? (
-          <div className="settings-panel space-y-3">
+          <AppPanel className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge>{syncIssues.length} estimate issue{syncIssues.length === 1 ? "" : "s"}</Badge>
             </div>
@@ -264,10 +266,10 @@ export function SettingsImportReviewPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </AppPanel>
         ) : null}
 
-        <div className="settings-panel import-review-toolbar">
+        <AppPanel className="import-review-toolbar">
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{overview?.totalPendingImportCount ?? items.length} staged items</Badge>
             <Badge className="bg-muted">{selectedCount} selected</Badge>
@@ -337,17 +339,17 @@ export function SettingsImportReviewPage() {
               Sync Selected To Backlog
             </Button>
           </div>
-        </div>
+        </AppPanel>
 
-        {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
-        {error ? <div className="message-panel message-panel-warning">{error}</div> : null}
+        {statusMessage ? <MessagePanel>{statusMessage}</MessagePanel> : null}
+        {error ? <MessagePanel tone="warning">{error}</MessagePanel> : null}
 
         {isLoading ? (
-          <div className="message-panel">Loading staged imports…</div>
+          <MessagePanel>Loading staged imports…</MessagePanel>
         ) : connectionGroups.length === 0 ? (
-          <div className="message-panel">
+          <MessagePanel>
             No staged imports yet. Go to <Link to="/settings/connectors">Connectors</Link> and sync one of your connector connections first.
-          </div>
+          </MessagePanel>
         ) : (
           <div className="import-review-groups">
             {connectionGroups.map((group) => {
@@ -358,7 +360,7 @@ export function SettingsImportReviewPage() {
                 .map((item) => item.id);
 
               return (
-                <section key={group.connectionId} className="settings-panel import-review-panel">
+                <AppPanel key={group.connectionId} as="section" className="import-review-panel">
                   <div className="import-review-panel-header">
                     <div className="import-review-panel-title-wrap">
                       <div className="import-review-panel-kicker">{group.tenantLabel}</div>
@@ -414,12 +416,11 @@ export function SettingsImportReviewPage() {
                               !rootItem.selectable && "is-context-only",
                             )}
                           >
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={rootItem.selectable ? rootItem.selected : childItems.some((child) => child.selected)}
                               disabled={isMutating || !rootItem.selectable}
-                              onChange={(event) =>
-                                void toggleItems([rootItem.id], event.target.checked)
+                              onCheckedChange={(checked) =>
+                                void toggleItems([rootItem.id], checked)
                               }
                             />
                             <div className="import-review-item-main">
@@ -467,12 +468,11 @@ export function SettingsImportReviewPage() {
 
                                 return (
                                   <label key={childItem.id} className="import-review-item is-child">
-                                    <input
-                                      type="checkbox"
+                                    <Checkbox
                                       checked={childItem.selected}
                                       disabled={isMutating || !childItem.selectable}
-                                      onChange={(event) =>
-                                        void toggleItems([childItem.id], event.target.checked)
+                                      onCheckedChange={(checked) =>
+                                        void toggleItems([childItem.id], checked)
                                       }
                                     />
                                     <div className="import-review-item-main">
@@ -514,7 +514,7 @@ export function SettingsImportReviewPage() {
                       );
                     })}
                   </div>
-                </section>
+                </AppPanel>
               );
             })}
           </div>

@@ -11,6 +11,7 @@ set ignore-comments
 PNPM := "corepack pnpm"
 WEB_HOST := "127.0.0.1"
 WEB_PORT := "5173"
+ACCEPTANCE_WEB_PORT := "4173"
 
 #-----------------------------------------------------------------------------------------------------------------------
 # Common Recipes
@@ -84,6 +85,12 @@ install:
     echo >&2 "[2/2] Installing pnpm workspace dependencies"
     {{PNPM}} install
 
+[doc("Installs Chromium for executable Gherkin acceptance tests")]
+[group("setup")]
+acceptance-install:
+    echo >&2 "[1/1] Installing Playwright Chromium"
+    {{PNPM}} --filter @timetracker/web exec playwright install chromium
+
 #-----------------------------------------------------------------------------------------------------------------------
 # App Recipes
 #-----------------------------------------------------------------------------------------------------------------------
@@ -149,11 +156,21 @@ make *flags:
     if [ "$make_mac" -eq 1 ]; then echo >&2 "[mac] Creating the desktop app distributable"; {{PNPM}} make:desktop:mac; fi
     if [ "$make_windows" -eq 1 ]; then echo >&2 "[windows] Creating the desktop app distributable"; {{PNPM}} make:desktop:win; fi
 
-[doc("Runs shared package tests")]
+[doc("Runs all workspace tests")]
 [group("app")]
 test:
-    echo >&2 "[1/1] Running shared package tests"
+    echo >&2 "[1/1] Running workspace tests"
     {{PNPM}} test
+
+[doc("Runs executable Gherkin acceptance tests in Chromium")]
+[group("app")]
+acceptance-test:
+    echo >&2 "[1/1] Running web acceptance tests"
+    {{PNPM}} --filter @timetracker/web acceptance-test
+
+[private]
+acceptance-server:
+    {{PNPM}} --filter @timetracker/web dev --host {{WEB_HOST}} --port {{ACCEPTANCE_WEB_PORT}} --strictPort --mode test
 
 [doc("Runs TypeScript checks across the workspace")]
 [group("app")]

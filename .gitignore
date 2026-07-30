@@ -17,6 +17,7 @@ Thumbs.db
 coverage/
 playwright-report/
 test-results/
+apps/web/.features-gen/**/*.spec.js
 .playwright-cli/
 .playwright-mcp/
 .superpowers/

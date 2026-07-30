@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import type { LocalProject } from "@/lib/local-store";
-import { DEFAULT_PROJECT_ICON } from "@/lib/project-icons";
+import type { LocalProject } from "@/domain/local-state";
+import { DEFAULT_PROJECT_ICON } from "@/domain/projects/project-icon";
 import {
   buildProjectTransferRows,
   createProjectTransferWorkbook,

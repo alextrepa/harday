@@ -1,5 +1,5 @@
 import { syncConnectorConnection } from "@/lib/app-api";
-import type { LocalWorkItem } from "@/lib/local-store";
+import type { LocalWorkItem } from "@/domain/local-state";
 
 export function syncBacklogWorkItemToSource(workItem: LocalWorkItem) {
   if (workItem.source === "manual" || workItem.source === "outlook" || !workItem.sourceConnectionId) {

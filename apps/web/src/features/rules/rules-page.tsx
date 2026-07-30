@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ActivityBlockRecord, RuleRecord } from "@timetracker/shared";
+import { MessagePanel } from "@/components/app-surface";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,9 +29,9 @@ export function RulesPage() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="message-panel message-panel-warning">
+          <MessagePanel tone="warning">
             Privacy warning: rules are less private than drafts because they store reusable domain and path matchers. Do not save YouTube, banking, personal email, or other sensitive patterns.
-          </div>
+          </MessagePanel>
 
           <div className="grid gap-3 rounded-lg border border-[var(--border)] p-4">
             <div className="grid gap-3 md:grid-cols-2">

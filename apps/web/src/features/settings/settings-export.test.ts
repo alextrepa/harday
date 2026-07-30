@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
 import { inflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LocalProject, LocalTimesheetEntry } from "@/lib/local-store";
-import { DEFAULT_PROJECT_ICON } from "@/lib/project-icons";
+import type { LocalProject, LocalTimesheetEntry } from "@/domain/local-state";
+import { DEFAULT_PROJECT_ICON } from "@/domain/projects/project-icon";
 import {
   buildTimesheetExportRows,
   detectTimesheetImportConflicts,

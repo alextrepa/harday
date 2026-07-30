@@ -1,0 +1,520 @@
+import {
+  normalizeConnectorStatusKey,
+  type ConnectorImportCandidate,
+  type ConnectorSyncFieldUpdate,
+  type ConnectorSyncWorkItemUpdate,
+} from "@timetracker/shared";
+import type {
+  LocalAppState,
+  LocalWorkItem,
+  LocalWorkItemEstimateFieldKey,
+  LocalWorkItemEstimateFieldState,
+  LocalWorkItemEstimateSyncState,
+} from "@/domain/local-state";
+import { findMappedBacklogStatusId } from "@/domain/backlog/backlog-status";
+import {
+  createImportedEstimateSyncState,
+  normalizeWorkItemEstimateValue,
+} from "@/domain/backlog/work-item-estimates";
+import { normalizeWorkItemPriority } from "@/domain/backlog/work-item-transitions";
+
+export interface ConnectorWorkItemFactories {
+  createId: (prefix: string) => string;
+  now: () => number;
+}
+
+export interface ConnectorWorkItemImportResult {
+  importedCount: number;
+  updatedCount: number;
+  archivedCount: number;
+}
+
+function getWorkItemSourceKey(workItem: {
+  source: LocalWorkItem["source"];
+  sourceId: string;
+  sourceConnectionId?: string;
+  connectionId?: string;
+}) {
+  const connectionId =
+    workItem.sourceConnectionId ?? workItem.connectionId ?? "";
+  return `${workItem.source}:${connectionId}:${workItem.sourceId}`;
+}
+
+function createConnectorWorkItem(
+  workItem: ConnectorImportCandidate,
+  mappedBacklogStatusId: string | undefined,
+  createId: (prefix: string) => string,
+  existingId?: string,
+): LocalWorkItem {
+  const sourceStatusLabel = workItem.state?.trim() || undefined;
+  const sourceStatusKey = sourceStatusLabel
+    ? normalizeConnectorStatusKey(sourceStatusLabel)
+    : undefined;
+
+  return {
+    _id: existingId ?? createId("work_item"),
+    title: workItem.title.trim(),
+    status: "active",
+    source: workItem.source,
+    sourceId: workItem.sourceId,
+    sourceConnectionId: workItem.connectionId,
+    sourceConnectionLabel: workItem.connectionLabel,
+    sourceProjectName: workItem.projectName,
+    sourceWorkItemType: workItem.workItemType,
+    hierarchyLevel: workItem.depth,
+    parentSourceId: workItem.parentSourceId,
+    priority:
+      workItem.depth > 0
+        ? undefined
+        : normalizeWorkItemPriority(workItem.priority),
+    importedPriority:
+      workItem.depth > 0
+        ? undefined
+        : normalizeWorkItemPriority(workItem.priority),
+    backlogStatusId: mappedBacklogStatusId,
+    importedBacklogStatusId: mappedBacklogStatusId,
+    sourceStatusKey,
+    sourceStatusLabel,
+    projectId: undefined,
+    taskId: undefined,
+    note: workItem.note?.trim() || undefined,
+    originalEstimateHours: normalizeWorkItemEstimateValue(
+      workItem.originalEstimateHours,
+    ),
+    remainingEstimateHours: normalizeWorkItemEstimateValue(
+      workItem.remainingEstimateHours,
+    ),
+    completedEstimateHours: normalizeWorkItemEstimateValue(
+      workItem.completedEstimateHours,
+    ),
+    estimateSync: createImportedEstimateSyncState(workItem),
+    keepWhenMissingFromSync: false,
+    archivedByMissingSync: false,
+    createdAt: workItem.pushedAt,
+    archivedAt: undefined,
+  };
+}
+
+function mergeConnectorWorkItem(
+  existingWorkItem: LocalWorkItem,
+  importedWorkItem: ConnectorImportCandidate,
+  mappedBacklogStatusId: string | undefined,
+  createId: (prefix: string) => string,
+): LocalWorkItem {
+  const nextImportedState = createConnectorWorkItem(
+    importedWorkItem,
+    mappedBacklogStatusId,
+    createId,
+    existingWorkItem._id,
+  );
+  const followsImportedEstimate = (
+    fieldKey: LocalWorkItemEstimateFieldKey,
+  ) => {
+    const syncState = existingWorkItem.estimateSync?.[fieldKey];
+    if (!syncState) {
+      return true;
+    }
+    return (
+      existingWorkItem[fieldKey] ===
+      (syncState?.baselineValue ?? syncState?.remoteValue)
+    );
+  };
+  const followsImportedPriority =
+    existingWorkItem.priority === existingWorkItem.importedPriority;
+  const followsImportedBacklogStatus =
+    existingWorkItem.backlogStatusId ===
+    existingWorkItem.importedBacklogStatusId;
+  const followsImportedOriginalEstimate = followsImportedEstimate(
+    "originalEstimateHours",
+  );
+  const followsImportedRemainingEstimate = followsImportedEstimate(
+    "remainingEstimateHours",
+  );
+  const followsImportedCompletedEstimate = followsImportedEstimate(
+    "completedEstimateHours",
+  );
+  const mergeEstimateField = (
+    fieldKey: LocalWorkItemEstimateFieldKey,
+    followsImported: boolean,
+  ): LocalWorkItemEstimateFieldState | undefined => {
+    const current = existingWorkItem.estimateSync?.[fieldKey];
+    const imported = nextImportedState.estimateSync?.[fieldKey];
+    if (!imported) {
+      return followsImported
+        ? current
+          ? {
+              ...current,
+              baselineValue: undefined,
+              remoteValue: undefined,
+              resolution: undefined,
+              conflict: undefined,
+              error: undefined,
+            }
+          : undefined
+        : current;
+    }
+
+    return {
+      ...current,
+      remoteValue: imported.remoteValue,
+      baselineValue: followsImported
+        ? imported.baselineValue
+        : current?.baselineValue,
+      resolution: followsImported ? undefined : current?.resolution,
+      conflict: followsImported ? undefined : current?.conflict,
+      error: followsImported ? undefined : current?.error,
+    };
+  };
+  const nextIsSubtask = (nextImportedState.hierarchyLevel ?? 0) > 0;
+  const mergedEstimateSync: LocalWorkItemEstimateSyncState = {
+    originalEstimateHours: mergeEstimateField(
+      "originalEstimateHours",
+      followsImportedOriginalEstimate,
+    ),
+    remainingEstimateHours: mergeEstimateField(
+      "remainingEstimateHours",
+      followsImportedRemainingEstimate,
+    ),
+    completedEstimateHours: mergeEstimateField(
+      "completedEstimateHours",
+      followsImportedCompletedEstimate,
+    ),
+  };
+  const estimateSync = Object.values(mergedEstimateSync).some(Boolean)
+    ? mergedEstimateSync
+    : undefined;
+
+  return {
+    ...existingWorkItem,
+    title: nextImportedState.title,
+    note: existingWorkItem.note,
+    sourceId: nextImportedState.sourceId,
+    sourceConnectionId: nextImportedState.sourceConnectionId,
+    sourceConnectionLabel: nextImportedState.sourceConnectionLabel,
+    sourceProjectName: nextImportedState.sourceProjectName,
+    sourceWorkItemType: nextImportedState.sourceWorkItemType,
+    hierarchyLevel: nextImportedState.hierarchyLevel,
+    parentSourceId: nextImportedState.parentSourceId,
+    priority: nextIsSubtask
+      ? undefined
+      : followsImportedPriority
+        ? nextImportedState.importedPriority
+        : existingWorkItem.priority,
+    importedPriority: nextIsSubtask
+      ? undefined
+      : nextImportedState.importedPriority,
+    backlogStatusId: followsImportedBacklogStatus
+      ? nextImportedState.importedBacklogStatusId
+      : existingWorkItem.backlogStatusId,
+    importedBacklogStatusId: nextImportedState.importedBacklogStatusId,
+    sourceStatusKey: nextImportedState.sourceStatusKey,
+    sourceStatusLabel: nextImportedState.sourceStatusLabel,
+    originalEstimateHours: followsImportedOriginalEstimate
+      ? nextImportedState.originalEstimateHours
+      : existingWorkItem.originalEstimateHours,
+    remainingEstimateHours: followsImportedRemainingEstimate
+      ? nextImportedState.remainingEstimateHours
+      : existingWorkItem.remainingEstimateHours,
+    completedEstimateHours: followsImportedCompletedEstimate
+      ? nextImportedState.completedEstimateHours
+      : existingWorkItem.completedEstimateHours,
+    estimateSync,
+    keepWhenMissingFromSync: existingWorkItem.keepWhenMissingFromSync ?? false,
+    status: existingWorkItem.archivedByMissingSync
+      ? "active"
+      : existingWorkItem.status,
+    archivedAt: existingWorkItem.archivedByMissingSync
+      ? undefined
+      : existingWorkItem.archivedAt,
+    archivedByMissingSync: false,
+  };
+}
+
+export function importConnectorWorkItems(
+  state: LocalAppState,
+  workItems: ConnectorImportCandidate[],
+  options: { archiveMissingFromConnectionId?: string } | undefined,
+  factories: ConnectorWorkItemFactories,
+) {
+  const uniqueWorkItems = Array.from(
+    new Map(
+      workItems.map((workItem) => [
+        getWorkItemSourceKey(workItem),
+        workItem,
+      ] as const),
+    ).values(),
+  );
+  const result: ConnectorWorkItemImportResult = {
+    importedCount: 0,
+    updatedCount: 0,
+    archivedCount: 0,
+  };
+  const existingItemsByKey = new Map<string, LocalWorkItem>(
+    state.workItems
+      .filter(
+        (workItem): workItem is LocalWorkItem & { sourceId: string } =>
+          Boolean(workItem.sourceId),
+      )
+      .map((workItem) => [getWorkItemSourceKey(workItem), workItem] as const),
+  );
+  const importedKeysForConnection = new Set<string>();
+  const importedItems: LocalWorkItem[] = [];
+  let nextWorkItems = state.workItems;
+  let changedExistingItems = false;
+
+  for (const workItem of uniqueWorkItems) {
+    const key = getWorkItemSourceKey(workItem);
+    const mappedBacklogStatusId = workItem.state?.trim()
+      ? findMappedBacklogStatusId(
+          state.backlogStatusMappings,
+          workItem.source,
+          workItem.connectionId,
+          normalizeConnectorStatusKey(workItem.state),
+        )
+      : undefined;
+    const existingWorkItem = existingItemsByKey.get(key);
+    if (options?.archiveMissingFromConnectionId === workItem.connectionId) {
+      importedKeysForConnection.add(key);
+    }
+
+    if (existingWorkItem) {
+      const mergedWorkItem = mergeConnectorWorkItem(
+        existingWorkItem,
+        workItem,
+        mappedBacklogStatusId,
+        factories.createId,
+      );
+      if (
+        JSON.stringify(mergedWorkItem) === JSON.stringify(existingWorkItem)
+      ) {
+        continue;
+      }
+      if (!changedExistingItems) {
+        nextWorkItems = [...state.workItems];
+        changedExistingItems = true;
+      }
+
+      const existingIndex = nextWorkItems.findIndex(
+        (candidate) => candidate._id === existingWorkItem._id,
+      );
+      if (existingIndex >= 0) {
+        nextWorkItems[existingIndex] = mergedWorkItem;
+        existingItemsByKey.set(key, mergedWorkItem);
+      }
+
+      result.updatedCount += 1;
+      continue;
+    }
+
+    const importedItem = createConnectorWorkItem(
+      workItem,
+      mappedBacklogStatusId,
+      factories.createId,
+    );
+    existingItemsByKey.set(key, importedItem);
+    importedItems.push(importedItem);
+    result.importedCount += 1;
+  }
+
+  if (options?.archiveMissingFromConnectionId) {
+    const archiveConnectionId = options.archiveMissingFromConnectionId;
+    nextWorkItems = (
+      changedExistingItems ? nextWorkItems : [...state.workItems]
+    ).map((workItem) => {
+      const sourceId = workItem.sourceId;
+
+      if (
+        workItem.source === "manual" ||
+        workItem.source === "outlook" ||
+        workItem.sourceConnectionId !== archiveConnectionId ||
+        !sourceId ||
+        workItem.keepWhenMissingFromSync
+      ) {
+        return workItem;
+      }
+
+      if (
+        importedKeysForConnection.has(
+          getWorkItemSourceKey({
+            source: workItem.source,
+            sourceId,
+            sourceConnectionId: workItem.sourceConnectionId,
+          }),
+        ) ||
+        workItem.status === "archived"
+      ) {
+        return workItem;
+      }
+
+      result.archivedCount += 1;
+      changedExistingItems = true;
+      return {
+        ...workItem,
+        status: "archived" as const,
+        archivedAt: workItem.archivedAt ?? factories.now(),
+        archivedByMissingSync: true,
+      };
+    });
+  }
+
+  if (importedItems.length === 0 && !changedExistingItems) {
+    return { state, result };
+  }
+
+  return {
+    state: {
+      ...state,
+      workItems: [...importedItems, ...nextWorkItems],
+    },
+    result,
+  };
+}
+
+function applyConnectorFieldUpdateToWorkItem(
+  workItem: LocalWorkItem,
+  fieldKey: LocalWorkItemEstimateFieldKey,
+  update: ConnectorSyncFieldUpdate,
+  now: () => number,
+): LocalWorkItem {
+  const estimateSync: LocalWorkItemEstimateSyncState = {
+    ...workItem.estimateSync,
+  };
+  const currentFieldState = estimateSync[fieldKey];
+  const fieldState: LocalWorkItemEstimateFieldState = {
+    ...currentFieldState,
+  };
+
+  switch (update.status) {
+    case "pulled":
+      fieldState.baselineValue =
+        update.nextBaselineValue ?? update.remoteValue;
+      fieldState.remoteValue = update.remoteValue;
+      fieldState.resolution = undefined;
+      fieldState.conflict = undefined;
+      fieldState.error = undefined;
+      return {
+        ...workItem,
+        [fieldKey]: update.remoteValue,
+        estimateSync: {
+          ...estimateSync,
+          [fieldKey]: fieldState,
+        },
+      };
+    case "pushed":
+      fieldState.baselineValue =
+        update.nextBaselineValue ?? update.localValue;
+      fieldState.remoteValue = update.localValue;
+      fieldState.resolution = undefined;
+      fieldState.conflict = undefined;
+      fieldState.error = undefined;
+      return {
+        ...workItem,
+        estimateSync: {
+          ...estimateSync,
+          [fieldKey]: fieldState,
+        },
+      };
+    case "noop":
+      fieldState.baselineValue =
+        update.nextBaselineValue ?? update.localValue;
+      fieldState.remoteValue = update.remoteValue;
+      fieldState.resolution = undefined;
+      fieldState.conflict = undefined;
+      fieldState.error = undefined;
+      return {
+        ...workItem,
+        estimateSync: {
+          ...estimateSync,
+          [fieldKey]: fieldState,
+        },
+      };
+    case "conflict":
+      fieldState.remoteValue = update.remoteValue;
+      fieldState.conflict = {
+        detectedAt: now(),
+        localValue: update.localValue ?? workItem[fieldKey],
+        remoteValue: update.remoteValue,
+        baselineValue: update.baselineValue ?? currentFieldState?.baselineValue,
+      };
+      fieldState.error = undefined;
+      return {
+        ...workItem,
+        estimateSync: {
+          ...estimateSync,
+          [fieldKey]: fieldState,
+        },
+      };
+    case "error":
+      fieldState.error = {
+        detectedAt: now(),
+        message: update.message ?? "Sync failed.",
+      };
+      return {
+        ...workItem,
+        estimateSync: {
+          ...estimateSync,
+          [fieldKey]: fieldState,
+        },
+      };
+  }
+}
+
+export function applyConnectorSyncWorkItemUpdates(
+  state: LocalAppState,
+  updates: ConnectorSyncWorkItemUpdate[],
+  now: () => number,
+): LocalAppState {
+  if (updates.length === 0) {
+    return state;
+  }
+
+  const updatesByWorkItemId = new Map<string, ConnectorSyncWorkItemUpdate[]>();
+  for (const update of updates) {
+    const current = updatesByWorkItemId.get(update.localWorkItemId) ?? [];
+    current.push(update);
+    updatesByWorkItemId.set(update.localWorkItemId, current);
+  }
+
+  return {
+    ...state,
+    workItems: state.workItems.map((workItem) => {
+      const workItemUpdates = updatesByWorkItemId.get(workItem._id);
+      if (!workItemUpdates) {
+        return workItem;
+      }
+
+      let nextWorkItem = workItem;
+      for (const update of workItemUpdates) {
+        if (update.sourceId !== workItem.sourceId) {
+          continue;
+        }
+        if (update.fields.originalEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "originalEstimateHours",
+            update.fields.originalEstimateHours,
+            now,
+          );
+        }
+        if (update.fields.remainingEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "remainingEstimateHours",
+            update.fields.remainingEstimateHours,
+            now,
+          );
+        }
+        if (update.fields.completedEstimateHours) {
+          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
+            nextWorkItem,
+            "completedEstimateHours",
+            update.fields.completedEstimateHours,
+            now,
+          );
+        }
+      }
+
+      return nextWorkItem;
+    }),
+  };
+}

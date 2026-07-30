@@ -37,9 +37,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
-import { normalizeHoursInput, parseHoursInput } from "@/features/timer/hours-input";
+import {
+  formatClockDuration,
+  normalizeHoursInput,
+  parseHoursInput,
+} from "@/domain/time/duration";
+import { getLocalProjectDisplayName } from "@/domain/local-state";
 import { getConnectorsOverview, syncConnectorConnection } from "@/lib/app-api";
-import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
+import { localStore } from "@/lib/local-store";
 import {
   getTimerContributionMs,
   getTimerDurationsMs,
@@ -76,13 +81,6 @@ function isNavItemActive(
   }
 
   return pathname === to;
-}
-
-function formatDurationShort(durationMs: number) {
-  const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
 function dateAtNoon(localDate: string) {
@@ -567,7 +565,7 @@ function QuickTimerPopup({
       <div className="quick-timer-popup-header">
         <span className="quick-timer-popup-title">Running timer</span>
         <span className="quick-timer-popup-duration">
-          {formatDurationShort(runningDurationMs)}
+          {formatClockDuration(runningDurationMs)}
         </span>
       </div>
 
@@ -686,13 +684,13 @@ function DayTotalsPopup({
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Week total</span>
         <span className="day-totals-popup-value">
-          {formatDurationShort(weekTotalMs)}
+          {formatClockDuration(weekTotalMs)}
         </span>
       </div>
       <div className="day-totals-popup-row">
         <span className="day-totals-popup-label">Day total</span>
         <span className="day-totals-popup-value">
-          {formatDurationShort(dayTotalMs)}
+          {formatClockDuration(dayTotalMs)}
         </span>
       </div>
     </div>
@@ -825,7 +823,7 @@ function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
           >
             <span className="status-dot status-dot-pulse" />
             <span className="stat-pill-value">
-              {formatDurationShort(runningDurationMs)}
+              {formatClockDuration(runningDurationMs)}
             </span>
           </div>
           {popupOpen ? (
@@ -871,7 +869,7 @@ function GlobalTimerBar({ selectedDate }: { selectedDate: string }) {
         >
           <span className="stat-pill-label">Today</span>
           <span className="stat-pill-value">
-            {formatDurationShort(todayTotalMs)}
+                {formatClockDuration(todayTotalMs)}
           </span>
         </button>
 

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getDirectChildWorkItems } from "./work-item-hierarchy";
+import {
+  assertValidParentWorkItem,
+  getDirectChildWorkItems,
+  inferInheritedParentMapping,
+} from "./work-item-hierarchy";
 
 function installMockWindow() {
   const storage = new Map<string, string>();
@@ -77,5 +81,64 @@ describe("work item hierarchy", () => {
         parentWorkItemId: importedParent!._id,
       }),
     ]);
+  });
+
+  it("rejects nesting a task that already owns subtasks", () => {
+    const root = {
+      _id: "root",
+      title: "Root",
+      status: "active" as const,
+      source: "manual" as const,
+      createdAt: 1,
+    };
+    const child = {
+      ...root,
+      _id: "child",
+      title: "Child",
+      parentWorkItemId: "root",
+      hierarchyLevel: 1 as const,
+    };
+    const otherRoot = {
+      ...root,
+      _id: "other-root",
+      title: "Other root",
+    };
+
+    expect(() =>
+      assertValidParentWorkItem(
+        [root, child, otherRoot],
+        "root",
+        "other-root",
+      ),
+    ).toThrow("Tasks with subtasks cannot be nested.");
+  });
+
+  it("infers inherited mapping only when a subtask follows its parent", () => {
+    expect(
+      inferInheritedParentMapping(
+        {
+          parentWorkItemId: "parent",
+          projectId: "project-1",
+          taskId: "task-1",
+        },
+        {
+          projectId: "project-1",
+          taskId: "task-1",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      inferInheritedParentMapping(
+        {
+          parentWorkItemId: "parent",
+          projectId: "project-2",
+          taskId: "task-2",
+        },
+        {
+          projectId: "project-1",
+          taskId: "task-1",
+        },
+      ),
+    ).toBe(false);
   });
 });

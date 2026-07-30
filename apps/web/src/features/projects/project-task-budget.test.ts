@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   formatProjectTaskConsumedBadge,
   getProjectTaskConsumedTone,
+  durationHoursValueToMs,
+  normalizeProjectTaskBudgetMs,
   parseSignedHoursInput,
-} from "./project-task-budget";
+} from "@/domain/projects/task-budget";
 
 describe("formatProjectTaskConsumedBadge", () => {
   it("shows budget and tracked plus adjustment when a budget exists", () => {
@@ -80,5 +82,12 @@ describe("parseSignedHoursInput", () => {
     expect(parseSignedHoursInput("1.5")).toBe(90 * 60 * 1000);
     expect(parseSignedHoursInput("-1.5")).toBe(-90 * 60 * 1000);
     expect(parseSignedHoursInput("-1:15")).toBe(-75 * 60 * 1000);
+  });
+});
+
+describe("task budget normalization", () => {
+  it("drops values that round to zero or overflow milliseconds", () => {
+    expect(normalizeProjectTaskBudgetMs(0.4)).toBeUndefined();
+    expect(durationHoursValueToMs(1e308)).toBeUndefined();
   });
 });

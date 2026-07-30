@@ -1,11 +1,14 @@
 import type ExcelJS from "exceljs";
-import { formatTaskImportName, normalizeTaskImportName } from "@/features/projects/project-task-import-utils";
+import {
+  formatTaskImportName,
+  normalizeTaskImportName,
+} from "@/domain/projects/task-import";
 
 export {
   formatTaskImportName,
   normalizeTaskImportName,
   type ProjectTaskImportResult,
-} from "@/features/projects/project-task-import-utils";
+} from "@/domain/projects/task-import";
 
 const taskImportColumnIndex = 2;
 const taskImportHeader = "nom personnalise de la tache";

@@ -4,6 +4,7 @@ import {
   RiFileExcel2Line as FileSpreadsheet,
   RiUploadLine as Upload,
 } from "@remixicon/react";
+import { AppPanel, MessagePanel, SurfaceCallout } from "@/components/app-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,20 +143,12 @@ export function SettingsExportPage() {
           them to your local timesheet.
         </p>
 
-        <div className="settings-panel">
-          <div className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-low)] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-foreground">
-              <FileSpreadsheet className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Excel workbook export</p>
-              <p className="text-sm text-foreground/65">
-                {state.timesheetEntries.length === 0
-                  ? "No committed time logs are available yet."
-                  : `Committed logs available from ${availableRange.startDate} to ${availableRange.endDate}.`}
-              </p>
-            </div>
-          </div>
+        <AppPanel>
+          <SurfaceCallout icon={FileSpreadsheet} title="Excel workbook export">
+            {state.timesheetEntries.length === 0
+              ? "No committed time logs are available yet."
+              : `Committed logs available from ${availableRange.startDate} to ${availableRange.endDate}.`}
+          </SurfaceCallout>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -180,9 +173,9 @@ export function SettingsExportPage() {
           </div>
 
           {hasInvalidRange ? (
-            <div className="message-panel message-panel-warning">
+            <MessagePanel tone="warning">
               The start day must be on or before the end day.
-            </div>
+            </MessagePanel>
           ) : (
             <div className="flex flex-col gap-1 text-sm text-foreground/70">
               <p>
@@ -203,20 +196,12 @@ export function SettingsExportPage() {
               Export to Excel
             </Button>
           </div>
-        </div>
+        </AppPanel>
 
-        <div className="settings-panel">
-          <div className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-low)] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-foreground">
-              <Upload className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Excel workbook import</p>
-              <p className="text-sm text-foreground/65">
-                Upload the exported workbook format and review every row before it is added locally.
-              </p>
-            </div>
-          </div>
+        <AppPanel>
+          <SurfaceCallout icon={Upload} title="Excel workbook import">
+            Upload the exported workbook format and review every row before it is added locally.
+          </SurfaceCallout>
 
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
             <div className="space-y-2">
@@ -233,8 +218,8 @@ export function SettingsExportPage() {
             </Button>
           </div>
 
-          {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
-          {error ? <div className="message-panel message-panel-warning">{error}</div> : null}
+          {statusMessage ? <MessagePanel>{statusMessage}</MessagePanel> : null}
+          {error ? <MessagePanel tone="warning">{error}</MessagePanel> : null}
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-foreground/70">
             <Badge className="bg-muted">{pendingImportCount} pending</Badge>
@@ -245,9 +230,9 @@ export function SettingsExportPage() {
           </div>
 
           {pendingImportCount === 0 ? (
-            <div className="message-panel">
+            <MessagePanel>
               No staged workbook rows yet. Upload a workbook and review it before importing.
-            </div>
+            </MessagePanel>
           ) : (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -301,7 +286,7 @@ export function SettingsExportPage() {
               </div>
             </div>
           )}
-        </div>
+        </AppPanel>
       </section>
     </div>
   );

@@ -20,8 +20,10 @@ import {
   RiSaveLine as Save,
 } from "@remixicon/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { MessagePanel } from "@/components/app-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
   CommandDialog,
@@ -68,29 +70,43 @@ import {
   getProjectTaskConsumedTone,
   parseSignedHoursInput,
   type ProjectTaskConsumedTone,
-} from "@/features/projects/project-task-budget";
+} from "@/domain/projects/task-budget";
 import {
   getProjectTaskBillableValueLabel,
   isProjectTaskBillable,
 } from "@/features/projects/project-task-options";
-import type { ProjectTaskImportResult } from "@/features/projects/project-task-import-utils";
-import { formatDurationHoursInput, parseHoursInput } from "@/features/timer/hours-input";
-import { useCurrentTeam } from "@/lib/session";
-import { useLocalState } from "@/lib/local-hooks";
-import {
-  getLocalProjectDisplayName,
-  localStore,
-  type LocalProject,
-  type LocalProjectTask,
-} from "@/lib/local-store";
-import { shouldStartSharedTableDrag } from "@/lib/table-drag";
+import type { ProjectTaskImportResult } from "@/domain/projects/task-import";
 import {
   DEFAULT_PROJECT_ICON,
+  type LocalProjectIcon,
+  type ProjectIconName,
+} from "@/domain/projects/project-icon";
+import {
+  formatClockDuration,
+  formatDurationHoursInput,
+  parseHoursInput,
+} from "@/domain/time/duration";
+import {
+  getLocalProjectDisplayName,
+  type LocalProject,
+  type LocalProjectTask,
+} from "@/domain/local-state";
+import { useCurrentTeam } from "@/lib/session";
+import { useLocalState } from "@/lib/local-hooks";
+import { localStore } from "@/lib/local-store";
+import {
+  createSharedTableDragPointerSession,
+  getSharedTableDragOverlayTransform,
+  getSharedTableDragRowShift,
+  getSharedTableDragTargetIndex,
+  setSharedTableDragDocumentState,
+  SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS,
+  type SharedTableDragPointerSession,
+} from "@/lib/table-drag";
+import {
   PROJECT_ICON_PRESETS,
   prepareUploadedProjectIcon,
   ProjectIcon,
-  type LocalProjectIcon,
-  type ProjectIconName,
 } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
 
@@ -170,12 +186,6 @@ type TaskDragState = {
   height: number;
 };
 
-type PendingTaskPointerSession = {
-  pointerId: number;
-  timeoutId: number;
-  removeListeners: () => void;
-};
-
 type ProjectDragState = {
   projectId: string;
   pointerId: number;
@@ -190,19 +200,6 @@ type ProjectDragState = {
   width: number;
   height: number;
 };
-
-type PendingProjectPointerSession = {
-  pointerId: number;
-  timeoutId: number;
-  removeListeners: () => void;
-};
-
-function formatTrackedDuration(durationMs: number) {
-  const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
 
 function hoursLabel(durationMs: number) {
   return `${new Intl.NumberFormat("en-CA", {
@@ -257,33 +254,6 @@ function isTaskDragBlockedTarget(target: EventTarget | null) {
     : false;
 }
 
-function getTaskDragTargetIndex(
-  taskIds: string[],
-  sourceTaskId: string,
-  pointerY: number,
-  rowRefs: Map<string, HTMLTableRowElement>,
-) {
-  let nextIndex = 0;
-
-  for (const taskId of taskIds) {
-    if (taskId === sourceTaskId) {
-      continue;
-    }
-
-    const row = rowRefs.get(taskId);
-    if (!row) {
-      continue;
-    }
-
-    const rect = row.getBoundingClientRect();
-    if (pointerY >= rect.top + rect.height / 2) {
-      nextIndex += 1;
-    }
-  }
-
-  return nextIndex;
-}
-
 function isProjectDragBlockedTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
     ? Boolean(
@@ -292,33 +262,6 @@ function isProjectDragBlockedTarget(target: EventTarget | null) {
         ),
       )
     : false;
-}
-
-function getProjectDragTargetIndex(
-  projectIds: string[],
-  sourceProjectId: string,
-  pointerY: number,
-  rowRefs: Map<string, HTMLLIElement>,
-) {
-  let nextIndex = 0;
-
-  for (const projectId of projectIds) {
-    if (projectId === sourceProjectId) {
-      continue;
-    }
-
-    const row = rowRefs.get(projectId);
-    if (!row) {
-      continue;
-    }
-
-    const rect = row.getBoundingClientRect();
-    if (pointerY >= rect.top + rect.height / 2) {
-      nextIndex += 1;
-    }
-  }
-
-  return nextIndex;
 }
 
 function moveId(ids: string[], fromIndex: number, toIndex: number) {
@@ -899,7 +842,9 @@ function ProjectDetail({
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const taskRowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const taskEditDropdownRef = useRef<HTMLDivElement | null>(null);
-  const taskPointerSessionRef = useRef<PendingTaskPointerSession | null>(null);
+  const taskPointerSessionRef = useRef<SharedTableDragPointerSession | null>(
+    null,
+  );
   const taskDragStateRef = useRef<TaskDragState | null>(null);
   const suppressTaskClickUntilRef = useRef(0);
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -1014,15 +959,12 @@ function ProjectDetail({
       return;
     }
 
-    window.clearTimeout(session.timeoutId);
-    session.removeListeners();
+    session.dispose();
     taskPointerSessionRef.current = null;
   }, []);
 
   const resetTaskDragVisuals = useCallback(() => {
-    document.body.classList.remove("project-task-drag-active");
-    document.body.style.removeProperty("cursor");
-    document.body.style.removeProperty("user-select");
+    setSharedTableDragDocumentState(false, "project-task-drag-active");
   }, []);
 
   const finishTaskDrag = useCallback(
@@ -1042,7 +984,8 @@ function ProjectDetail({
         );
       }
 
-      suppressTaskClickUntilRef.current = performance.now() + 250;
+      suppressTaskClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       taskDragStateRef.current = null;
       setTaskDragState(null);
       setPressedTaskId(null);
@@ -1235,13 +1178,7 @@ function ProjectDetail({
     setPressedTaskId(taskId);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    let latestPointerX = clientX;
-    let latestPointerY = clientY;
-
-    const startDrag = (
-      pointerX = latestPointerX,
-      pointerY = latestPointerY,
-    ) => {
+    const startDrag = (pointerX: number, pointerY: number) => {
       const row = taskRowRefs.current.get(taskId);
       if (!row) {
         setPressedTaskId(null);
@@ -1252,13 +1189,12 @@ function ProjectDetail({
       const firstRowRect = taskRowRefs.current
         .get(activeTaskIds[0] ?? taskId)
         ?.getBoundingClientRect();
-      document.body.classList.add("project-task-drag-active");
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-      suppressTaskClickUntilRef.current = performance.now() + 250;
+      setSharedTableDragDocumentState(true, "project-task-drag-active");
+      suppressTaskClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       setPressedTaskId(null);
       setPendingArchiveTaskId(null);
-      setTaskDragState({
+      const nextDragState: TaskDragState = {
         taskId,
         pointerId,
         originIndex: sourceIndex,
@@ -1271,87 +1207,49 @@ function ProjectDetail({
         minTop: firstRowRect?.top ?? rect.top,
         width: rect.width,
         height: rect.height,
-      });
+      };
+      taskDragStateRef.current = nextDragState;
+      setTaskDragState(nextDragState);
     };
 
-    const handlePointerMove = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
-      const currentDrag = taskDragStateRef.current;
-      if (currentDrag?.pointerId === pointerId) {
-        pointerEvent.preventDefault();
-        setTaskDragState((current) =>
-          current
-            ? {
-                ...current,
-                pointerX: pointerEvent.clientX,
-                pointerY: pointerEvent.clientY,
-                targetIndex: getTaskDragTargetIndex(
-                  activeTaskIds,
-                  current.taskId,
-                  pointerEvent.clientY,
-                  taskRowRefs.current,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      latestPointerX = pointerEvent.clientX;
-      latestPointerY = pointerEvent.clientY;
-
-      if (
-        shouldStartSharedTableDrag({
-          pointerType,
-          originX: clientX,
-          originY: clientY,
-          currentX: pointerEvent.clientX,
-          currentY: pointerEvent.clientY,
-        })
-      ) {
-        const session = taskPointerSessionRef.current;
-        if (session?.pointerId === pointerId) {
-          window.clearTimeout(session.timeoutId);
+    taskPointerSessionRef.current = createSharedTableDragPointerSession({
+      pointerId,
+      pointerType,
+      originX: clientX,
+      originY: clientY,
+      isDragging: () => taskDragStateRef.current?.pointerId === pointerId,
+      onStart: (pointer) => {
+        startDrag(pointer.clientX, pointer.clientY);
+      },
+      onMove: (pointer) => {
+        const current = taskDragStateRef.current;
+        if (!current) {
+          return;
         }
 
-        pointerEvent.preventDefault();
-        startDrag(pointerEvent.clientX, pointerEvent.clientY);
-      }
-    };
-
-    const handlePointerEnd = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
-      const wasDragging = taskDragStateRef.current?.pointerId === pointerId;
-      clearTaskPointerSession();
-
-      if (wasDragging) {
-        pointerEvent.preventDefault();
-        finishTaskDrag(pointerEvent.type !== "pointercancel");
-        return;
-      }
-
-      setPressedTaskId(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-
-    taskPointerSessionRef.current = {
-      pointerId,
-      timeoutId: 0,
-      removeListeners: () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerEnd);
-        window.removeEventListener("pointercancel", handlePointerEnd);
+        const nextDragState: TaskDragState = {
+          ...current,
+          pointerX: pointer.clientX,
+          pointerY: pointer.clientY,
+          targetIndex: getSharedTableDragTargetIndex(
+            activeTaskIds,
+            current.taskId,
+            pointer.clientY,
+            taskRowRefs.current,
+          ),
+        };
+        taskDragStateRef.current = nextDragState;
+        setTaskDragState(nextDragState);
       },
-    };
+      onEnd: (shouldCommit) => {
+        taskPointerSessionRef.current = null;
+        finishTaskDrag(shouldCommit);
+      },
+      onPressEnd: () => {
+        taskPointerSessionRef.current = null;
+        setPressedTaskId(null);
+      },
+    });
   }
 
   return (
@@ -1449,22 +1347,22 @@ function ProjectDetail({
       </div>
 
       {isArchived ? (
-        <div className="message-panel border border-[var(--border)] bg-muted/60 text-foreground">
+        <MessagePanel className="border border-[var(--border)] bg-muted/60 text-foreground">
           This project is archived. You can consult it here, but project and
           task changes are disabled until you restore it.
-        </div>
+        </MessagePanel>
       ) : null}
 
       {/* Import messages */}
       {importMessage ? (
-        <div className="message-panel border border-[var(--success-muted)] bg-[var(--success-muted)] text-foreground">
+        <MessagePanel className="border border-[var(--success-muted)] bg-[var(--success-muted)] text-foreground">
           {importMessage}
-        </div>
+        </MessagePanel>
       ) : null}
       {importError ? (
-        <div className="message-panel message-panel-warning border border-[var(--danger-muted)] text-foreground">
+        <MessagePanel tone="warning" className="border border-[var(--danger-muted)] text-foreground">
           {importError}
-        </div>
+        </MessagePanel>
       ) : null}
 
       {/* Active tasks table */}
@@ -1697,17 +1595,12 @@ function ProjectDetail({
                     };
                     const isDraggedTask = taskDragState?.taskId === task._id;
                     const rowShift = taskDragState
-                      ? taskDragState.originIndex < taskDragState.targetIndex
-                        ? index > taskDragState.originIndex &&
-                          index <= taskDragState.targetIndex
-                          ? -taskDragState.height
-                          : 0
-                        : taskDragState.originIndex > taskDragState.targetIndex
-                          ? index >= taskDragState.targetIndex &&
-                            index < taskDragState.originIndex
-                            ? taskDragState.height
-                            : 0
-                          : 0
+                      ? getSharedTableDragRowShift({
+                          itemIndex: index,
+                          originIndex: taskDragState.originIndex,
+                          targetIndex: taskDragState.targetIndex,
+                          rowHeight: taskDragState.height,
+                        })
                       : 0;
 
                     return isEditing ? (
@@ -1760,13 +1653,12 @@ function ProjectDetail({
                                 <div className="project-task-edit-billable">
                                   <span className="field-label">Billable</span>
                                   <label className="project-task-billable-toggle">
-                                    <input
-                                      type="checkbox"
+                                    <Checkbox
                                       checked={taskEditDraft.billable}
-                                      onChange={(event) =>
+                                      onCheckedChange={(checked) =>
                                         setTaskEditDraft((current) => ({
                                           ...current,
-                                          billable: event.target.checked,
+                                          billable: checked,
                                         }))
                                       }
                                     />
@@ -1960,7 +1852,7 @@ function ProjectDetail({
           style={{
             width: taskDragState.width,
             minHeight: taskDragState.height,
-            transform: `translate3d(${Math.round(taskDragState.originLeft)}px, ${Math.round(Math.max(taskDragState.minTop, taskDragState.pointerY - taskDragState.offsetY))}px, 0)`,
+            transform: getSharedTableDragOverlayTransform(taskDragState),
           }}
         >
           <div className="project-task-name-cell">
@@ -2005,7 +1897,7 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const projectRowRefs = useRef(new Map<string, HTMLLIElement>());
-  const projectPointerSessionRef = useRef<PendingProjectPointerSession | null>(
+  const projectPointerSessionRef = useRef<SharedTableDragPointerSession | null>(
     null,
   );
   const projectDragStateRef = useRef<ProjectDragState | null>(null);
@@ -2147,15 +2039,12 @@ export function ProjectsPage() {
       return;
     }
 
-    window.clearTimeout(session.timeoutId);
-    session.removeListeners();
+    session.dispose();
     projectPointerSessionRef.current = null;
   }, []);
 
   const resetProjectDragVisuals = useCallback(() => {
-    document.body.classList.remove("project-sidebar-drag-active");
-    document.body.style.removeProperty("cursor");
-    document.body.style.removeProperty("user-select");
+    setSharedTableDragDocumentState(false, "project-sidebar-drag-active");
   }, []);
 
   const finishProjectDrag = useCallback(
@@ -2177,7 +2066,8 @@ export function ProjectsPage() {
         );
       }
 
-      suppressProjectClickUntilRef.current = performance.now() + 250;
+      suppressProjectClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       projectDragStateRef.current = null;
       setProjectDragState(null);
       setPressedProjectId(null);
@@ -2223,13 +2113,7 @@ export function ProjectsPage() {
     setPressedProjectId(projectId);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    let latestPointerX = clientX;
-    let latestPointerY = clientY;
-
-    const startDrag = (
-      pointerX = latestPointerX,
-      pointerY = latestPointerY,
-    ) => {
+    const startDrag = (pointerX: number, pointerY: number) => {
       const row = projectRowRefs.current.get(projectId);
       if (!row) {
         setPressedProjectId(null);
@@ -2241,10 +2125,9 @@ export function ProjectsPage() {
       const firstRowRect = projectRowRefs.current
         .get(activeProjectIds[0] ?? projectId)
         ?.getBoundingClientRect();
-      document.body.classList.add("project-sidebar-drag-active");
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-      suppressProjectClickUntilRef.current = performance.now() + 250;
+      setSharedTableDragDocumentState(true, "project-sidebar-drag-active");
+      suppressProjectClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       setPressedProjectId(null);
       const nextDragState = {
         projectId,
@@ -2264,88 +2147,44 @@ export function ProjectsPage() {
       setProjectDragState(nextDragState);
     };
 
-    const handlePointerMove = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
-      latestPointerX = pointerEvent.clientX;
-      latestPointerY = pointerEvent.clientY;
-
-      const currentDrag = projectDragStateRef.current;
-      if (currentDrag?.pointerId === pointerId) {
-        pointerEvent.preventDefault();
-        setProjectDragState((current) => {
-          if (!current) {
-            return current;
-          }
-
-          const nextDragState = {
-            ...current,
-            pointerX: pointerEvent.clientX,
-            pointerY: pointerEvent.clientY,
-            targetIndex: getProjectDragTargetIndex(
-              activeProjectIds,
-              current.projectId,
-              pointerEvent.clientY,
-              projectRowRefs.current,
-            ),
-          };
-          projectDragStateRef.current = nextDragState;
-          return nextDragState;
-        });
-        return;
-      }
-
-      if (
-        shouldStartSharedTableDrag({
-          pointerType,
-          originX: clientX,
-          originY: clientY,
-          currentX: pointerEvent.clientX,
-          currentY: pointerEvent.clientY,
-        })
-      ) {
-        const session = projectPointerSessionRef.current;
-        if (session?.pointerId === pointerId) {
-          window.clearTimeout(session.timeoutId);
+    projectPointerSessionRef.current = createSharedTableDragPointerSession({
+      pointerId,
+      pointerType,
+      originX: clientX,
+      originY: clientY,
+      isDragging: () => projectDragStateRef.current?.pointerId === pointerId,
+      onStart: (pointer) => {
+        startDrag(pointer.clientX, pointer.clientY);
+      },
+      onMove: (pointer) => {
+        const current = projectDragStateRef.current;
+        if (!current) {
+          return;
         }
 
-        pointerEvent.preventDefault();
-        startDrag(pointerEvent.clientX, pointerEvent.clientY);
-      }
-    };
-
-    const handlePointerEnd = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
-      const wasDragging = projectDragStateRef.current?.pointerId === pointerId;
-      clearProjectPointerSession();
-
-      if (wasDragging) {
-        pointerEvent.preventDefault();
-        finishProjectDrag(pointerEvent.type !== "pointercancel");
-        return;
-      }
-
-      setPressedProjectId(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-
-    projectPointerSessionRef.current = {
-      pointerId,
-      timeoutId: 0,
-      removeListeners: () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerEnd);
-        window.removeEventListener("pointercancel", handlePointerEnd);
+        const nextDragState: ProjectDragState = {
+          ...current,
+          pointerX: pointer.clientX,
+          pointerY: pointer.clientY,
+          targetIndex: getSharedTableDragTargetIndex(
+            activeProjectIds,
+            current.projectId,
+            pointer.clientY,
+            projectRowRefs.current,
+          ),
+        };
+        projectDragStateRef.current = nextDragState;
+        setProjectDragState(nextDragState);
       },
-    };
+      onEnd: (shouldCommit) => {
+        projectPointerSessionRef.current = null;
+        finishProjectDrag(shouldCommit);
+      },
+      onPressEnd: () => {
+        projectPointerSessionRef.current = null;
+        setPressedProjectId(null);
+      },
+    });
   }
 
   // Auto-select the first available project if the current URL does not resolve.
@@ -2507,19 +2346,12 @@ export function ProjectsPage() {
                   const isDraggedProject =
                     projectDragState?.projectId === project._id;
                   const rowShift = projectDragState
-                    ? projectDragState.originIndex <
-                      projectDragState.targetIndex
-                      ? projectIndex > projectDragState.originIndex &&
-                        projectIndex <= projectDragState.targetIndex
-                        ? -projectDragState.height
-                        : 0
-                      : projectDragState.originIndex >
-                          projectDragState.targetIndex
-                        ? projectIndex >= projectDragState.targetIndex &&
-                          projectIndex < projectDragState.originIndex
-                          ? projectDragState.height
-                          : 0
-                        : 0
+                    ? getSharedTableDragRowShift({
+                        itemIndex: projectIndex,
+                        originIndex: projectDragState.originIndex,
+                        targetIndex: projectDragState.targetIndex,
+                        rowHeight: projectDragState.height,
+                      })
                     : 0;
                   return (
                     <SidebarMenuItem
@@ -2621,7 +2453,7 @@ export function ProjectsPage() {
           style={{
             width: projectDragState.width,
             minHeight: projectDragState.height,
-            transform: `translate3d(${Math.round(projectDragState.originLeft)}px, ${Math.round(Math.max(projectDragState.minTop, projectDragState.pointerY - projectDragState.offsetY))}px, 0)`,
+            transform: getSharedTableDragOverlayTransform(projectDragState),
           }}
         >
           <ProjectIcon

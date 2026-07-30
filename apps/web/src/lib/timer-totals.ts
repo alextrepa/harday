@@ -1,4 +1,4 @@
-import type { LocalTimer, LocalTimesheetEntry } from "@/lib/local-store";
+import type { LocalTimer, LocalTimesheetEntry } from "@/domain/local-state";
 
 type TimerIdentity = Pick<LocalTimer, "entryId" | "localDate">;
 

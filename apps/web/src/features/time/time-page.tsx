@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RiSendPlaneLine as SendHorizontal } from "@remixicon/react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { DayViewerCard } from "@/components/day-viewer-card";
+import { formatClockDuration } from "@/domain/time/duration";
 import { SubmitTimesheetModal } from "@/features/time/submit-timesheet-modal";
 import { TimerPanel } from "@/features/timer/timer-panel";
 import { TimeEntryModal } from "@/features/timer/time-entry-modal";
@@ -11,13 +12,6 @@ import {
   getTimerDurationsMs,
 } from "@/lib/timer-totals";
 import { getIsoWeekDates, todayIsoDate } from "@/lib/utils";
-
-function formatDuration(durationMs: number) {
-  const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
 
 export function TimePage({ date }: { date: string }) {
   const navigate = useNavigate();
@@ -105,8 +99,8 @@ export function TimePage({ date }: { date: string }) {
         today={today}
         weekDates={weekDates}
         totalLabel="Week total"
-        totalValue={formatDuration(weekTotalMs)}
-        getDayValue={(day) => formatDuration(totalsByDate.get(day) ?? 0)}
+        totalValue={formatClockDuration(weekTotalMs)}
+        getDayValue={(day) => formatClockDuration(totalsByDate.get(day) ?? 0)}
         onSelectDate={goToDate}
         headerActions={
           <button

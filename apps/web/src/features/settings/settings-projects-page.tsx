@@ -4,8 +4,10 @@ import {
   RiFolderChartLine as FolderKanban,
   RiUploadLine as Upload,
 } from "@remixicon/react";
+import { AppPanel, MessagePanel, SurfaceCallout } from "@/components/app-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocalState } from "@/lib/local-hooks";
@@ -121,11 +123,13 @@ export function SettingsProjectsPage() {
     }
   }
 
-  function toggleProjectSelection(projectId: string) {
+  function setProjectSelection(projectId: string, selected: boolean) {
     setSelectedProjectIds((current) =>
-      current.includes(projectId)
-        ? current.filter((id) => id !== projectId)
-        : [...current, projectId],
+      selected
+        ? current.includes(projectId)
+          ? current
+          : [...current, projectId]
+        : current.filter((id) => id !== projectId),
     );
   }
 
@@ -138,18 +142,10 @@ export function SettingsProjectsPage() {
           merge projects by name.
         </p>
 
-        <div className="settings-panel">
-          <div className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-low)] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-foreground">
-              <FolderKanban className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Excel workbook export</p>
-              <p className="text-sm text-foreground/65">
-                Select the projects to export. Each row repeats the project metadata and one task.
-              </p>
-            </div>
-          </div>
+        <AppPanel>
+          <SurfaceCallout icon={FolderKanban} title="Excel workbook export">
+            Select the projects to export. Each row repeats the project metadata and one task.
+          </SurfaceCallout>
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-foreground/70">
             <Badge className="bg-muted">{formatCount(selectedProjects.length, "project")} selected</Badge>
@@ -157,7 +153,7 @@ export function SettingsProjectsPage() {
           </div>
 
           {sortedProjects.length === 0 ? (
-            <div className="message-panel">No projects are available yet.</div>
+            <MessagePanel>No projects are available yet.</MessagePanel>
           ) : (
             <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-low)] p-4">
               <div className="flex flex-wrap gap-2">
@@ -187,11 +183,10 @@ export function SettingsProjectsPage() {
                       key={project._id}
                       className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={isSelected}
-                        onChange={() => toggleProjectSelection(project._id)}
-                        className="mt-1 h-4 w-4"
+                        onCheckedChange={(checked) => setProjectSelection(project._id, checked)}
+                        className="mt-1"
                       />
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -226,21 +221,13 @@ export function SettingsProjectsPage() {
               Export to Excel
             </Button>
           </div>
-        </div>
+        </AppPanel>
 
-        <div className="settings-panel">
-          <div className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-low)] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-foreground">
-              <Upload className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Excel workbook import</p>
-              <p className="text-sm text-foreground/65">
-                Import the same workbook format to merge projects by name, update project metadata, and add
-                missing tasks.
-              </p>
-            </div>
-          </div>
+        <AppPanel>
+          <SurfaceCallout icon={Upload} title="Excel workbook import">
+            Import the same workbook format to merge projects by name, update project metadata, and add
+            missing tasks.
+          </SurfaceCallout>
 
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
             <div className="space-y-2">
@@ -257,9 +244,9 @@ export function SettingsProjectsPage() {
             </Button>
           </div>
 
-          {statusMessage ? <div className="message-panel">{statusMessage}</div> : null}
-          {error ? <div className="message-panel message-panel-warning">{error}</div> : null}
-        </div>
+          {statusMessage ? <MessagePanel>{statusMessage}</MessagePanel> : null}
+          {error ? <MessagePanel tone="warning">{error}</MessagePanel> : null}
+        </AppPanel>
       </section>
     </div>
   );

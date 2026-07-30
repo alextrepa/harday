@@ -2,23 +2,18 @@ import type ExcelJS from "exceljs";
 import {
   durationHoursValueToMs,
   durationMsToHoursValue,
-} from "@/features/projects/project-task-budget";
-import type { LocalProject } from "@/lib/local-store";
-import { formatTaskImportName } from "@/features/projects/project-task-import-utils";
+} from "@/domain/projects/task-budget";
+import type { LocalProject } from "@/domain/local-state";
+import type {
+  ProjectTransferRow,
+  ProjectTransferStatus,
+} from "@/domain/projects/project-import";
+import { formatTaskImportName } from "@/domain/projects/task-import";
 
-export type ProjectTransferStatus = "active" | "archived";
-
-export interface ProjectTransferRow {
-  project: string;
-  code: string;
-  color: string;
-  status: ProjectTransferStatus;
-  task: string;
-  taskStatus: ProjectTransferStatus | "";
-  billable: "billable" | "non_billable" | "";
-  budgetHours: number | "";
-  adjustmentHours: number | "";
-}
+export type {
+  ProjectTransferRow,
+  ProjectTransferStatus,
+} from "@/domain/projects/project-import";
 
 interface ProjectTransferOptions {
   projects: LocalProject[];

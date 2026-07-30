@@ -1,5 +1,5 @@
 import type { SearchableSelectOption } from "@/components/ui/searchable-select";
-import type { LocalProjectTask } from "@/lib/local-store";
+import type { LocalProjectTask } from "@/domain/local-state";
 
 export function isProjectTaskBillable(
   task: Pick<LocalProjectTask, "billable">,

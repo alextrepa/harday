@@ -5,8 +5,8 @@ import {
   connectorTaskIconDisplayModes,
   type ConnectorTaskIconDisplayMode,
 } from "@timetracker/shared";
+import type { LocalProject, LocalWorkItem } from "@/domain/local-state";
 import { getConnectorsOverview } from "@/lib/app-api";
-import type { LocalProject, LocalWorkItem } from "@/lib/local-store";
 import { ProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
 

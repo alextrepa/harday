@@ -3,6 +3,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
+import { configDefaults } from "vitest/config";
 
 const INTERNAL_APP_API_HOST = "127.0.0.1";
 const INTERNAL_APP_API_PORT = "8787";
@@ -104,6 +105,8 @@ function internalAppApiPlugin(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const isDesktopMode = mode === "desktop";
+  const isTestMode = mode === "test" || process.env.VITEST === "true";
+  const shouldStartInternalAppApi = !isDesktopMode && !isTestMode;
 
   return {
     define: {
@@ -119,7 +122,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      ...(isDesktopMode ? [] : [internalAppApiPlugin()]),
+      ...(shouldStartInternalAppApi ? [internalAppApiPlugin()] : []),
     ],
     build: {
       outDir: isDesktopMode ? "dist-desktop" : "dist",
@@ -129,6 +132,9 @@ export default defineConfig(({ mode }) => {
           manualChunks: vendorChunk,
         },
       },
+    },
+    test: {
+      exclude: [...configDefaults.exclude, ".features-gen/**"],
     },
     resolve: {
       alias: {

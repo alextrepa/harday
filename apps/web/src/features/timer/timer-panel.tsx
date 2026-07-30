@@ -26,18 +26,25 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { buildProjectTaskOptions } from "@/features/projects/project-task-options";
 import {
+  formatClockDuration,
   formatDurationHoursInput,
   normalizeHoursInput,
   parseHoursInput,
-} from "@/features/timer/hours-input";
+} from "@/domain/time/duration";
 import {
   getLocalProjectDisplayName,
-  localStore,
   type LocalTimesheetEntry,
-} from "@/lib/local-store";
+} from "@/domain/local-state";
+import { localStore } from "@/lib/local-store";
 import { isInlineEditorOutsideClick } from "@/lib/inline-editor-close";
 import {
-  shouldStartSharedTableDrag,
+  createSharedTableDragPointerSession,
+  getSharedTableDragOverlayTransform,
+  getSharedTableDragRowShift,
+  getSharedTableDragTargetIndex,
+  setSharedTableDragDocumentState,
+  SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS,
+  type SharedTableDragPointerSession,
 } from "@/lib/table-drag";
 import { ProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
@@ -59,19 +66,6 @@ type EntryDragState = {
   width: number;
   height: number;
 };
-
-type PendingEntryPointerSession = {
-  pointerId: number;
-  timeoutId: number;
-  removeListeners: () => void;
-};
-
-function formatEntryHours(durationMs: number) {
-  const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
 
 interface RunningEntryRow {
   _id: string;
@@ -100,33 +94,6 @@ function isEntryDragBlockedTarget(target: EventTarget | null) {
         ),
       )
     : false;
-}
-
-function getEntryDragTargetIndex(
-  entryIds: string[],
-  sourceEntryId: string,
-  pointerY: number,
-  rowRefs: Map<string, HTMLTableRowElement>,
-) {
-  let nextIndex = 0;
-
-  for (const entryId of entryIds) {
-    if (entryId === sourceEntryId) {
-      continue;
-    }
-
-    const row = rowRefs.get(entryId);
-    if (!row) {
-      continue;
-    }
-
-    const rect = row.getBoundingClientRect();
-    if (pointerY >= rect.top + rect.height / 2) {
-      nextIndex += 1;
-    }
-  }
-
-  return nextIndex;
 }
 
 function moveId(ids: string[], fromIndex: number, toIndex: number) {
@@ -165,7 +132,7 @@ export function TimerPanel({
   >(null);
   const entryRowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const expandedEntryEditorRef = useRef<HTMLDivElement>(null);
-  const entryPointerSessionRef = useRef<PendingEntryPointerSession | null>(
+  const entryPointerSessionRef = useRef<SharedTableDragPointerSession | null>(
     null,
   );
   const entryDragStateRef = useRef<EntryDragState | null>(null);
@@ -308,14 +275,14 @@ export function TimerPanel({
     !isCreatingEntry && !expandedEntryId && draggableEntryIds.length > 1;
 
   useEffect(() => {
-    if (!runningEntry) {
+    if (!currentTimer || currentTimer.localDate !== date) {
       return;
     }
 
     setNow(Date.now());
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
-  }, [runningEntry]);
+  }, [currentTimer?._id, currentTimer?.localDate, date]);
 
   useEffect(() => {
     if (!expandedEntryId) {
@@ -380,15 +347,12 @@ export function TimerPanel({
       return;
     }
 
-    window.clearTimeout(pendingSession.timeoutId);
-    pendingSession.removeListeners();
+    pendingSession.dispose();
     entryPointerSessionRef.current = null;
   }, []);
 
   const resetEntryDragVisuals = useCallback(() => {
-    document.body.classList.remove("time-entry-drag-active");
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
+    setSharedTableDragDocumentState(false, "time-entry-drag-active");
   }, []);
 
   const finishEntryDrag = useCallback(
@@ -411,7 +375,8 @@ export function TimerPanel({
         );
       }
 
-      suppressEntryClickUntilRef.current = performance.now() + 250;
+      suppressEntryClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       entryDragStateRef.current = null;
       setEntryDragState(null);
       setPressedEntryId(null);
@@ -757,13 +722,7 @@ export function TimerPanel({
     setPressedEntryId(entry._id);
 
     const { clientX, clientY, pointerId, pointerType } = event;
-    let latestPointerX = clientX;
-    let latestPointerY = clientY;
-
-    const startDrag = (
-      pointerX = latestPointerX,
-      pointerY = latestPointerY,
-    ) => {
+    const startDrag = (pointerX: number, pointerY: number) => {
       const row = entryRowRefs.current.get(entry._id);
       if (!row) {
         setPressedEntryId(null);
@@ -774,10 +733,9 @@ export function TimerPanel({
       const firstRowRect = entryRowRefs.current
         .get(draggableEntryIds[0] ?? entry._id)
         ?.getBoundingClientRect();
-      document.body.classList.add("time-entry-drag-active");
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-      suppressEntryClickUntilRef.current = performance.now() + 250;
+      setSharedTableDragDocumentState(true, "time-entry-drag-active");
+      suppressEntryClickUntilRef.current =
+        performance.now() + SHARED_TABLE_DRAG_CLICK_SUPPRESSION_MS;
       setPressedEntryId(null);
       setPendingDeleteEntryId(null);
       const nextDragState = {
@@ -798,88 +756,44 @@ export function TimerPanel({
       setEntryDragState(nextDragState);
     };
 
-    const handlePointerMove = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
+    entryPointerSessionRef.current = createSharedTableDragPointerSession({
+      pointerId,
+      pointerType,
+      originX: clientX,
+      originY: clientY,
+      isDragging: () => entryDragStateRef.current?.pointerId === pointerId,
+      onStart: (pointer) => {
+        startDrag(pointer.clientX, pointer.clientY);
+      },
+      onMove: (pointer) => {
       const currentDrag = entryDragStateRef.current;
-      if (currentDrag?.pointerId === pointerId) {
-        pointerEvent.preventDefault();
-        setEntryDragState((current) => {
-          if (!current) {
-            return current;
-          }
-
-          const nextDragState = {
-            ...current,
-            pointerX: pointerEvent.clientX,
-            pointerY: pointerEvent.clientY,
-            targetIndex: getEntryDragTargetIndex(
-              draggableEntryIds,
-              current.entryId,
-              pointerEvent.clientY,
-              entryRowRefs.current,
-            ),
-          };
-          entryDragStateRef.current = nextDragState;
-          return nextDragState;
-        });
-        return;
-      }
-
-      latestPointerX = pointerEvent.clientX;
-      latestPointerY = pointerEvent.clientY;
-
-      if (
-        shouldStartSharedTableDrag({
-          pointerType,
-          originX: clientX,
-          originY: clientY,
-          currentX: pointerEvent.clientX,
-          currentY: pointerEvent.clientY,
-        })
-      ) {
-        const session = entryPointerSessionRef.current;
-        if (session?.pointerId === pointerId) {
-          window.clearTimeout(session.timeoutId);
+        if (!currentDrag) {
+          return;
         }
 
-        pointerEvent.preventDefault();
-        startDrag(pointerEvent.clientX, pointerEvent.clientY);
-      }
-    };
-
-    const handlePointerEnd = (pointerEvent: PointerEvent) => {
-      if (pointerEvent.pointerId !== pointerId) {
-        return;
-      }
-
-      const wasDragging = entryDragStateRef.current?.pointerId === pointerId;
-      clearEntryPointerSession();
-
-      if (wasDragging) {
-        pointerEvent.preventDefault();
-        finishEntryDrag(pointerEvent.type !== "pointercancel");
-        return;
-      }
-
-      setPressedEntryId(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-
-    entryPointerSessionRef.current = {
-      pointerId,
-      timeoutId: 0,
-      removeListeners: () => {
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerEnd);
-        window.removeEventListener("pointercancel", handlePointerEnd);
+        const nextDragState: EntryDragState = {
+          ...currentDrag,
+          pointerX: pointer.clientX,
+          pointerY: pointer.clientY,
+          targetIndex: getSharedTableDragTargetIndex(
+            draggableEntryIds,
+            currentDrag.entryId,
+            pointer.clientY,
+            entryRowRefs.current,
+          ),
+        };
+        entryDragStateRef.current = nextDragState;
+        setEntryDragState(nextDragState);
       },
-    };
+      onEnd: (shouldCommit) => {
+        entryPointerSessionRef.current = null;
+        finishEntryDrag(shouldCommit);
+      },
+      onPressEnd: () => {
+        entryPointerSessionRef.current = null;
+        setPressedEntryId(null);
+      },
+    });
   }
 
   return (
@@ -1096,17 +1010,12 @@ export function TimerPanel({
                 const isDraggedEntry = entryDragState?.entryId === entry._id;
                 const rowShift =
                   !isRunning && entryDragState && draggableIndex !== -1
-                    ? entryDragState.originIndex < entryDragState.targetIndex
-                      ? draggableIndex > entryDragState.originIndex &&
-                        draggableIndex <= entryDragState.targetIndex
-                        ? -entryDragState.height
-                        : 0
-                      : entryDragState.originIndex > entryDragState.targetIndex
-                        ? draggableIndex >= entryDragState.targetIndex &&
-                          draggableIndex < entryDragState.originIndex
-                          ? entryDragState.height
-                          : 0
-                        : 0
+                    ? getSharedTableDragRowShift({
+                        itemIndex: draggableIndex,
+                        originIndex: entryDragState.originIndex,
+                        targetIndex: entryDragState.targetIndex,
+                        rowHeight: entryDragState.height,
+                      })
                     : 0;
 
                 return (
@@ -1197,7 +1106,7 @@ export function TimerPanel({
                             <span className="stat-pill stat-pill-active entry-running-pill">
                               <span className="status-dot status-dot-pulse" />
                               <span className="stat-pill-value">
-                                {formatEntryHours(entry.durationMs)}
+                                {formatClockDuration(entry.durationMs)}
                               </span>
                             </span>
                           ) : (
@@ -1249,7 +1158,7 @@ export function TimerPanel({
                           )}
                           {isRunning ? null : (
                             <span className="hours-badge">
-                              {formatEntryHours(entry.durationMs)}
+                              {formatClockDuration(entry.durationMs)}
                             </span>
                           )}
                         </div>
@@ -1430,7 +1339,8 @@ export function TimerPanel({
                 style={{
                   width: entryDragState.width,
                   minHeight: entryDragState.height,
-                  transform: `translate3d(${Math.round(entryDragState.originLeft)}px, ${Math.round(Math.max(entryDragState.minTop, entryDragState.pointerY - entryDragState.offsetY))}px, 0)`,
+                  transform:
+                    getSharedTableDragOverlayTransform(entryDragState),
                 }}
               >
                 <div className="entry-project-column">
@@ -1463,7 +1373,7 @@ export function TimerPanel({
                 <div className="entry-hours-cell">
                   <div className="entry-hours-content">
                     <span className="hours-badge">
-                      {formatEntryHours(draggedEntry.durationMs)}
+                      {formatClockDuration(draggedEntry.durationMs)}
                     </span>
                   </div>
                 </div>

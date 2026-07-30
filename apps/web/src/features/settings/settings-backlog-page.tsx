@@ -4,6 +4,7 @@ import {
   RiRefreshLine as RefreshCw,
   RiSaveLine as Save,
 } from "@remixicon/react";
+import { AppPanel, MessagePanel } from "@/components/app-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -180,7 +181,7 @@ export function SettingsBacklogPage() {
           Create the statuses the app should use in backlog, then map synced connector statuses onto them.
         </p>
 
-        <div className="settings-panel space-y-4">
+        <AppPanel className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{state.backlogStatuses.length} app statuses</Badge>
             <Badge className="bg-muted">{sourceStatuses.length} synced source statuses</Badge>
@@ -207,9 +208,9 @@ export function SettingsBacklogPage() {
           </div>
 
           {state.backlogStatuses.length === 0 ? (
-            <div className="message-panel">
+            <MessagePanel>
               Create at least one app status before mapping synced connector statuses.
-            </div>
+            </MessagePanel>
           ) : (
             <div className="backlog-settings-status-list">
               {state.backlogStatuses.map((status) => (
@@ -270,7 +271,7 @@ export function SettingsBacklogPage() {
               ))}
             </div>
           )}
-        </div>
+        </AppPanel>
       </section>
 
       <section className="settings-section">
@@ -279,7 +280,7 @@ export function SettingsBacklogPage() {
           Connector sync registers raw statuses first. Mapping them here controls which backlog status imported items display.
         </p>
 
-        <div className="settings-panel space-y-4">
+        <AppPanel className="space-y-4">
           <div className="flex flex-wrap gap-3">
             <Button variant="outline" size="sm" className="gap-1.5" disabled={isRefreshing} onClick={() => void refreshSourceStatuses()}>
               <RefreshCw className="h-3.5 w-3.5" />
@@ -288,9 +289,9 @@ export function SettingsBacklogPage() {
           </div>
 
           {groupedSourceStatuses.length === 0 ? (
-            <div className="message-panel">
+            <MessagePanel>
               No synced connector statuses yet. Run a connector sync first.
-            </div>
+            </MessagePanel>
           ) : (
             <div className="backlog-settings-source-groups">
               {groupedSourceStatuses.map((group) => (
@@ -337,10 +338,10 @@ export function SettingsBacklogPage() {
               ))}
             </div>
           )}
-        </div>
+        </AppPanel>
 
-        {message ? <div className="message-panel">{message}</div> : null}
-        {error ? <div className="message-panel message-panel-warning">{error}</div> : null}
+        {message ? <MessagePanel>{message}</MessagePanel> : null}
+        {error ? <MessagePanel tone="warning">{error}</MessagePanel> : null}
       </section>
     </div>
   );

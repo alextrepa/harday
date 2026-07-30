@@ -1,10 +1,10 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ActivityBlockRecord } from "@timetracker/shared";
-import {
-  localStore,
-  type ImportedBrowserDraft,
-  type OutlookMeetingDraft,
-} from "@/lib/local-store";
+import type {
+  ImportedBrowserDraft,
+  OutlookMeetingDraft,
+} from "@/domain/local-state";
+import { localStore } from "@/lib/local-store";
 
 export function useLocalState() {
   return useSyncExternalStore(localStore.subscribe, localStore.snapshot, localStore.snapshot);

@@ -5,6 +5,7 @@ import {
   RiFilter3Line as Filter,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   HoverCard,
   HoverCardContent,
@@ -19,17 +20,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatClockDuration } from "@/domain/time/duration";
+import type { LocalTimesheetEntry } from "@/domain/local-state";
+import type { LocalProjectIcon } from "@/domain/projects/project-icon";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
-import { localStore, type LocalTimesheetEntry } from "@/lib/local-store";
-import { ProjectIcon, type LocalProjectIcon } from "@/lib/project-icons";
+import { localStore } from "@/lib/local-store";
+import { ProjectIcon } from "@/lib/project-icons";
 import { cn } from "@/lib/utils";
-
-function formatDuration(durationMs: number) {
-  const totalMinutes = Math.max(0, Math.round(durationMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
 
 function formatCountLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -93,24 +90,13 @@ function SelectionCheckbox({
   onChange: (checked: boolean) => void;
   ariaLabel: string;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!inputRef.current) {
-      return;
-    }
-
-    inputRef.current.indeterminate = indeterminate ?? false;
-  }, [indeterminate]);
-
   return (
-    <input
-      ref={inputRef}
-      type="checkbox"
+    <Checkbox
       className="submit-timesheet-checkbox"
       checked={checked}
+      indeterminate={indeterminate}
       aria-label={ariaLabel}
-      onChange={(event) => onChange(event.target.checked)}
+      onCheckedChange={onChange}
     />
   );
 }
@@ -459,7 +445,7 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
 
   function renderTimeHover(collection: EntryCollection, cellLabel: string, triggerClassName: string) {
     const commentSummary = collection.comments.length > 0 ? collection.comments.join(" || ") : "No comments";
-    const durationLabel = formatDuration(collection.durationMs);
+    const durationLabel = formatClockDuration(collection.durationMs);
 
     return (
       <HoverCard>
@@ -523,7 +509,7 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
             <div className="submit-timesheet-toolbar-copy">
               <span className="submit-timesheet-toolbar-label">Week of {formatWeekRange(weekDates)}</span>
               <span className="submit-timesheet-toolbar-value">
-                {selectedCount} selected · {formatDuration(selectedDurationMs)}
+                {selectedCount} selected · {formatClockDuration(selectedDurationMs)}
               </span>
             </div>
           </div>
@@ -732,7 +718,7 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
                                 {renderTaskCell(cell, rowLabel)}
                               </TableCell>
                             ))}
-                            <TableCell className="submit-timesheet-task-total-cell">{formatDuration(row.durationMs)}</TableCell>
+                            <TableCell className="submit-timesheet-task-total-cell">{formatClockDuration(row.durationMs)}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -755,7 +741,7 @@ export function SubmitTimesheetModal({ weekDates, onClose }: SubmitTimesheetModa
                         <div className="submit-timesheet-group-copy">
                           <h3 className="submit-timesheet-group-title">{formatDayHeading(group.localDate)}</h3>
                           <p className="submit-timesheet-group-meta">
-                            {formatCountLabel(group.entryIds.length, "entry", "entries")} · {formatDuration(group.totalMs)}
+                            {formatCountLabel(group.entryIds.length, "entry", "entries")} · {formatClockDuration(group.totalMs)}
                           </p>
                         </div>
                       </div>

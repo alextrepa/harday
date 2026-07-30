@@ -1,3 +1,4 @@
+import { MessagePanel } from "@/components/app-surface";
 import { useLocalState } from "@/lib/local-hooks";
 
 export function SettingsDebugPage() {
@@ -15,9 +16,9 @@ export function SettingsDebugPage() {
           <p>{state.rules.length} explicit local rules</p>
         </div>
 
-        <div className="message-panel">
+        <MessagePanel>
           Sync should stay limited to committed timesheets, project metadata, and any explicitly accepted rules if shared storage returns later.
-        </div>
+        </MessagePanel>
       </section>
     </div>
   );

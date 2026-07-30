@@ -1,4 +1,7 @@
-import { formatDurationHoursInput, parseHoursInput } from "../timer/hours-input";
+import {
+  formatDurationHoursInput,
+  parseHoursInput,
+} from "@/domain/time/duration";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 
@@ -19,20 +22,22 @@ function roundDurationMs(durationMs: number) {
   return Math.round(durationMs);
 }
 
-function normalizeBudgetMs(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+export function normalizeProjectTaskBudgetMs(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
   }
 
-  return roundDurationMs(value);
+  const roundedValue = roundDurationMs(value);
+  return roundedValue > 0 ? roundedValue : undefined;
 }
 
-function normalizeAdjustmentMs(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
+export function normalizeProjectTaskAdjustmentMs(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
   }
 
-  return roundDurationMs(value);
+  const roundedValue = roundDurationMs(value);
+  return roundedValue === 0 ? undefined : roundedValue;
 }
 
 export function formatSignedDurationHoursInput(durationMs: number) {
@@ -43,13 +48,16 @@ export function formatSignedDurationHoursInput(durationMs: number) {
 export function getProjectTaskTrackedWithAdjustmentMs(
   options: ProjectTaskConsumedOptions,
 ) {
-  return options.trackedMs + (normalizeAdjustmentMs(options.adjustmentMs) ?? 0);
+  return (
+    options.trackedMs +
+    (normalizeProjectTaskAdjustmentMs(options.adjustmentMs) ?? 0)
+  );
 }
 
 export function formatProjectTaskConsumedBadge(
   options: ProjectTaskConsumedOptions,
 ) {
-  const budgetMs = normalizeBudgetMs(options.budgetMs);
+  const budgetMs = normalizeProjectTaskBudgetMs(options.budgetMs);
   const consumedMs = getProjectTaskTrackedWithAdjustmentMs(options);
   const consumedLabel = formatSignedDurationHoursInput(consumedMs);
 
@@ -63,7 +71,7 @@ export function formatProjectTaskConsumedBadge(
 export function getProjectTaskConsumedTone(
   options: ProjectTaskConsumedOptions,
 ): ProjectTaskConsumedTone {
-  const budgetMs = normalizeBudgetMs(options.budgetMs);
+  const budgetMs = normalizeProjectTaskBudgetMs(options.budgetMs);
   if (!budgetMs) {
     return "default";
   }
@@ -112,5 +120,6 @@ export function durationHoursValueToMs(hours: number | undefined) {
     return undefined;
   }
 
-  return Math.round(hours * MS_PER_HOUR);
+  const durationMs = Math.round(hours * MS_PER_HOUR);
+  return Number.isFinite(durationMs) ? durationMs : undefined;
 }

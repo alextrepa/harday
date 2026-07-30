@@ -3,9 +3,11 @@ import {
   RiMoonLine as Moon,
   RiSunLine as Sun,
 } from "@remixicon/react";
+import { AppPanel } from "@/components/app-surface";
+import type { ThemeMode } from "@/domain/local-state";
 import { cn } from "@/lib/utils";
 import { useUserPreferences } from "@/lib/local-hooks";
-import { localStore, type ThemeMode } from "@/lib/local-store";
+import { localStore } from "@/lib/local-store";
 import { getThemeModeLabel, useResolvedTheme } from "@/lib/use-theme";
 
 const THEME_OPTIONS: Array<{
@@ -46,7 +48,7 @@ export function SettingsGeneralPage() {
           Customize how the app looks. Choose between light and dark modes, or let it follow your system settings.
         </p>
 
-        <div className="settings-panel">
+        <AppPanel>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-foreground/90">Theme</label>
@@ -81,7 +83,7 @@ export function SettingsGeneralPage() {
               })}
             </div>
           </div>
-        </div>
+        </AppPanel>
       </section>
     </div>
   );

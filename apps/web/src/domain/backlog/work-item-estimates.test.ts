@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLoggedTimeToWorkItems,
   applyLoggedTimeToEstimateValues,
+  createImportedEstimateSyncState,
   getWorkItemEstimateBadgeLabel,
   getWorkItemEstimateSummary,
 } from "./work-item-estimates";
@@ -40,6 +42,7 @@ describe("applyLoggedTimeToEstimateValues", () => {
       ),
     ).toEqual({
       remainingEstimateHours: 0,
+      remainingEstimateOverrunHours: 1,
       completedEstimateHours: 2.25,
     });
   });
@@ -58,6 +61,104 @@ describe("applyLoggedTimeToEstimateValues", () => {
     ).toEqual({
       remainingEstimateHours: 1,
       completedEstimateHours: 2,
+    });
+  });
+
+  it("preserves original estimates and reverses removed logged time", () => {
+    expect(
+      applyLoggedTimeToEstimateValues(
+        {
+          originalEstimateHours: 8,
+          remainingEstimateHours: 3,
+          completedEstimateHours: 2,
+        },
+        {
+          durationMsDelta: -60 * 60 * 1000,
+        },
+      ),
+    ).toEqual({
+      originalEstimateHours: 8,
+      remainingEstimateHours: 4,
+      completedEstimateHours: 1,
+    });
+  });
+
+  it("restores remaining time after reversing an overrun", () => {
+    const logged = applyLoggedTimeToEstimateValues(
+      {
+        remainingEstimateHours: 1,
+        completedEstimateHours: 0,
+      },
+      { durationMsDelta: 3 * 60 * 60 * 1000 },
+    );
+    const reversed = applyLoggedTimeToEstimateValues(logged, {
+      durationMsDelta: -3 * 60 * 60 * 1000,
+    });
+
+    expect(logged).toMatchObject({
+      remainingEstimateHours: 0,
+      remainingEstimateOverrunHours: 2,
+      completedEstimateHours: 3,
+    });
+    expect(reversed).toEqual({
+      remainingEstimateHours: 1,
+      remainingEstimateOverrunHours: undefined,
+      completedEstimateHours: 0,
+    });
+  });
+});
+
+describe("applyLoggedTimeToWorkItems", () => {
+  it("updates a directly linked work item and supports reversing logged time", () => {
+    const workItems = [
+      {
+        _id: "work-item-1",
+        title: "Feature work",
+        status: "active" as const,
+        source: "manual" as const,
+        remainingEstimateHours: 2,
+        completedEstimateHours: 1,
+        createdAt: 1,
+      },
+    ];
+
+    const logged = applyLoggedTimeToWorkItems(workItems, {
+      workItemId: "work-item-1",
+      durationMsDelta: 60 * 60 * 1000,
+    });
+    const reversed = applyLoggedTimeToWorkItems(logged, {
+      workItemId: "work-item-1",
+      durationMsDelta: -60 * 60 * 1000,
+    });
+
+    expect(logged[0]).toMatchObject({
+      remainingEstimateHours: 1,
+      completedEstimateHours: 2,
+    });
+    expect(reversed[0]).toMatchObject({
+      remainingEstimateHours: 2,
+      completedEstimateHours: 1,
+    });
+  });
+});
+
+describe("createImportedEstimateSyncState", () => {
+  it("creates baseline and remote values for imported estimates", () => {
+    expect(
+      createImportedEstimateSyncState({
+        originalEstimateHours: 8,
+        remainingEstimateHours: 3,
+      }),
+    ).toEqual({
+      originalEstimateHours: {
+        baselineValue: 8,
+        remoteValue: 8,
+      },
+      remainingEstimateHours: {
+        baselineValue: 3,
+        remoteValue: 3,
+      },
+      completedEstimateHours: undefined,
     });
   });
 });

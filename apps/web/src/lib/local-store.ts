@@ -1,38 +1,169 @@
 import {
-  aggregateSegmentsToBlocks,
-  evaluateBlockAgainstRules,
-  normalizeConnectorStatusKey,
-  normalizeActivityContext,
   type ActivityBlockRecord,
-  type ActivitySegmentRecord,
-  type AssignmentSource,
   type BrowserActivityBucket,
-  type BucketEvidenceItem,
   type CaptureSettings,
-  type ImportedDraftStatus,
-  type RuleRecord,
   type TeamSettings,
 } from "@timetracker/shared";
 import type {
-  ConnectorBacklogSource,
   ConnectorImportCandidate,
-  ConnectorSyncFieldUpdate,
   ConnectorSyncWorkItemUpdate,
 } from "@timetracker/shared";
 import {
-  formatTaskImportName,
-  normalizeTaskImportName,
-  type ProjectTaskImportResult,
-} from "@/features/projects/project-task-import-utils";
-import { durationHoursValueToMs } from "@/features/projects/project-task-budget";
+  addBacklogStatus as applyAddBacklogStatus,
+  deleteBacklogStatus as applyDeleteBacklogStatus,
+  normalizeBacklogStatuses,
+  reconcileImportedBacklogStatuses,
+  setBacklogStatusMapping as applyBacklogStatusMapping,
+  updateBacklogStatus as applyUpdateBacklogStatus,
+  type BacklogStatusMappingInput,
+} from "@/domain/backlog/backlog-status";
 import {
-  normalizeProjectIcon,
-  type LocalProjectIcon,
-} from "@/lib/project-icons";
+  acceptRemoteEstimateValue as applyAcceptRemoteEstimateValue,
+  addWorkItem as applyAddWorkItem,
+  deleteWorkItem as applyDeleteWorkItem,
+  dismissEstimateIssue as applyDismissEstimateIssue,
+  keepLocalEstimateConflict as applyKeepLocalEstimateConflict,
+  normalizePersistedWorkItem,
+  reorderWorkItems as applyReorderWorkItems,
+  setBacklogSortMode as applyBacklogSortMode,
+  setWorkItemStatus as applyWorkItemStatus,
+  updateWorkItem as applyUpdateWorkItem,
+} from "@/domain/backlog/work-item-transitions";
+import {
+  applyConnectorSyncWorkItemUpdates as applyConnectorWorkItemUpdates,
+  importConnectorWorkItems as applyConnectorWorkItemImport,
+} from "@/domain/backlog/work-item-connector";
+import {
+  type ProjectTaskImportResult,
+} from "@/domain/projects/task-import";
+import {
+  deleteTimesheetEntry as applyDeleteTimesheetEntry,
+  markTimesheetEntriesSubmitted as applyMarkTimesheetEntriesSubmitted,
+  normalizeTimesheetEntry,
+  reorderTimesheetEntries as applyReorderTimesheetEntries,
+  saveManualTimesheetEntry,
+  updateTimesheetEntry as applyUpdateTimesheetEntry,
+} from "@/domain/time/timesheet-entry";
+import {
+  clearTimesheetImportDrafts as applyClearTimesheetImportDrafts,
+  commitReadyTimesheetImportDrafts as applyCommitReadyTimesheetImportDrafts,
+  commitTimesheetImportDraft as applyCommitTimesheetImportDraft,
+  dismissTimesheetImportDraft as applyDismissTimesheetImportDraft,
+  stageTimesheetImportRows as applyStageTimesheetImportRows,
+  type TimesheetImportRow,
+} from "@/domain/time/timesheet-import";
+import {
+  cancelTimer as applyCancelTimer,
+  normalizeTimer,
+  restartTimesheetEntry as applyRestartTimesheetEntry,
+  saveTimer as applySaveTimer,
+  startTimer as applyStartTimer,
+  startTimerWithEntry as applyStartTimerWithEntry,
+  updateTimer as applyUpdateTimer,
+  type StartTimerWithEntryValues,
+} from "@/domain/time/timer-transitions";
+import {
+  buildSampleActivitySegment,
+  commitActivityBlock as applyCommitActivityBlock,
+  commitImportedBrowserDraft as applyCommitImportedBrowserDraft,
+  commitOutlookMeetingDraft as applyCommitOutlookMeetingDraft,
+  dismissActivityBlock as applyDismissActivityBlock,
+  dismissImportedBrowserDraft as applyDismissImportedBrowserDraft,
+  dismissOutlookMeetingDraft as applyDismissOutlookMeetingDraft,
+  importBrowserBuckets as applyImportBrowserBuckets,
+  importOutlookMeetings as applyImportOutlookMeetings,
+  materializeTimeline,
+  saveRuleFromBlock as applySaveRuleFromBlock,
+  saveRuleFromImportedBrowserDraft as applySaveRuleFromImportedBrowserDraft,
+  updateImportedBrowserDraft as applyUpdateImportedBrowserDraft,
+  updateOutlookMeetingDraft as applyUpdateOutlookMeetingDraft,
+  upsertEditedBlock as applyUpsertEditedBlock,
+  type ImportedBrowserDraftPatch,
+  type OutlookMeetingDraftPatch,
+  type TimelineRuleSeed,
+} from "@/domain/time/timeline-transitions";
+import {
+  importProjectTasks as applyProjectTaskImport,
+  importProjectWorkbookRows as applyProjectWorkbookImport,
+  type ProjectTransferRow,
+  type ProjectWorkbookImportResult,
+} from "@/domain/projects/project-import";
+import {
+  addProject as applyAddProject,
+  addProjectTask as applyAddProjectTask,
+  createProject,
+  createProjectTask,
+  normalizeProject,
+  reorderProjects as applyReorderProjects,
+  reorderProjectTask as applyReorderProjectTask,
+  setProjectTaskStatus,
+  updateProject as applyUpdateProject,
+  updateProjectTask as applyUpdateProjectTask,
+} from "@/domain/projects/project-transitions";
 import type {
   OutlookCalendarEvent,
   OutlookConnectionSnapshot,
-} from "@/lib/outlook";
+} from "@/domain/integrations/outlook";
+import type {
+  BacklogSortMode,
+  ExtensionBridgeStatus,
+  LocalAppState,
+  LocalBacklogStatusMapping,
+  LocalProject,
+  LocalProjectDraft,
+  LocalProjectTask,
+  LocalTeam,
+  LocalTimer,
+  LocalTimerDraft,
+  LocalTimesheetEntry,
+  LocalWorkItem,
+  LocalWorkItemDraft,
+  LocalWorkItemEstimateFieldConflict,
+  LocalWorkItemEstimateFieldKey,
+  PersistedLocalWorkItem,
+  ThemeMode,
+  TimelineMutationResult,
+  UserPreferences,
+} from "@/domain/local-state";
+import {
+  getLocalProjectDisplayName,
+  getWorkItemEstimateFieldState,
+  hasWorkItemEstimateSyncIssue,
+} from "@/domain/local-state";
+
+export {
+  getLocalProjectDisplayName,
+  getWorkItemEstimateFieldState,
+  hasWorkItemEstimateSyncIssue,
+} from "@/domain/local-state";
+export type {
+  BacklogSortMode,
+  ExtensionBridgeStatus,
+  ImportedBrowserDraft,
+  LocalAppState,
+  LocalBacklogStatus,
+  LocalBacklogStatusMapping,
+  LocalProject,
+  LocalProjectDraft,
+  LocalProjectTask,
+  LocalProjectTaskDraft,
+  LocalTeam,
+  LocalTimer,
+  LocalTimerDraft,
+  LocalTimesheetEntry,
+  LocalTimesheetImportDraft,
+  LocalWorkItem,
+  LocalWorkItemDraft,
+  LocalWorkItemEstimateFieldConflict,
+  LocalWorkItemEstimateFieldError,
+  LocalWorkItemEstimateFieldKey,
+  LocalWorkItemEstimateFieldState,
+  LocalWorkItemEstimateSyncState,
+  OutlookMeetingDraft,
+  ThemeMode,
+  TimelineMutationResult,
+  UserPreferences,
+} from "@/domain/local-state";
 
 declare global {
   interface Window {
@@ -41,330 +172,6 @@ declare global {
     };
   }
 }
-
-export interface LocalProject {
-  _id: string;
-  name: string;
-  displayName?: string;
-  code?: string;
-  color: string;
-  icon: LocalProjectIcon;
-  status: "active" | "archived";
-  tasks: LocalProjectTask[];
-}
-
-export interface LocalProjectTask {
-  _id: string;
-  name: string;
-  status: "active" | "archived";
-  createdAt: number;
-  archivedAt?: number;
-  billable?: boolean;
-  budgetMs?: number;
-  adjustmentMs?: number;
-}
-
-export type LocalWorkItemEstimateFieldKey =
-  | "originalEstimateHours"
-  | "remainingEstimateHours"
-  | "completedEstimateHours";
-
-export interface LocalWorkItemEstimateFieldConflict {
-  detectedAt: number;
-  localValue?: number;
-  remoteValue?: number;
-  baselineValue?: number;
-}
-
-export interface LocalWorkItemEstimateFieldError {
-  detectedAt: number;
-  message: string;
-}
-
-export interface LocalWorkItemEstimateFieldState {
-  baselineValue?: number;
-  remoteValue?: number;
-  resolution?: "keep_local";
-  conflict?: LocalWorkItemEstimateFieldConflict;
-  error?: LocalWorkItemEstimateFieldError;
-}
-
-export interface LocalWorkItemEstimateSyncState {
-  originalEstimateHours?: LocalWorkItemEstimateFieldState;
-  remainingEstimateHours?: LocalWorkItemEstimateFieldState;
-  completedEstimateHours?: LocalWorkItemEstimateFieldState;
-}
-
-export function getWorkItemEstimateFieldState(
-  workItem: LocalWorkItem,
-  fieldKey: LocalWorkItemEstimateFieldKey,
-) {
-  return workItem.estimateSync?.[fieldKey];
-}
-
-export function hasWorkItemEstimateSyncIssue(workItem: LocalWorkItem) {
-  return (
-    [
-      "originalEstimateHours",
-      "remainingEstimateHours",
-      "completedEstimateHours",
-    ] as const
-  ).some((fieldKey) => {
-    const fieldState = getWorkItemEstimateFieldState(workItem, fieldKey);
-    return Boolean(fieldState?.conflict || fieldState?.error);
-  });
-}
-
-export function getLocalProjectDisplayName(
-  project: Pick<LocalProject, "name" | "displayName">,
-) {
-  return project.displayName?.trim() || project.name;
-}
-
-export interface LocalProjectDraft {
-  name: string;
-  displayName?: string;
-  code?: string;
-  color: string;
-  icon?: LocalProjectIcon;
-  tasks?: LocalProjectTaskDraft[];
-}
-
-export interface LocalProjectTaskDraft {
-  name: string;
-  status?: "active" | "archived";
-  billable?: boolean;
-  budgetMs?: number;
-  adjustmentMs?: number;
-}
-
-export interface LocalTeam {
-  _id: string;
-  name: string;
-  slug: string;
-  settings: TeamSettings;
-}
-
-export interface LocalTimer {
-  _id: string;
-  startedAt: number;
-  localDate: string;
-  workItemId?: string;
-  projectId?: string;
-  taskId?: string;
-  note?: string;
-  accumulatedDurationMs: number;
-  entryId?: string;
-}
-
-export interface LocalTimerDraft {
-  localDate: string;
-  workItemId?: string;
-  projectId?: string;
-  taskId?: string;
-  note?: string;
-  accumulatedDurationMs?: number;
-  entryId?: string;
-}
-
-export interface LocalTimesheetEntry {
-  _id: string;
-  localDate: string;
-  workItemId?: string;
-  projectId?: string;
-  taskId?: string;
-  label: string;
-  note?: string;
-  durationMs: number;
-  sourceBlockIds: string[];
-  committedAt: number;
-  submittedAt?: number;
-  submittedFingerprint?: string;
-}
-
-export interface LocalTimesheetImportDraft {
-  _id: string;
-  localDate: string;
-  projectName: string;
-  taskName: string;
-  note?: string;
-  durationMs: number;
-  potentialConflict: boolean;
-  conflictEntryIds: string[];
-  importedAt: number;
-}
-
-export type BacklogSortMode = "custom" | "priority_asc" | "priority_desc";
-
-export type ThemeMode = "system" | "dark" | "light";
-
-export interface UserPreferences {
-  themeMode: ThemeMode;
-}
-
-export interface LocalBacklogStatus {
-  _id: string;
-  name: string;
-  color: string;
-  createdAt: number;
-}
-
-export interface LocalBacklogStatusMapping {
-  source: ConnectorBacklogSource;
-  connectionId: string;
-  sourceStatusKey: string;
-  backlogStatusId: string;
-}
-
-export interface LocalWorkItem {
-  _id: string;
-  title: string;
-  status: "active" | "archived";
-  source: "manual" | ConnectorBacklogSource | "outlook";
-  sourceId?: string;
-  sourceConnectionId?: string;
-  sourceConnectionLabel?: string;
-  sourceProjectName?: string;
-  sourceWorkItemType?: string;
-  hierarchyLevel?: 0 | 1;
-  parentWorkItemId?: string;
-  parentSourceId?: string;
-  priority?: number;
-  importedPriority?: number;
-  backlogStatusId?: string;
-  importedBacklogStatusId?: string;
-  sourceStatusKey?: string;
-  sourceStatusLabel?: string;
-  projectId?: string;
-  taskId?: string;
-  inheritsParentMapping?: boolean;
-  note?: string;
-  originalEstimateHours?: number;
-  remainingEstimateHours?: number;
-  completedEstimateHours?: number;
-  estimateSync?: LocalWorkItemEstimateSyncState;
-  keepWhenMissingFromSync?: boolean;
-  createdAt: number;
-  archivedAt?: number;
-}
-
-type PersistedLocalWorkItem = Omit<LocalWorkItem, "status" | "archivedAt"> & {
-  status?: LocalWorkItem["status"] | "open" | "done";
-  archivedAt?: number;
-  completedAt?: number;
-};
-
-export interface LocalWorkItemDraft {
-  title: string;
-  note?: string;
-  projectId?: string;
-  taskId?: string;
-  inheritsParentMapping?: boolean;
-  parentWorkItemId?: string;
-  priority?: number;
-  backlogStatusId?: string;
-  originalEstimateHours?: number;
-  remainingEstimateHours?: number;
-  completedEstimateHours?: number;
-}
-
-export interface ImportedBrowserDraft {
-  _id: string;
-  bucketKey: string;
-  localDate: string;
-  startedAt: number;
-  endedAt: number;
-  durationMs: number;
-  dominantDomain: string;
-  dominantPathname: string;
-  dominantTitle: string;
-  dominantLabel: string;
-  dominantSubtitle: string;
-  dominantFingerprint: string;
-  evidence: BucketEvidenceItem[];
-  dismissed: boolean;
-  status: ImportedDraftStatus;
-  projectId?: string;
-  note?: string;
-  importedAt: number;
-  source: "extension_bridge";
-  confidence: number;
-  isMixed: boolean;
-  assignmentSource: AssignmentSource;
-  explanation?: string;
-  manuallyEdited: boolean;
-}
-
-export interface ExtensionBridgeStatus {
-  available: boolean;
-  paused: boolean;
-  segmentCount?: number;
-  lastReadAt?: number;
-  lastError?: string;
-}
-
-export interface OutlookMeetingDraft {
-  _id: string;
-  eventId: string;
-  localDate: string;
-  startedAt: number;
-  endedAt: number;
-  durationMs: number;
-  subject: string;
-  organizer?: string;
-  location?: string;
-  isOnlineMeeting: boolean;
-  webLink?: string;
-  dismissed: boolean;
-  status: ImportedDraftStatus;
-  projectId?: string;
-  note?: string;
-  importedAt: number;
-  source: "outlook_calendar";
-  assignmentSource: AssignmentSource;
-  explanation: string;
-  manuallyEdited: boolean;
-}
-
-export interface LocalAppState {
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  team?: LocalTeam;
-  projects: LocalProject[];
-  rules: RuleRecord[];
-  segments: ActivitySegmentRecord[];
-  dismissedSegmentIds: string[];
-  editedBlocks: ActivityBlockRecord[];
-  importedBrowserDrafts: ImportedBrowserDraft[];
-  outlookMeetingDrafts: OutlookMeetingDraft[];
-  timers: LocalTimer[];
-  timesheetEntries: LocalTimesheetEntry[];
-  timesheetImportDrafts: LocalTimesheetImportDraft[];
-  workItems: LocalWorkItem[];
-  backlogStatuses: LocalBacklogStatus[];
-  backlogStatusMappings: LocalBacklogStatusMapping[];
-  backlogSortMode: BacklogSortMode;
-  capture: CaptureSettings;
-  lastExtensionImportAt?: number;
-  extensionBridgeStatus?: ExtensionBridgeStatus;
-  outlookIntegration: OutlookConnectionSnapshot;
-  userPreferences: UserPreferences;
-  updatedAt: number;
-}
-
-export interface TimelineMutationResult {
-  blocks: ActivityBlockRecord[];
-  browserDrafts: ImportedBrowserDraft[];
-  outlookMeetings: OutlookMeetingDraft[];
-  trackedMs: number;
-  committedMs: number;
-  extensionBridgeStatus?: ExtensionBridgeStatus;
-}
-
-type RuleSeed = Pick<ActivityBlockRecord, "projectId" | "domain" | "pathname">;
 
 const STORAGE_KEY = "timetracker.local-state.v2";
 
@@ -393,351 +200,14 @@ const defaultUserPreferences: UserPreferences = {
   themeMode: "system",
 };
 
-const DEFAULT_BACKLOG_STATUS_COLORS = [
-  "#64748b",
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#dc2626",
-  "#7c3aed",
-];
-
 let cachedState: LocalAppState | undefined;
+
+function arrayOrDefault<T>(value: unknown, fallback: T[]): T[] {
+  return Array.isArray(value) ? (value as T[]) : fallback;
+}
 
 function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
-}
-
-function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
-  if (fromIndex === toIndex) {
-    return [...items];
-  }
-
-  const nextItems = [...items];
-  const [item] = nextItems.splice(fromIndex, 1);
-
-  if (!item) {
-    return [...items];
-  }
-
-  nextItems.splice(toIndex, 0, item);
-  return nextItems;
-}
-
-function getWorkItemSourceKey(workItem: {
-  source: LocalWorkItem["source"];
-  sourceId: string;
-}) {
-  return `${workItem.source}:${workItem.sourceId}`;
-}
-
-function isSubtaskWorkItem(
-  workItem: Pick<
-    LocalWorkItem,
-    "hierarchyLevel" | "parentWorkItemId" | "parentSourceId"
-  >,
-) {
-  return Boolean(
-    workItem.parentWorkItemId ||
-    workItem.parentSourceId ||
-    (workItem.hierarchyLevel ?? 0) > 0,
-  );
-}
-
-function normalizePriorityValue(priority?: number) {
-  if (typeof priority !== "number" || !Number.isFinite(priority)) {
-    return undefined;
-  }
-
-  return Math.max(0, Math.round(priority));
-}
-
-function normalizeEstimateValue(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-
-  return Math.round(Math.max(0, value) * 10_000) / 10_000;
-}
-
-function durationMsToHours(durationMs: number) {
-  if (!Number.isFinite(durationMs)) {
-    return 0;
-  }
-
-  return durationMs / (60 * 60 * 1000);
-}
-
-function applyEstimateDelta(
-  value: number | undefined,
-  delta: number,
-  options?: { clampAtZero?: boolean },
-) {
-  if (!Number.isFinite(delta) || Math.abs(delta) < 0.0000001) {
-    return value;
-  }
-
-  const nextValue = (value ?? 0) + delta;
-  return normalizeEstimateValue(
-    options?.clampAtZero ? Math.max(0, nextValue) : nextValue,
-  );
-}
-
-function createEstimateFieldState(
-  value: number | undefined,
-): LocalWorkItemEstimateFieldState | undefined {
-  const normalizedValue = normalizeEstimateValue(value);
-  if (normalizedValue === undefined) {
-    return undefined;
-  }
-
-  return {
-    baselineValue: normalizedValue,
-    remoteValue: normalizedValue,
-  };
-}
-
-function buildImportedEstimateSyncState(workItem: {
-  originalEstimateHours?: number;
-  remainingEstimateHours?: number;
-  completedEstimateHours?: number;
-}): LocalWorkItemEstimateSyncState | undefined {
-  const originalEstimateHours = createEstimateFieldState(
-    workItem.originalEstimateHours,
-  );
-  const remainingEstimateHours = createEstimateFieldState(
-    workItem.remainingEstimateHours,
-  );
-  const completedEstimateHours = createEstimateFieldState(
-    workItem.completedEstimateHours,
-  );
-
-  if (
-    !originalEstimateHours &&
-    !remainingEstimateHours &&
-    !completedEstimateHours
-  ) {
-    return undefined;
-  }
-
-  return {
-    originalEstimateHours,
-    remainingEstimateHours,
-    completedEstimateHours,
-  };
-}
-
-function normalizeBacklogStatusName(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function getDefaultBacklogStatusColor(index: number) {
-  return DEFAULT_BACKLOG_STATUS_COLORS[
-    index % DEFAULT_BACKLOG_STATUS_COLORS.length
-  ]!;
-}
-
-function normalizeBacklogStatusColor(
-  value: string | undefined,
-  fallbackColor: string,
-) {
-  const trimmedValue = value?.trim();
-  if (trimmedValue && /^#[0-9a-f]{6}$/iu.test(trimmedValue)) {
-    return trimmedValue.toLowerCase();
-  }
-
-  return fallbackColor;
-}
-
-function findMappedBacklogStatusId(
-  mappings: LocalBacklogStatusMapping[],
-  source: LocalWorkItem["source"],
-  connectionId: string | undefined,
-  sourceStatusKey: string | undefined,
-) {
-  if (
-    !connectionId ||
-    !sourceStatusKey ||
-    source === "manual" ||
-    source === "outlook"
-  ) {
-    return undefined;
-  }
-
-  return mappings.find(
-    (mapping) =>
-      mapping.source === source &&
-      mapping.connectionId === connectionId &&
-      mapping.sourceStatusKey === sourceStatusKey,
-  )?.backlogStatusId;
-}
-
-function syncImportedBacklogStatus(
-  workItem: LocalWorkItem,
-  mappings: LocalBacklogStatusMapping[],
-): LocalWorkItem {
-  const nextImportedBacklogStatusId = findMappedBacklogStatusId(
-    mappings,
-    workItem.source,
-    workItem.sourceConnectionId,
-    workItem.sourceStatusKey,
-  );
-  const followsImportedBacklogStatus =
-    workItem.backlogStatusId === workItem.importedBacklogStatusId;
-
-  return {
-    ...workItem,
-    backlogStatusId: followsImportedBacklogStatus
-      ? nextImportedBacklogStatusId
-      : workItem.backlogStatusId,
-    importedBacklogStatusId: nextImportedBacklogStatusId,
-  };
-}
-
-function reconcileImportedBacklogStatuses(state: LocalAppState): LocalAppState {
-  const validBacklogStatusIds = new Set(
-    state.backlogStatuses.map((status) => status._id),
-  );
-  const backlogStatusMappings = state.backlogStatusMappings.filter((mapping) =>
-    validBacklogStatusIds.has(mapping.backlogStatusId),
-  );
-
-  return {
-    ...state,
-    backlogStatusMappings,
-    workItems: state.workItems.map((workItem) =>
-      syncImportedBacklogStatus(
-        {
-          ...workItem,
-          backlogStatusId: validBacklogStatusIds.has(
-            workItem.backlogStatusId ?? "",
-          )
-            ? workItem.backlogStatusId
-            : undefined,
-          importedBacklogStatusId: validBacklogStatusIds.has(
-            workItem.importedBacklogStatusId ?? "",
-          )
-            ? workItem.importedBacklogStatusId
-            : undefined,
-        },
-        backlogStatusMappings,
-      ),
-    ),
-  };
-}
-
-function hasDirectChildWorkItems(
-  workItems: LocalWorkItem[],
-  target: LocalWorkItem,
-) {
-  return workItems.some(
-    (candidate) =>
-      candidate.parentWorkItemId === target._id ||
-      (target.sourceId ? candidate.parentSourceId === target.sourceId : false),
-  );
-}
-
-function resolveParentWorkItemId(
-  workItem: LocalWorkItem,
-  workItemsById: Map<string, LocalWorkItem>,
-  workItemsBySourceId: Map<string, LocalWorkItem>,
-) {
-  if (workItem.parentWorkItemId) {
-    return workItem.parentWorkItemId;
-  }
-
-  if (workItem.parentSourceId) {
-    return workItemsBySourceId.get(workItem.parentSourceId)?._id;
-  }
-
-  return undefined;
-}
-
-function assertValidParentWorkItem(
-  workItems: LocalWorkItem[],
-  workItemId: string,
-  parentWorkItemId: string,
-) {
-  const target = workItems.find((workItem) => workItem._id === workItemId);
-  if (!target) {
-    throw new Error("Work item not found.");
-  }
-
-  const parent = workItems.find(
-    (workItem) => workItem._id === parentWorkItemId,
-  );
-  if (!parent) {
-    throw new Error("Parent work item not found.");
-  }
-
-  if (parent._id === workItemId) {
-    throw new Error("A work item cannot be its own parent.");
-  }
-
-  if (isSubtaskWorkItem(parent)) {
-    throw new Error("Subtasks cannot have subtasks.");
-  }
-
-  if (hasDirectChildWorkItems(workItems, target)) {
-    throw new Error("Tasks with subtasks cannot be nested.");
-  }
-
-  const workItemsById = new Map(
-    workItems.map((workItem) => [workItem._id, workItem]),
-  );
-  const workItemsBySourceId = new Map(
-    workItems
-      .filter(
-        (workItem): workItem is LocalWorkItem & { sourceId: string } =>
-          typeof workItem.sourceId === "string",
-      )
-      .map((workItem) => [workItem.sourceId, workItem]),
-  );
-
-  let currentParent: LocalWorkItem | undefined = parent;
-
-  while (currentParent) {
-    if (currentParent._id === workItemId) {
-      throw new Error(
-        "A task cannot be nested under one of its own descendants.",
-      );
-    }
-
-    const nextParentId = resolveParentWorkItemId(
-      currentParent,
-      workItemsById,
-      workItemsBySourceId,
-    );
-    currentParent = nextParentId ? workItemsById.get(nextParentId) : undefined;
-  }
-}
-
-function doesWorkItemMappingMatch(
-  left: Pick<LocalWorkItem, "projectId" | "taskId">,
-  right: Pick<LocalWorkItem, "projectId" | "taskId">,
-) {
-  return left.projectId === right.projectId && left.taskId === right.taskId;
-}
-
-function inferInheritedParentMapping(
-  workItem: Pick<
-    LocalWorkItem,
-    "parentWorkItemId" | "projectId" | "taskId" | "inheritsParentMapping"
-  >,
-  parent: Pick<LocalWorkItem, "projectId" | "taskId"> | undefined,
-) {
-  if (!workItem.parentWorkItemId || !parent) {
-    return undefined;
-  }
-
-  if (typeof workItem.inheritsParentMapping === "boolean") {
-    return workItem.inheritsParentMapping;
-  }
-
-  return (
-    (!workItem.projectId && !workItem.taskId) ||
-    doesWorkItemMappingMatch(workItem, parent)
-  );
 }
 
 function createDefaultState(): LocalAppState {
@@ -771,671 +241,6 @@ function createDefaultState(): LocalAppState {
   });
 }
 
-function normalizeTaskBudgetMs(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-
-  return Math.round(value);
-}
-
-function normalizeTaskAdjustmentMs(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
-    return undefined;
-  }
-
-  return Math.round(value);
-}
-
-function createProjectTask(task: LocalProjectTaskDraft): LocalProjectTask {
-  const createdAt = Date.now();
-  const status = task.status ?? "active";
-
-  return {
-    _id: createId("task"),
-    name: task.name,
-    status,
-    createdAt,
-    archivedAt: status === "archived" ? createdAt : undefined,
-    billable: task.billable ?? true,
-    budgetMs: normalizeTaskBudgetMs(task.budgetMs),
-    adjustmentMs: normalizeTaskAdjustmentMs(task.adjustmentMs),
-  };
-}
-
-function createProjectRecord(project: LocalProjectDraft): LocalProject {
-  const name = project.name.trim();
-  const displayName = project.displayName?.trim() || name;
-  return {
-    ...project,
-    name,
-    displayName,
-    _id: createId("project"),
-    icon: normalizeProjectIcon(project.icon),
-    status: "active",
-    tasks: (project.tasks ?? []).map((task) => createProjectTask(task)),
-  };
-}
-
-function findImportedProjectByName(
-  projects: LocalProject[],
-  projectName: string,
-) {
-  const normalizedProjectName = normalizeTaskImportName(projectName);
-  return projects.find(
-    (project) =>
-      normalizeTaskImportName(project.name) === normalizedProjectName,
-  );
-}
-
-function findImportedProjectTaskByName(
-  project: LocalProject,
-  taskName: string,
-) {
-  const normalizedTaskName = normalizeTaskImportName(taskName);
-  return project.tasks.find(
-    (task) => normalizeTaskImportName(task.name) === normalizedTaskName,
-  );
-}
-
-function groupProjectWorkbookRows(
-  rows: Array<{
-    project: string;
-    code: string;
-    color: string;
-    status: "active" | "archived";
-    task: string;
-    taskStatus: "active" | "archived" | "";
-    billable: "billable" | "non_billable" | "";
-    budgetHours: number | "";
-    adjustmentHours: number | "";
-  }>,
-) {
-  const grouped = new Map<
-    string,
-    {
-      projectName: string;
-      code?: string;
-      color?: string;
-      status: "active" | "archived";
-      tasks: Array<{
-        name: string;
-        status: "active" | "archived";
-        billable?: boolean;
-        budgetMs?: number;
-        adjustmentMs?: number;
-      }>;
-    }
-  >();
-
-  for (const row of rows) {
-    const projectName = formatTaskImportName(row.project);
-    const key = normalizeTaskImportName(projectName);
-    const existing = grouped.get(key);
-
-    const nextGroup = existing ?? {
-      projectName,
-      code: undefined,
-      color: undefined,
-      status: row.status,
-      tasks: [],
-    };
-
-    nextGroup.projectName = projectName;
-    nextGroup.code = formatTaskImportName(row.code) || nextGroup.code;
-    nextGroup.color = formatTaskImportName(row.color) || nextGroup.color;
-    nextGroup.status = row.status;
-
-    const taskName = formatTaskImportName(row.task);
-    if (taskName) {
-      const taskKey = normalizeTaskImportName(taskName);
-      const existingTaskIndex = nextGroup.tasks.findIndex(
-        (task) => normalizeTaskImportName(task.name) === taskKey,
-      );
-      const nextTask = {
-        name: taskName,
-        status: row.taskStatus || "active",
-        billable: row.billable ? row.billable === "billable" : true,
-        budgetMs: durationHoursValueToMs(
-          typeof row.budgetHours === "number" ? row.budgetHours : undefined,
-        ),
-        adjustmentMs: durationHoursValueToMs(
-          typeof row.adjustmentHours === "number"
-            ? row.adjustmentHours
-            : undefined,
-        ),
-      } as const;
-
-      if (existingTaskIndex >= 0) {
-        nextGroup.tasks[existingTaskIndex] = nextTask;
-      } else {
-        nextGroup.tasks.push(nextTask);
-      }
-    }
-
-    grouped.set(key, nextGroup);
-  }
-
-  return Array.from(grouped.values());
-}
-
-function normalizeProject(project: LocalProject): LocalProject {
-  const name = project.name.trim();
-  const displayName = project.displayName?.trim() || name;
-  return {
-    ...project,
-    name,
-    displayName,
-    icon: normalizeProjectIcon(project.icon),
-    tasks: (project.tasks ?? []).map((task) => ({
-      ...task,
-      status: task.status ?? "active",
-      createdAt: task.createdAt ?? Date.now(),
-      archivedAt:
-        task.archivedAt ??
-        (task.status === "archived"
-          ? (task.createdAt ?? Date.now())
-          : undefined),
-      billable: task.billable ?? true,
-      budgetMs: normalizeTaskBudgetMs(task.budgetMs),
-      adjustmentMs: normalizeTaskAdjustmentMs(task.adjustmentMs),
-    })),
-  };
-}
-
-function normalizeTimer(
-  timer: Partial<LocalTimer> & { _id: string; startedAt: number },
-): LocalTimer {
-  return {
-    _id: timer._id,
-    startedAt: timer.startedAt,
-    localDate:
-      timer.localDate ?? new Date(timer.startedAt).toISOString().slice(0, 10),
-    workItemId: timer.workItemId,
-    projectId: timer.projectId,
-    taskId: timer.taskId,
-    note:
-      timer.note ??
-      ("label" in timer && typeof timer.label === "string"
-        ? timer.label
-        : undefined),
-    accumulatedDurationMs: timer.accumulatedDurationMs ?? 0,
-    entryId: timer.entryId,
-  };
-}
-
-function normalizeTimesheetEntry(
-  entry: LocalTimesheetEntry,
-): LocalTimesheetEntry {
-  const submittedAt =
-    typeof entry.submittedAt === "number" && Number.isFinite(entry.submittedAt)
-      ? entry.submittedAt
-      : undefined;
-  const normalizedEntry = {
-    ...entry,
-    taskId: entry.taskId,
-    note: entry.note?.trim() || undefined,
-    submittedAt,
-  };
-
-  return {
-    ...normalizedEntry,
-    submittedFingerprint: submittedAt
-      ? (normalizedEntry.submittedFingerprint ??
-        createTimesheetEntrySubmissionFingerprint(normalizedEntry))
-      : undefined,
-  };
-}
-
-function createTimesheetEntrySubmissionFingerprint(
-  entry: Pick<
-    LocalTimesheetEntry,
-    | "localDate"
-    | "workItemId"
-    | "projectId"
-    | "taskId"
-    | "note"
-    | "durationMs"
-    | "sourceBlockIds"
-  >,
-) {
-  return JSON.stringify([
-    entry.localDate,
-    entry.workItemId ?? "",
-    entry.projectId ?? "",
-    entry.taskId ?? "",
-    entry.note?.trim() ?? "",
-    entry.durationMs,
-    [...entry.sourceBlockIds].sort(),
-  ]);
-}
-
-function preserveTimesheetEntrySubmissionState(
-  existingEntry: LocalTimesheetEntry | undefined,
-  nextEntry: LocalTimesheetEntry,
-): LocalTimesheetEntry {
-  if (!existingEntry?.submittedAt) {
-    return nextEntry;
-  }
-
-  const previousFingerprint =
-    existingEntry.submittedFingerprint ??
-    createTimesheetEntrySubmissionFingerprint(existingEntry);
-  const nextFingerprint = createTimesheetEntrySubmissionFingerprint(nextEntry);
-
-  if (previousFingerprint !== nextFingerprint) {
-    return {
-      ...nextEntry,
-      submittedAt: undefined,
-      submittedFingerprint: undefined,
-    };
-  }
-
-  return {
-    ...nextEntry,
-    submittedAt: existingEntry.submittedAt,
-    submittedFingerprint: previousFingerprint,
-  };
-}
-
-function formatImportName(value?: string) {
-  return formatTaskImportName(value ?? "");
-}
-
-function resolveImportedProject(state: LocalAppState, projectName: string) {
-  const normalizedProjectName = normalizeTaskImportName(projectName);
-  return state.projects.find(
-    (project) =>
-      normalizeTaskImportName(project.name) === normalizedProjectName,
-  );
-}
-
-function resolveImportedTask(
-  project: LocalProject | undefined,
-  taskName: string,
-) {
-  const normalizedTaskName = normalizeTaskImportName(taskName);
-  return project?.tasks.find(
-    (task) => normalizeTaskImportName(task.name) === normalizedTaskName,
-  );
-}
-
-function hasPotentialImportedTimesheetConflict(
-  state: LocalAppState,
-  values: {
-    localDate: string;
-    projectName: string;
-    taskName: string;
-  },
-) {
-  const project = resolveImportedProject(state, values.projectName);
-  const task = resolveImportedTask(project, values.taskName);
-
-  const conflictEntryIds = state.timesheetEntries
-    .filter(
-      (entry) =>
-        entry.localDate === values.localDate &&
-        entry.projectId === project?._id &&
-        (entry.taskId ?? "") === (task?._id ?? ""),
-    )
-    .map((entry) => entry._id);
-
-  return {
-    potentialConflict: conflictEntryIds.length > 0,
-    conflictEntryIds,
-  };
-}
-
-function createTimesheetImportDraft(
-  state: LocalAppState,
-  values: {
-    date: string;
-    project: string;
-    task: string;
-    note?: string;
-    hours: number;
-  },
-): LocalTimesheetImportDraft {
-  const projectName = formatImportName(values.project);
-  const taskName = formatImportName(values.task);
-  const localDate = values.date.trim();
-  const note = values.note?.trim() || undefined;
-  const durationMs = Math.round(values.hours * 60 * 60 * 1000);
-  const { potentialConflict, conflictEntryIds } =
-    hasPotentialImportedTimesheetConflict(state, {
-      localDate,
-      projectName,
-      taskName,
-    });
-
-  return {
-    _id: createId("timesheet_import"),
-    localDate,
-    projectName,
-    taskName,
-    note,
-    durationMs,
-    potentialConflict,
-    conflictEntryIds,
-    importedAt: Date.now(),
-  };
-}
-
-function ensureImportedProjectAndTask(
-  state: LocalAppState,
-  values: {
-    projectName: string;
-    taskName: string;
-  },
-) {
-  const projectName = formatImportName(values.projectName);
-  const taskName = formatImportName(values.taskName);
-
-  if (!projectName) {
-    return {
-      projects: state.projects,
-      projectId: undefined,
-      taskId: undefined,
-    };
-  }
-
-  const existingProject = resolveImportedProject(state, projectName);
-
-  if (existingProject) {
-    const existingTask = taskName
-      ? resolveImportedTask(existingProject, taskName)
-      : undefined;
-    if (existingTask || !taskName) {
-      return {
-        projects: state.projects.map((project) =>
-          project._id === existingProject._id && project.status === "archived"
-            ? { ...project, status: "active" as const }
-            : project,
-        ),
-        projectId: existingProject._id,
-        taskId: existingTask?._id,
-      };
-    }
-
-    const nextTask = createProjectTask({ name: taskName });
-    return {
-      projects: state.projects.map((project) =>
-        project._id === existingProject._id
-          ? {
-              ...project,
-              status: "active" as const,
-              tasks: [...project.tasks, nextTask],
-            }
-          : project,
-      ),
-      projectId: existingProject._id,
-      taskId: nextTask._id,
-    };
-  }
-
-  const nextTask = taskName ? createProjectTask({ name: taskName }) : undefined;
-  const nextProject = createProjectRecord({
-    name: projectName,
-    color: "#3d5a80",
-    tasks: nextTask ? [{ name: taskName }] : [],
-  });
-
-  if (nextTask) {
-    nextProject.tasks = [nextTask];
-  }
-
-  return {
-    projects: [...state.projects, nextProject],
-    projectId: nextProject._id,
-    taskId: nextTask?._id,
-  };
-}
-
-function createWorkItem(workItem: LocalWorkItemDraft): LocalWorkItem {
-  const isSubtask = Boolean(workItem.parentWorkItemId);
-
-  return {
-    _id: createId("work_item"),
-    title: workItem.title.trim(),
-    status: "active",
-    source: "manual",
-    sourceId: undefined,
-    sourceConnectionId: undefined,
-    sourceConnectionLabel: undefined,
-    sourceProjectName: undefined,
-    sourceWorkItemType: undefined,
-    hierarchyLevel: isSubtask ? 1 : 0,
-    parentWorkItemId: workItem.parentWorkItemId,
-    parentSourceId: undefined,
-    priority: isSubtask ? undefined : normalizePriorityValue(workItem.priority),
-    importedPriority: undefined,
-    backlogStatusId: workItem.backlogStatusId,
-    importedBacklogStatusId: undefined,
-    sourceStatusKey: undefined,
-    sourceStatusLabel: undefined,
-    projectId: workItem.projectId,
-    taskId: workItem.taskId,
-    inheritsParentMapping: isSubtask
-      ? workItem.inheritsParentMapping
-      : undefined,
-    note: workItem.note?.trim() || undefined,
-    originalEstimateHours: normalizeEstimateValue(
-      workItem.originalEstimateHours,
-    ),
-    remainingEstimateHours: normalizeEstimateValue(
-      workItem.remainingEstimateHours,
-    ),
-    completedEstimateHours: normalizeEstimateValue(
-      workItem.completedEstimateHours,
-    ),
-    estimateSync: undefined,
-    keepWhenMissingFromSync: false,
-    createdAt: Date.now(),
-    archivedAt: undefined,
-  };
-}
-
-function createConnectorWorkItem(
-  workItem: ConnectorImportCandidate,
-  mappedBacklogStatusId: string | undefined,
-): LocalWorkItem {
-  const sourceStatusLabel = workItem.state?.trim() || undefined;
-  const sourceStatusKey = sourceStatusLabel
-    ? normalizeConnectorStatusKey(sourceStatusLabel)
-    : undefined;
-
-  return {
-    _id: createId("work_item"),
-    title: workItem.title.trim(),
-    status: "active",
-    source: workItem.source,
-    sourceId: workItem.sourceId,
-    sourceConnectionId: workItem.connectionId,
-    sourceConnectionLabel: workItem.connectionLabel,
-    sourceProjectName: workItem.projectName,
-    sourceWorkItemType: workItem.workItemType,
-    hierarchyLevel: workItem.depth,
-    parentSourceId: workItem.parentSourceId,
-    priority:
-      workItem.depth > 0
-        ? undefined
-        : normalizePriorityValue(workItem.priority),
-    importedPriority:
-      workItem.depth > 0
-        ? undefined
-        : normalizePriorityValue(workItem.priority),
-    backlogStatusId: mappedBacklogStatusId,
-    importedBacklogStatusId: mappedBacklogStatusId,
-    sourceStatusKey,
-    sourceStatusLabel,
-    projectId: undefined,
-    taskId: undefined,
-    note: workItem.note?.trim() || undefined,
-    originalEstimateHours: normalizeEstimateValue(
-      workItem.originalEstimateHours,
-    ),
-    remainingEstimateHours: normalizeEstimateValue(
-      workItem.remainingEstimateHours,
-    ),
-    completedEstimateHours: normalizeEstimateValue(
-      workItem.completedEstimateHours,
-    ),
-    estimateSync: buildImportedEstimateSyncState(workItem),
-    keepWhenMissingFromSync: false,
-    createdAt: workItem.pushedAt,
-    archivedAt: undefined,
-  };
-}
-
-function mergeConnectorWorkItem(
-  existingWorkItem: LocalWorkItem,
-  importedWorkItem: ConnectorImportCandidate,
-  mappedBacklogStatusId: string | undefined,
-): LocalWorkItem {
-  const nextImportedState = createConnectorWorkItem(
-    importedWorkItem,
-    mappedBacklogStatusId,
-  );
-  const followsImportedPriority =
-    existingWorkItem.priority === existingWorkItem.importedPriority;
-  const followsImportedBacklogStatus =
-    existingWorkItem.backlogStatusId ===
-    existingWorkItem.importedBacklogStatusId;
-  const followsImportedOriginalEstimate =
-    existingWorkItem.originalEstimateHours ===
-    existingWorkItem.estimateSync?.originalEstimateHours?.remoteValue;
-  const followsImportedRemainingEstimate =
-    existingWorkItem.remainingEstimateHours ===
-    existingWorkItem.estimateSync?.remainingEstimateHours?.remoteValue;
-  const followsImportedCompletedEstimate =
-    existingWorkItem.completedEstimateHours ===
-    existingWorkItem.estimateSync?.completedEstimateHours?.remoteValue;
-
-  return {
-    ...existingWorkItem,
-    title: nextImportedState.title,
-    note: nextImportedState.note,
-    sourceId: nextImportedState.sourceId,
-    sourceConnectionId: nextImportedState.sourceConnectionId,
-    sourceConnectionLabel: nextImportedState.sourceConnectionLabel,
-    sourceProjectName: nextImportedState.sourceProjectName,
-    sourceWorkItemType: nextImportedState.sourceWorkItemType,
-    priority: followsImportedPriority
-      ? nextImportedState.importedPriority
-      : existingWorkItem.priority,
-    importedPriority: nextImportedState.importedPriority,
-    backlogStatusId: followsImportedBacklogStatus
-      ? nextImportedState.importedBacklogStatusId
-      : existingWorkItem.backlogStatusId,
-    importedBacklogStatusId: nextImportedState.importedBacklogStatusId,
-    sourceStatusKey: nextImportedState.sourceStatusKey,
-    sourceStatusLabel: nextImportedState.sourceStatusLabel,
-    originalEstimateHours: followsImportedOriginalEstimate
-      ? nextImportedState.originalEstimateHours
-      : existingWorkItem.originalEstimateHours,
-    remainingEstimateHours: followsImportedRemainingEstimate
-      ? nextImportedState.remainingEstimateHours
-      : existingWorkItem.remainingEstimateHours,
-    completedEstimateHours: followsImportedCompletedEstimate
-      ? nextImportedState.completedEstimateHours
-      : existingWorkItem.completedEstimateHours,
-    estimateSync: {
-      ...existingWorkItem.estimateSync,
-      originalEstimateHours: nextImportedState.estimateSync
-        ?.originalEstimateHours
-        ? {
-            ...existingWorkItem.estimateSync?.originalEstimateHours,
-            remoteValue:
-              nextImportedState.estimateSync.originalEstimateHours.remoteValue,
-            baselineValue: followsImportedOriginalEstimate
-              ? nextImportedState.estimateSync.originalEstimateHours
-                  .baselineValue
-              : existingWorkItem.estimateSync?.originalEstimateHours
-                  ?.baselineValue,
-          }
-        : existingWorkItem.estimateSync?.originalEstimateHours,
-      remainingEstimateHours: nextImportedState.estimateSync
-        ?.remainingEstimateHours
-        ? {
-            ...existingWorkItem.estimateSync?.remainingEstimateHours,
-            remoteValue:
-              nextImportedState.estimateSync.remainingEstimateHours.remoteValue,
-            baselineValue: followsImportedRemainingEstimate
-              ? nextImportedState.estimateSync.remainingEstimateHours
-                  .baselineValue
-              : existingWorkItem.estimateSync?.remainingEstimateHours
-                  ?.baselineValue,
-          }
-        : existingWorkItem.estimateSync?.remainingEstimateHours,
-      completedEstimateHours: nextImportedState.estimateSync
-        ?.completedEstimateHours
-        ? {
-            ...existingWorkItem.estimateSync?.completedEstimateHours,
-            remoteValue:
-              nextImportedState.estimateSync.completedEstimateHours.remoteValue,
-            baselineValue: followsImportedCompletedEstimate
-              ? nextImportedState.estimateSync.completedEstimateHours
-                  .baselineValue
-              : existingWorkItem.estimateSync?.completedEstimateHours
-                  ?.baselineValue,
-          }
-        : existingWorkItem.estimateSync?.completedEstimateHours,
-    },
-    keepWhenMissingFromSync: existingWorkItem.keepWhenMissingFromSync ?? false,
-    status: "active",
-    archivedAt: undefined,
-  };
-}
-
-function normalizeWorkItem(workItem: PersistedLocalWorkItem): LocalWorkItem {
-  const parentWorkItemId = workItem.parentWorkItemId;
-  const status =
-    workItem.status === "done"
-      ? "archived"
-      : workItem.status === "open" || !workItem.status
-        ? "active"
-        : workItem.status;
-  const isSubtask = isSubtaskWorkItem(workItem);
-
-  return {
-    ...workItem,
-    title: workItem.title.trim(),
-    status,
-    source: workItem.source ?? "manual",
-    sourceConnectionId: workItem.sourceConnectionId,
-    sourceConnectionLabel: workItem.sourceConnectionLabel,
-    sourceProjectName: workItem.sourceProjectName,
-    sourceWorkItemType: workItem.sourceWorkItemType,
-    hierarchyLevel: isSubtask ? 1 : 0,
-    parentWorkItemId,
-    parentSourceId: workItem.parentSourceId,
-    priority: isSubtask ? undefined : normalizePriorityValue(workItem.priority),
-    importedPriority: isSubtask
-      ? undefined
-      : normalizePriorityValue(workItem.importedPriority),
-    backlogStatusId: workItem.backlogStatusId,
-    importedBacklogStatusId: workItem.importedBacklogStatusId,
-    sourceStatusKey: workItem.sourceStatusKey,
-    sourceStatusLabel: workItem.sourceStatusLabel,
-    originalEstimateHours: normalizeEstimateValue(
-      workItem.originalEstimateHours,
-    ),
-    remainingEstimateHours: normalizeEstimateValue(
-      workItem.remainingEstimateHours,
-    ),
-    completedEstimateHours: normalizeEstimateValue(
-      workItem.completedEstimateHours,
-    ),
-    estimateSync: workItem.estimateSync,
-    keepWhenMissingFromSync: workItem.keepWhenMissingFromSync ?? false,
-    createdAt: workItem.createdAt ?? Date.now(),
-    archivedAt:
-      workItem.archivedAt ??
-      workItem.completedAt ??
-      (status === "archived" ? (workItem.createdAt ?? Date.now()) : undefined),
-  };
-}
-
 function normalizeState(state: Partial<LocalAppState>): LocalAppState {
   const defaults = createDefaultState();
   const {
@@ -1444,26 +249,20 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
   } = state as Partial<LocalAppState> & {
     activityLoggerEnabled?: boolean;
   };
-  const rawWorkItems = (persistedState.workItems ??
-    defaults.workItems) as PersistedLocalWorkItem[];
-  const workItems = rawWorkItems.map((workItem) => normalizeWorkItem(workItem));
-  const backlogStatuses = (
-    persistedState.backlogStatuses ?? defaults.backlogStatuses
-  )
-    .filter((status): status is LocalBacklogStatus =>
-      Boolean(status?._id && status.name),
-    )
-    .map((status, index) => ({
-      _id: status._id,
-      name: normalizeBacklogStatusName(status.name),
-      color: normalizeBacklogStatusColor(
-        status.color,
-        getDefaultBacklogStatusColor(index),
-      ),
-      createdAt: status.createdAt ?? Date.now(),
-    }));
-  const backlogStatusMappings = (
-    persistedState.backlogStatusMappings ?? defaults.backlogStatusMappings
+  const rawWorkItems = arrayOrDefault<PersistedLocalWorkItem>(
+    persistedState.workItems,
+    defaults.workItems,
+  );
+  const workItems = rawWorkItems.map((workItem) =>
+    normalizePersistedWorkItem(workItem, Date.now),
+  );
+  const backlogStatuses = normalizeBacklogStatuses(
+    arrayOrDefault(persistedState.backlogStatuses, defaults.backlogStatuses),
+    Date.now,
+  );
+  const backlogStatusMappings = arrayOrDefault(
+    persistedState.backlogStatusMappings,
+    defaults.backlogStatusMappings,
   ).filter((mapping): mapping is LocalBacklogStatusMapping =>
     Boolean(
       mapping?.source &&
@@ -1489,26 +288,39 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
         ...defaults.user,
         ...persistedState.user,
       },
-      projects: (persistedState.projects ?? defaults.projects).map((project) =>
-        normalizeProject(project),
+      projects: arrayOrDefault(
+        persistedState.projects,
+        defaults.projects,
+      ).map((project) => normalizeProject(project, Date.now)),
+      rules: arrayOrDefault(persistedState.rules, defaults.rules),
+      segments: arrayOrDefault(persistedState.segments, defaults.segments),
+      dismissedSegmentIds: arrayOrDefault(
+        persistedState.dismissedSegmentIds,
+        defaults.dismissedSegmentIds,
       ),
-      rules: persistedState.rules ?? defaults.rules,
-      segments: persistedState.segments ?? defaults.segments,
-      dismissedSegmentIds:
-        persistedState.dismissedSegmentIds ?? defaults.dismissedSegmentIds,
-      editedBlocks: persistedState.editedBlocks ?? defaults.editedBlocks,
-      importedBrowserDrafts:
-        persistedState.importedBrowserDrafts ?? defaults.importedBrowserDrafts,
-      outlookMeetingDrafts:
-        persistedState.outlookMeetingDrafts ?? defaults.outlookMeetingDrafts,
-      timers: (persistedState.timers ?? defaults.timers).map((timer) =>
+      editedBlocks: arrayOrDefault(
+        persistedState.editedBlocks,
+        defaults.editedBlocks,
+      ),
+      importedBrowserDrafts: arrayOrDefault(
+        persistedState.importedBrowserDrafts,
+        defaults.importedBrowserDrafts,
+      ),
+      outlookMeetingDrafts: arrayOrDefault(
+        persistedState.outlookMeetingDrafts,
+        defaults.outlookMeetingDrafts,
+      ),
+      timers: arrayOrDefault(persistedState.timers, defaults.timers).map((timer) =>
         normalizeTimer(timer),
       ),
-      timesheetEntries: (
-        persistedState.timesheetEntries ?? defaults.timesheetEntries
+      timesheetEntries: arrayOrDefault(
+        persistedState.timesheetEntries,
+        defaults.timesheetEntries,
       ).map((entry) => normalizeTimesheetEntry(entry)),
-      timesheetImportDrafts:
-        persistedState.timesheetImportDrafts ?? defaults.timesheetImportDrafts,
+      timesheetImportDrafts: arrayOrDefault(
+        persistedState.timesheetImportDrafts,
+        defaults.timesheetImportDrafts,
+      ),
       workItems,
       backlogStatuses,
       backlogStatusMappings,
@@ -1517,11 +329,20 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
         ...defaults.capture,
         ...persistedState.capture,
         blockedDomains:
-          persistedState.capture?.blockedDomains ??
-          defaults.capture.blockedDomains,
+          arrayOrDefault(
+            persistedState.capture?.blockedDomains,
+            defaults.capture.blockedDomains,
+          ),
         sensitiveDomains:
-          persistedState.capture?.sensitiveDomains ??
-          defaults.capture.sensitiveDomains,
+          arrayOrDefault(
+            persistedState.capture?.sensitiveDomains,
+            defaults.capture.sensitiveDomains,
+          ),
+        maxPathSegments:
+          typeof persistedState.capture?.maxPathSegments === "number" &&
+          Number.isFinite(persistedState.capture.maxPathSegments)
+            ? persistedState.capture.maxPathSegments
+            : defaults.capture.maxPathSegments,
       },
       outlookIntegration: {
         ...defaults.outlookIntegration,
@@ -1537,7 +358,16 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
 
 function ensureLocalWorkspace(state: LocalAppState): LocalAppState {
   if (state.team) {
-    return state;
+    return {
+      ...state,
+      team: {
+        ...state.team,
+        settings: {
+          ...defaultTeamSettings,
+          ...state.team.settings,
+        },
+      },
+    };
   }
 
   return {
@@ -1552,7 +382,7 @@ function ensureLocalWorkspace(state: LocalAppState): LocalAppState {
       state.projects.length > 0
         ? state.projects
         : defaultWorkspaceProjects.map((project) =>
-            createProjectRecord(project),
+          createProject(project, { createId, now: Date.now }),
           ),
   };
 }
@@ -1598,7 +428,7 @@ function shouldBootstrapFromDesktopState(
   currentState: Partial<LocalAppState> | undefined,
   bootstrapState: Partial<LocalAppState> | null | undefined,
 ) {
-  if (!bootstrapState) {
+  if (!bootstrapState || currentState?.desktopBootstrapAppliedAt) {
     return false;
   }
 
@@ -1611,9 +441,10 @@ function shouldBootstrapFromDesktopState(
   const currentHasDefaultProjects = hasOnlyDefaultProjects(
     currentState?.projects,
   );
-  const bootstrapHasCustomProjects = !hasOnlyDefaultProjects(
-    bootstrapState.projects,
-  );
+  const bootstrapHasCustomProjects =
+    Array.isArray(bootstrapState.projects) &&
+    bootstrapState.projects.length > 0 &&
+    !hasOnlyDefaultProjects(bootstrapState.projects);
   return currentHasDefaultProjects && bootstrapHasCustomProjects;
 }
 
@@ -1638,11 +469,20 @@ function mergeDesktopBootstrapState(
     nextState.timers = bootstrapState.timers;
   }
   if (
-    hasOnlyDefaultProjects(nextState.projects) &&
-    !hasOnlyDefaultProjects(bootstrapState.projects)
+    Array.isArray(bootstrapState.projects) &&
+    bootstrapState.projects.length > 0
   ) {
-    nextState.projects = bootstrapState.projects;
-    nextState.team = bootstrapState.team ?? nextState.team;
+    const currentProjects = nextState.projects ?? [];
+    const currentProjectIds = new Set(
+      currentProjects.map((project) => project._id),
+    );
+    nextState.projects = [
+      ...bootstrapState.projects.filter(
+        (project) => !currentProjectIds.has(project._id),
+      ),
+      ...currentProjects,
+    ];
+    nextState.team = nextState.team ?? bootstrapState.team;
   }
   if (
     (nextState.rules?.length ?? 0) === 0 &&
@@ -1692,28 +532,53 @@ function mergeDesktopBootstrapState(
       ? bootstrapState.updatedAt
       : 0;
   nextState.updatedAt = Math.max(nextUpdatedAt, bootstrapUpdatedAt, Date.now());
+  nextState.desktopBootstrapAppliedAt = Date.now();
 
   return nextState;
 }
 
 function loadState(): LocalAppState {
   const bootstrapState = window.timetrackerDesktop?.bootstrapLocalState;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  let stored: string | null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return normalizeState(bootstrapState ?? createDefaultState());
+  }
   if (!stored) {
+    return normalizeState(
+      bootstrapState
+        ? {
+            ...bootstrapState,
+            desktopBootstrapAppliedAt: Date.now(),
+          }
+        : createDefaultState(),
+    );
+  }
+
+  let parsedState: Partial<LocalAppState>;
+  try {
+    parsedState = JSON.parse(stored) as Partial<LocalAppState>;
+  } catch {
     return normalizeState(bootstrapState ?? createDefaultState());
   }
 
-  const parsedState = JSON.parse(stored) as Partial<LocalAppState>;
   if (shouldBootstrapFromDesktopState(parsedState, bootstrapState)) {
-    const mergedState = mergeDesktopBootstrapState(
-      parsedState,
-      bootstrapState!,
+    const mergedState = normalizeState(
+      mergeDesktopBootstrapState(parsedState, bootstrapState!),
     );
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedState));
-    return normalizeState(mergedState);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedState));
+    } catch {
+      // Keep the complete merged state in memory when persistence is unavailable.
+    }
+    return mergedState;
   }
-
-  return normalizeState(parsedState);
+  try {
+    return normalizeState(parsedState);
+  } catch {
+    return normalizeState(bootstrapState ?? createDefaultState());
+  }
 }
 
 function readState(): LocalAppState {
@@ -1728,446 +593,34 @@ function refreshState(): LocalAppState {
 
 function writeState(state: LocalAppState) {
   const nextState = { ...state, updatedAt: Date.now() };
-  cachedState = nextState;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+  cachedState = nextState;
   window.dispatchEvent(new Event("timetracker-local-state"));
 }
 
 function updateState(
   mutator: (state: LocalAppState) => LocalAppState,
 ): LocalAppState {
-  const next = mutator(readState());
-  writeState(next);
+  const current = readState();
+  const next = mutator(current);
+  if (next !== current) {
+    writeState(next);
+  }
   return next;
 }
 
-function blockId(block: ActivityBlockRecord): string {
-  return block.id ?? block.sourceSegmentIds.join("__");
-}
-
-function resolveTaskLabel(
-  state: LocalAppState,
-  projectId?: string,
-  taskId?: string,
-): string {
-  const project = state.projects.find((item) => item._id === projectId);
-  const task = project?.tasks.find((item) => item._id === taskId);
-
-  return task?.name ?? "";
-}
-
-function createTimesheetEntry(
-  state: LocalAppState,
-  values: {
-    localDate: string;
-    workItemId?: string;
-    projectId?: string;
-    taskId?: string;
-    note?: string;
-    durationMs: number;
-    sourceBlockIds: string[];
-    entryId?: string;
+function updateStateWithResult<T>(
+  operation: (state: LocalAppState) => {
+    state: LocalAppState;
+    result: T;
   },
-): LocalTimesheetEntry {
-  return {
-    _id: values.entryId ?? createId("timesheet"),
-    localDate: values.localDate,
-    workItemId: values.workItemId,
-    projectId: values.projectId,
-    taskId: values.taskId,
-    label: resolveTaskLabel(state, values.projectId, values.taskId),
-    note: values.note,
-    durationMs: values.durationMs,
-    sourceBlockIds: values.sourceBlockIds,
-    committedAt: Date.now(),
-    submittedAt: undefined,
-    submittedFingerprint: undefined,
-  };
-}
-
-function applyLoggedTimeToWorkItems(
-  workItems: LocalWorkItem[],
-  values: {
-    workItemId?: string;
-    projectId?: string;
-    taskId?: string;
-    durationMsDelta: number;
-  },
-) {
-  if (values.durationMsDelta === 0) {
-    return workItems;
+): T {
+  const current = readState();
+  const { state, result } = operation(current);
+  if (state !== current) {
+    writeState(state);
   }
-
-  const deltaHours = durationMsToHours(values.durationMsDelta);
-  if (deltaHours === 0) {
-    return workItems;
-  }
-
-  return workItems.map((workItem) => {
-    const matchesWorkItem =
-      Boolean(values.workItemId) && workItem._id === values.workItemId;
-    const matchesMappedTask =
-      !values.workItemId &&
-      Boolean(values.projectId) &&
-      Boolean(values.taskId) &&
-      workItem.projectId === values.projectId &&
-      workItem.taskId === values.taskId;
-
-    if (!matchesWorkItem && !matchesMappedTask) {
-      return workItem;
-    }
-
-    return {
-      ...workItem,
-      remainingEstimateHours: applyEstimateDelta(
-        workItem.remainingEstimateHours,
-        -deltaHours,
-        { clampAtZero: true },
-      ),
-      completedEstimateHours: applyEstimateDelta(
-        workItem.completedEstimateHours,
-        deltaHours,
-        { clampAtZero: true },
-      ),
-    };
-  });
-}
-
-function applyConnectorFieldUpdateToWorkItem(
-  workItem: LocalWorkItem,
-  fieldKey: LocalWorkItemEstimateFieldKey,
-  update: ConnectorSyncFieldUpdate,
-): LocalWorkItem {
-  const nextEstimateSync: LocalWorkItemEstimateSyncState = {
-    ...workItem.estimateSync,
-  };
-  const currentFieldState = nextEstimateSync[fieldKey];
-  const nextFieldState: LocalWorkItemEstimateFieldState = {
-    ...currentFieldState,
-    remoteValue: update.remoteValue ?? currentFieldState?.remoteValue,
-  };
-
-  switch (update.status) {
-    case "pulled":
-      nextFieldState.baselineValue =
-        update.nextBaselineValue ?? update.remoteValue;
-      nextFieldState.remoteValue = update.remoteValue;
-      nextFieldState.resolution = undefined;
-      nextFieldState.conflict = undefined;
-      nextFieldState.error = undefined;
-      return {
-        ...workItem,
-        [fieldKey]: update.remoteValue,
-        estimateSync: {
-          ...nextEstimateSync,
-          [fieldKey]: nextFieldState,
-        },
-      };
-    case "pushed":
-    case "noop":
-      nextFieldState.baselineValue =
-        update.nextBaselineValue ?? nextFieldState.baselineValue;
-      nextFieldState.resolution = undefined;
-      nextFieldState.conflict = undefined;
-      nextFieldState.error = undefined;
-      return {
-        ...workItem,
-        estimateSync: {
-          ...nextEstimateSync,
-          [fieldKey]: nextFieldState,
-        },
-      };
-    case "conflict":
-      nextFieldState.conflict = {
-        detectedAt: Date.now(),
-        localValue: update.localValue ?? workItem[fieldKey],
-        remoteValue: update.remoteValue,
-        baselineValue: update.baselineValue ?? currentFieldState?.baselineValue,
-      };
-      nextFieldState.error = undefined;
-      return {
-        ...workItem,
-        estimateSync: {
-          ...nextEstimateSync,
-          [fieldKey]: nextFieldState,
-        },
-      };
-    case "error":
-      nextFieldState.error = {
-        detectedAt: Date.now(),
-        message: update.message ?? "Sync failed.",
-      };
-      return {
-        ...workItem,
-        estimateSync: {
-          ...nextEstimateSync,
-          [fieldKey]: nextFieldState,
-        },
-      };
-  }
-}
-
-function buildSampleSegment(
-  state: LocalAppState,
-  url: string,
-  title: string,
-): ActivitySegmentRecord {
-  const endedAt = Date.now();
-  const startedAt = endedAt - 20 * 60 * 1000;
-  const normalized = normalizeActivityContext(
-    { url, title },
-    { capture: state.capture },
-  );
-
-  return {
-    externalSegmentId: createId("segment"),
-    userId: state.user._id,
-    teamId: state.team?._id ?? "local_team",
-    deviceId: "local_web",
-    source: "browser_extension",
-    capturedUrlMode: state.capture.urlMode,
-    localDate: new Date(startedAt).toISOString().slice(0, 10),
-    startedAt,
-    endedAt,
-    activeDurationMs: endedAt - startedAt,
-    idleDurationMs: 0,
-    isIdleSplit: false,
-    context: { url, title },
-    normalized,
-    createdAt: Date.now(),
-  };
-}
-
-function materializeBlocks(
-  state: LocalAppState,
-  localDate: string,
-): ActivityBlockRecord[] {
-  const visibleSegments = state.segments.filter(
-    (segment) =>
-      segment.localDate === localDate &&
-      !state.dismissedSegmentIds.includes(segment.externalSegmentId) &&
-      !state.editedBlocks.some((block) =>
-        block.sourceSegmentIds.includes(segment.externalSegmentId),
-      ),
-  );
-
-  const draftBlocks = aggregateSegmentsToBlocks(visibleSegments, {
-    mergeGapMs:
-      state.team?.settings.mergeGapMs ?? defaultTeamSettings.mergeGapMs,
-    microBlockThresholdMs:
-      state.team?.settings.microBlockThresholdMs ??
-      defaultTeamSettings.microBlockThresholdMs,
-  }).map((block) => {
-    const evaluation = evaluateBlockAgainstRules(block, state.rules, []);
-    const suggestion = evaluation.suggestion;
-    return {
-      ...block,
-      id: blockId(block),
-      projectId: suggestion?.projectId,
-      confidence: suggestion?.confidence ?? 0,
-      explanation: suggestion?.explanation,
-      assignmentSource: suggestion?.source ?? "none",
-      status: suggestion ? "suggested" : "draft",
-    } satisfies ActivityBlockRecord;
-  });
-
-  return [
-    ...state.editedBlocks.filter((block) => block.localDate === localDate),
-    ...draftBlocks,
-  ].sort((a, b) => a.startedAt - b.startedAt);
-}
-
-function createBucketRuleSeed(
-  state: LocalAppState,
-  bucket: BrowserActivityBucket,
-): ActivityBlockRecord {
-  return {
-    id: bucket.bucketKey,
-    userId: state.user._id,
-    teamId: state.team?._id ?? "local_team",
-    localDate: bucket.localDate,
-    startedAt: bucket.startedAt,
-    endedAt: bucket.endedAt,
-    durationMs: bucket.durationMs,
-    sourceSegmentIds: bucket.evidence.flatMap((item) => item.sourceSegmentIds),
-    fingerprint: bucket.dominant.fingerprint,
-    display: {
-      label: bucket.dominant.label,
-      subtitle: bucket.dominant.subtitle,
-    },
-    status: "suggested",
-    assignmentSource: "none",
-    confidence: bucket.confidence,
-    isMicroBlock:
-      bucket.durationMs <
-      (state.team?.settings.microBlockThresholdMs ??
-        defaultTeamSettings.microBlockThresholdMs),
-    locked: false,
-    domain: bucket.dominant.domain,
-    pathname: bucket.dominant.pathname,
-    title: bucket.dominant.title,
-  };
-}
-
-function createImportedDraft(
-  state: LocalAppState,
-  bucket: BrowserActivityBucket,
-): ImportedBrowserDraft {
-  const evaluation = evaluateBlockAgainstRules(
-    createBucketRuleSeed(state, bucket),
-    state.rules,
-    [],
-  );
-  const suggestion = evaluation.suggestion;
-  const explanation =
-    suggestion?.explanation ??
-    (bucket.isMixed
-      ? `Mixed browser bucket. Dominant activity covered ${Math.round(bucket.confidence * 100)}% of this 5-minute window.`
-      : "Imported browser activity. No saved rule matched yet.");
-
-  return {
-    _id: `browser_${bucket.bucketKey}`,
-    bucketKey: bucket.bucketKey,
-    localDate: bucket.localDate,
-    startedAt: bucket.startedAt,
-    endedAt: bucket.endedAt,
-    durationMs: bucket.durationMs,
-    dominantDomain: bucket.dominant.domain,
-    dominantPathname: bucket.dominant.pathname,
-    dominantTitle: bucket.dominant.title,
-    dominantLabel: bucket.dominant.label,
-    dominantSubtitle: bucket.dominant.subtitle,
-    dominantFingerprint: bucket.dominant.fingerprint,
-    evidence: bucket.evidence,
-    dismissed: false,
-    status: suggestion?.projectId ? "assigned" : "draft",
-    projectId: suggestion?.projectId,
-    importedAt: bucket.importedAt,
-    source: "extension_bridge",
-    confidence: suggestion?.confidence ?? bucket.confidence,
-    isMixed: bucket.isMixed,
-    assignmentSource: suggestion?.source ?? "none",
-    explanation,
-    manuallyEdited: false,
-  };
-}
-
-function preserveImportedDraft(
-  state: LocalAppState,
-  existing: ImportedBrowserDraft | undefined,
-  incoming: ImportedBrowserDraft,
-): ImportedBrowserDraft {
-  if (!existing) {
-    return incoming;
-  }
-
-  return {
-    ...incoming,
-    projectId: existing.manuallyEdited
-      ? existing.projectId
-      : incoming.projectId,
-    note: existing.note,
-    dismissed: existing.dismissed,
-    status:
-      existing.status === "committed" ||
-      existing.status === "dismissed" ||
-      existing.manuallyEdited
-        ? existing.status
-        : incoming.status,
-    assignmentSource: existing.manuallyEdited
-      ? existing.assignmentSource
-      : incoming.assignmentSource,
-    explanation:
-      existing.manuallyEdited && existing.explanation
-        ? existing.explanation
-        : incoming.explanation,
-    manuallyEdited: existing.manuallyEdited,
-  };
-}
-
-function materializeImportedDrafts(
-  state: LocalAppState,
-  localDate: string,
-): ImportedBrowserDraft[] {
-  return state.importedBrowserDrafts
-    .filter(
-      (draft) =>
-        draft.localDate === localDate &&
-        draft.status !== "dismissed" &&
-        draft.status !== "committed",
-    )
-    .sort((a, b) => a.startedAt - b.startedAt);
-}
-
-function createOutlookMeetingDraft(
-  meeting: OutlookCalendarEvent,
-): OutlookMeetingDraft {
-  const detailParts = [meeting.organizer, meeting.location].filter(Boolean);
-
-  return {
-    _id: `meeting_${meeting.eventId}`,
-    eventId: meeting.eventId,
-    localDate: meeting.localDate,
-    startedAt: meeting.startedAt,
-    endedAt: meeting.endedAt,
-    durationMs: meeting.durationMs,
-    subject: meeting.subject,
-    organizer: meeting.organizer,
-    location: meeting.location,
-    isOnlineMeeting: meeting.isOnlineMeeting,
-    webLink: meeting.webLink,
-    dismissed: false,
-    status: "draft",
-    importedAt: Date.now(),
-    source: "outlook_calendar",
-    assignmentSource: "none",
-    explanation:
-      detailParts.length > 0
-        ? `Imported from Outlook calendar. ${detailParts.join(" · ")}`
-        : "Imported from Outlook calendar.",
-    manuallyEdited: false,
-  };
-}
-
-function preserveOutlookMeetingDraft(
-  existing: OutlookMeetingDraft | undefined,
-  incoming: OutlookMeetingDraft,
-): OutlookMeetingDraft {
-  if (!existing) {
-    return incoming;
-  }
-
-  return {
-    ...incoming,
-    projectId: existing.projectId,
-    note: existing.note,
-    dismissed: existing.dismissed,
-    status:
-      existing.status === "committed" ||
-      existing.status === "dismissed" ||
-      existing.projectId
-        ? existing.status
-        : incoming.status,
-    assignmentSource: existing.projectId
-      ? existing.assignmentSource
-      : incoming.assignmentSource,
-    explanation: existing.explanation || incoming.explanation,
-    manuallyEdited: existing.manuallyEdited,
-  };
-}
-
-function materializeOutlookMeetings(
-  state: LocalAppState,
-  localDate: string,
-): OutlookMeetingDraft[] {
-  return state.outlookMeetingDrafts
-    .filter(
-      (meeting) =>
-        meeting.localDate === localDate &&
-        meeting.status !== "dismissed" &&
-        meeting.status !== "committed",
-    )
-    .sort((a, b) => a.startedAt - b.startedAt);
+  return result;
 }
 
 export const localStore = {
@@ -2176,12 +629,17 @@ export const localStore = {
       refreshState();
       callback();
     };
+    const notifyStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY || event.key === null) {
+        notify();
+      }
+    };
 
     window.addEventListener("timetracker-local-state", notify);
-    window.addEventListener("storage", notify);
+    window.addEventListener("storage", notifyStorage);
     return () => {
       window.removeEventListener("timetracker-local-state", notify);
-      window.removeEventListener("storage", notify);
+      window.removeEventListener("storage", notifyStorage);
     };
   },
   snapshot: readState,
@@ -2198,23 +656,27 @@ export const localStore = {
         slug: teamSlug,
         settings: defaultTeamSettings,
       },
-      projects: projects.map((project) => createProjectRecord(project)),
+      projects: projects.map((project) =>
+        createProject(project, { createId, now: Date.now }),
+      ),
     }));
   },
   addProject(project: LocalProjectDraft) {
-    const nextProject = createProjectRecord(project);
-    updateState((state) => ({
-      ...state,
-      projects: [...state.projects, nextProject],
-    }));
-    return nextProject._id;
+    return updateStateWithResult((state) => {
+      const operation = applyAddProject(state.projects, project, {
+        createId,
+        now: Date.now,
+      });
+      return {
+        state: { ...state, projects: operation.projects },
+        result: operation.result,
+      };
+    });
   },
   updateProject(projectId: string, patch: Partial<Omit<LocalProject, "_id">>) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId ? { ...project, ...patch } : project,
-      ),
+      projects: applyUpdateProject(state.projects, projectId, patch),
     }));
   },
   reorderProjects(orderedIds: string[]) {
@@ -2222,38 +684,10 @@ export const localStore = {
       return;
     }
 
-    const nextIndexById = new Map(orderedIds.map((id, index) => [id, index]));
-
     updateState((state) => {
-      const selectedProjects = state.projects.filter((project) =>
-        nextIndexById.has(project._id),
-      );
+      const projects = applyReorderProjects(state.projects, orderedIds);
 
-      if (selectedProjects.length !== orderedIds.length) {
-        return state;
-      }
-
-      const reorderedProjects = [...selectedProjects].sort(
-        (left, right) =>
-          nextIndexById.get(left._id)! - nextIndexById.get(right._id)!,
-      );
-
-      let cursor = 0;
-      let changed = false;
-      const nextProjects = state.projects.map((project) => {
-        if (!nextIndexById.has(project._id)) {
-          return project;
-        }
-
-        const nextProject = reorderedProjects[cursor++] ?? project;
-        if (nextProject._id !== project._id) {
-          changed = true;
-        }
-
-        return nextProject;
-      });
-
-      return changed ? { ...state, projects: nextProjects } : state;
+      return projects === state.projects ? state : { ...state, projects };
     });
   },
   archiveProject(projectId: string) {
@@ -2265,54 +699,21 @@ export const localStore = {
   addProjectTask(projectId: string, name: string) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId
-          ? {
-              ...project,
-              tasks: [...project.tasks, createProjectTask({ name })],
-            }
-          : project,
-      ),
+      projects: applyAddProjectTask(state.projects, projectId, name, {
+        createId,
+        now: Date.now,
+      }),
     }));
   },
   reorderProjectTask(projectId: string, taskId: string, toIndex: number) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) => {
-        if (project._id !== projectId) {
-          return project;
-        }
-
-        const activeTasks = project.tasks.filter(
-          (task) => task.status === "active",
-        );
-        if (activeTasks.length < 2) {
-          return project;
-        }
-
-        const archivedTasks = project.tasks.filter(
-          (task) => task.status === "archived",
-        );
-        const sourceIndex = activeTasks.findIndex(
-          (task) => task._id === taskId,
-        );
-        const targetIndex = Math.max(
-          0,
-          Math.min(toIndex, activeTasks.length - 1),
-        );
-
-        if (sourceIndex === -1 || sourceIndex === targetIndex) {
-          return project;
-        }
-
-        return {
-          ...project,
-          tasks: [
-            ...moveItem(activeTasks, sourceIndex, targetIndex),
-            ...archivedTasks,
-          ],
-        };
-      }),
+      projects: applyReorderProjectTask(
+        state.projects,
+        projectId,
+        taskId,
+        toIndex,
+      ),
     }));
   },
   reorderTimesheetEntries(localDate: string, orderedIds: string[]) {
@@ -2320,261 +721,58 @@ export const localStore = {
       return;
     }
 
-    updateState((state) => {
-      const selectedEntries = state.timesheetEntries
-        .filter(
-          (entry) =>
-            entry.localDate === localDate && orderedIds.includes(entry._id),
-        )
-        .sort((left, right) => right.committedAt - left.committedAt);
-
-      if (selectedEntries.length !== orderedIds.length) {
-        return state;
-      }
-
-      const committedAtSlots = selectedEntries.map(
-        (entry) => entry.committedAt,
-      );
-      const nextCommittedAtById = new Map<string, number>();
-      orderedIds.forEach((entryId, index) => {
-        const committedAt = committedAtSlots[index];
-        if (committedAt !== undefined) {
-          nextCommittedAtById.set(entryId, committedAt);
-        }
-      });
-
-      let changed = false;
-      const nextEntries = state.timesheetEntries.map((entry) => {
-        const nextCommittedAt = nextCommittedAtById.get(entry._id);
-        if (nextCommittedAt === undefined) {
-          return entry;
-        }
-
-        if (entry.committedAt === nextCommittedAt) {
-          return entry;
-        }
-
-        changed = true;
-        return { ...entry, committedAt: nextCommittedAt };
-      });
-
-      return changed ? { ...state, timesheetEntries: nextEntries } : state;
-    });
+    updateState((state) =>
+      applyReorderTimesheetEntries(state, localDate, orderedIds),
+    );
   },
   importProjectTasks(
     projectId: string,
     taskNames: string[],
   ): ProjectTaskImportResult {
-    let importResult: ProjectTaskImportResult = {
-      importedCount: 0,
-      duplicateCount: 0,
-      blankCount: 0,
-      headerCount: 0,
-      importedNames: [],
-    };
-    let projectFound = false;
-
-    updateState((state) => {
-      const project = state.projects.find((item) => item._id === projectId);
-      if (!project) {
-        return state;
-      }
-
-      projectFound = true;
-
-      const existingTaskNames = new Set(
-        project.tasks.map((task) => normalizeTaskImportName(task.name)),
+    return updateStateWithResult((state) => {
+      const operation = applyProjectTaskImport(
+        state.projects,
+        projectId,
+        taskNames,
+        {
+          createTask: (task) =>
+            createProjectTask(task, { createId, now: Date.now }),
+        },
       );
-      const incomingTaskNames = new Set<string>();
-      const nextTasks = [...project.tasks];
-      const importedNames: string[] = [];
-      let duplicateCount = 0;
-
-      for (const taskName of taskNames) {
-        const displayName = formatTaskImportName(taskName);
-        const normalizedName = normalizeTaskImportName(displayName);
-
-        if (!normalizedName) {
-          continue;
-        }
-
-        if (
-          existingTaskNames.has(normalizedName) ||
-          incomingTaskNames.has(normalizedName)
-        ) {
-          duplicateCount += 1;
-          continue;
-        }
-
-        incomingTaskNames.add(normalizedName);
-        existingTaskNames.add(normalizedName);
-        importedNames.push(displayName);
-        nextTasks.push(createProjectTask({ name: displayName }));
-      }
-
-      importResult = {
-        importedCount: importedNames.length,
-        duplicateCount,
-        blankCount: 0,
-        headerCount: 0,
-        importedNames,
-      };
-
       return {
-        ...state,
-        projects: state.projects.map((item) =>
-          item._id === projectId ? { ...item, tasks: nextTasks } : item,
-        ),
+        state: {
+          ...state,
+          projects: operation.projects,
+        },
+        result: operation.result,
       };
     });
-
-    if (!projectFound) {
-      throw new Error("Project not found.");
-    }
-
-    return importResult;
   },
-  importProjectWorkbookRows(
-    rows: Array<{
-      project: string;
-      code: string;
-      color: string;
-      status: "active" | "archived";
-      task: string;
-      taskStatus: "active" | "archived" | "";
-      billable: "billable" | "non_billable" | "";
-      budgetHours: number | "";
-      adjustmentHours: number | "";
-    }>,
-  ) {
-    let importResult = {
-      createdProjectCount: 0,
-      mergedProjectCount: 0,
-      addedTaskCount: 0,
-      updatedTaskCount: 0,
-    };
-
-    updateState((state) => {
-      const groupedRows = groupProjectWorkbookRows(rows);
-      const nextProjects = [...state.projects];
-
-      for (const group of groupedRows) {
-        const existingProject = findImportedProjectByName(
-          nextProjects,
-          group.projectName,
-        );
-
-        if (!existingProject) {
-          const nextProject = createProjectRecord({
-            name: group.projectName,
-            code: group.code,
-            color: group.color || "#3d5a80",
-            tasks: group.tasks.map((task) => ({
-              name: task.name,
-              status: task.status,
-              billable: task.billable,
-              budgetMs: task.budgetMs,
-              adjustmentMs: task.adjustmentMs,
-            })),
-          });
-          nextProject.status = group.status;
-          nextProjects.push(nextProject);
-          importResult.createdProjectCount += 1;
-          importResult.addedTaskCount += group.tasks.length;
-          continue;
-        }
-
-        importResult.mergedProjectCount += 1;
-
-        const nextTasks = [...existingProject.tasks];
-        for (const importedTask of group.tasks) {
-          const existingTask = findImportedProjectTaskByName(
-            existingProject,
-            importedTask.name,
-          );
-          if (!existingTask) {
-            nextTasks.push(
-              createProjectTask({
-                name: importedTask.name,
-                status: importedTask.status,
-                billable: importedTask.billable,
-                budgetMs: importedTask.budgetMs,
-                adjustmentMs: importedTask.adjustmentMs,
-              }),
-            );
-            importResult.addedTaskCount += 1;
-            continue;
-          }
-
-          const nextBudgetMs = normalizeTaskBudgetMs(importedTask.budgetMs);
-          const nextAdjustmentMs = normalizeTaskAdjustmentMs(
-            importedTask.adjustmentMs,
-          );
-          const nextBillable = importedTask.billable ?? true;
-
-          if (
-            existingTask.status !== importedTask.status ||
-            (existingTask.billable ?? true) !== nextBillable ||
-            existingTask.budgetMs !== nextBudgetMs ||
-            existingTask.adjustmentMs !== nextAdjustmentMs
-          ) {
-            importResult.updatedTaskCount += 1;
-          }
-
-          const existingTaskIndex = nextTasks.findIndex(
-            (task) => task._id === existingTask._id,
-          );
-          if (existingTaskIndex >= 0) {
-            nextTasks[existingTaskIndex] = {
-              ...existingTask,
-              status: importedTask.status,
-              archivedAt:
-                importedTask.status === "archived"
-                  ? (existingTask.archivedAt ?? Date.now())
-                  : undefined,
-              billable: nextBillable,
-              budgetMs: nextBudgetMs,
-              adjustmentMs: nextAdjustmentMs,
-            };
-          }
-        }
-
-        const projectIndex = nextProjects.findIndex(
-          (project) => project._id === existingProject._id,
-        );
-        if (projectIndex >= 0) {
-          nextProjects[projectIndex] = {
-            ...existingProject,
-            name: group.projectName,
-            code: group.code || undefined,
-            color: group.color || existingProject.color,
-            status: group.status,
-            tasks: nextTasks,
-          };
-        }
-      }
+  importProjectWorkbookRows(rows: ProjectTransferRow[]) {
+    return updateStateWithResult<ProjectWorkbookImportResult>((state) => {
+      const operation = applyProjectWorkbookImport(state.projects, rows, {
+        createProject: (project) =>
+          createProject(project, { createId, now: Date.now }),
+        createTask: (task) =>
+          createProjectTask(task, { createId, now: Date.now }),
+        now: Date.now,
+      });
 
       return {
-        ...state,
-        projects: nextProjects,
+        state: {
+          ...state,
+          projects: operation.projects,
+        },
+        result: operation.result,
       };
     });
-
-    return importResult;
   },
   renameProjectTask(projectId: string, taskId: string, name: string) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId
-          ? {
-              ...project,
-              tasks: project.tasks.map((task) =>
-                task._id === taskId ? { ...task, name } : task,
-              ),
-            }
-          : project,
-      ),
+      projects: applyUpdateProjectTask(state.projects, projectId, taskId, {
+        name,
+      }),
     }));
   },
   updateProjectTask(
@@ -2586,305 +784,81 @@ export const localStore = {
   ) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId
-          ? {
-              ...project,
-              tasks: project.tasks.map((task) =>
-                task._id === taskId
-                  ? {
-                      ...task,
-                      name: patch.name ?? task.name,
-                      billable:
-                        "billable" in patch
-                          ? patch.billable ?? true
-                          : (task.billable ?? true),
-                      budgetMs:
-                        "budgetMs" in patch
-                          ? normalizeTaskBudgetMs(patch.budgetMs)
-                          : task.budgetMs,
-                      adjustmentMs:
-                        "adjustmentMs" in patch
-                          ? normalizeTaskAdjustmentMs(patch.adjustmentMs)
-                          : task.adjustmentMs,
-                    }
-                  : task,
-              ),
-            }
-          : project,
+      projects: applyUpdateProjectTask(
+        state.projects,
+        projectId,
+        taskId,
+        patch,
       ),
     }));
   },
   archiveProjectTask(projectId: string, taskId: string) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId
-          ? {
-              ...project,
-              tasks: project.tasks.map((task) =>
-                task._id === taskId
-                  ? {
-                      ...task,
-                      status: "archived",
-                      archivedAt: task.archivedAt ?? Date.now(),
-                    }
-                  : task,
-              ),
-            }
-          : project,
+      projects: setProjectTaskStatus(
+        state.projects,
+        projectId,
+        taskId,
+        "archived",
+        Date.now,
       ),
     }));
   },
   unarchiveProjectTask(projectId: string, taskId: string) {
     updateState((state) => ({
       ...state,
-      projects: state.projects.map((project) =>
-        project._id === projectId
-          ? {
-              ...project,
-              tasks: project.tasks.map((task) =>
-                task._id === taskId
-                  ? {
-                      ...task,
-                      status: "active",
-                      archivedAt: undefined,
-                    }
-                  : task,
-              ),
-            }
-          : project,
+      projects: setProjectTaskStatus(
+        state.projects,
+        projectId,
+        taskId,
+        "active",
+        Date.now,
       ),
     }));
   },
   addBacklogStatus(name: string, color?: string) {
-    const normalizedName = normalizeBacklogStatusName(name);
-    if (!normalizedName) {
-      throw new Error("Status name is required.");
-    }
-
-    let backlogStatusId = "";
-
-    updateState((state) => {
-      if (
-        state.backlogStatuses.some(
-          (status) =>
-            normalizeBacklogStatusName(status.name).toLocaleLowerCase() ===
-            normalizedName.toLocaleLowerCase(),
-        )
-      ) {
-        throw new Error("Status already exists.");
-      }
-
-      const nextStatus = {
-        _id: createId("backlog_status"),
-        name: normalizedName,
-        color: normalizeBacklogStatusColor(
-          color,
-          getDefaultBacklogStatusColor(state.backlogStatuses.length),
-        ),
-        createdAt: Date.now(),
-      } satisfies LocalBacklogStatus;
-      backlogStatusId = nextStatus._id;
-
-      return {
-        ...state,
-        backlogStatuses: [...state.backlogStatuses, nextStatus],
-      };
+    return updateStateWithResult((state) => {
+      return applyAddBacklogStatus(state, name, color, {
+        createId,
+        now: Date.now,
+      });
     });
-
-    return backlogStatusId;
   },
   updateBacklogStatus(
     statusId: string,
     updates: string | { name: string; color?: string },
   ) {
-    const nextName = typeof updates === "string" ? updates : updates.name;
-    const nextColor = typeof updates === "string" ? undefined : updates.color;
-    const normalizedName = normalizeBacklogStatusName(nextName);
-    if (!normalizedName) {
-      throw new Error("Status name is required.");
-    }
-
-    updateState((state) => {
-      const target = state.backlogStatuses.find(
-        (status) => status._id === statusId,
-      );
-      if (!target) {
-        throw new Error("Status not found.");
-      }
-
-      if (
-        state.backlogStatuses.some(
-          (status) =>
-            status._id !== statusId &&
-            normalizeBacklogStatusName(status.name).toLocaleLowerCase() ===
-              normalizedName.toLocaleLowerCase(),
-        )
-      ) {
-        throw new Error("Status already exists.");
-      }
-
-      const normalizedColor = normalizeBacklogStatusColor(
-        nextColor,
-        target.color ||
-          getDefaultBacklogStatusColor(
-            state.backlogStatuses.findIndex(
-              (status) => status._id === statusId,
-            ),
-          ),
-      );
-
-      return {
-        ...state,
-        backlogStatuses: state.backlogStatuses.map((status) =>
-          status._id === statusId
-            ? { ...status, name: normalizedName, color: normalizedColor }
-            : status,
-        ),
-      };
-    });
+    updateState((state) =>
+      applyUpdateBacklogStatus(state, statusId, updates),
+    );
   },
   deleteBacklogStatus(statusId: string) {
-    updateState((state) =>
-      reconcileImportedBacklogStatuses({
-        ...state,
-        backlogStatuses: state.backlogStatuses.filter(
-          (status) => status._id !== statusId,
-        ),
-        backlogStatusMappings: state.backlogStatusMappings.filter(
-          (mapping) => mapping.backlogStatusId !== statusId,
-        ),
-        workItems: state.workItems.map((workItem) => ({
-          ...workItem,
-          backlogStatusId:
-            workItem.backlogStatusId === statusId
-              ? undefined
-              : workItem.backlogStatusId,
-          importedBacklogStatusId:
-            workItem.importedBacklogStatusId === statusId
-              ? undefined
-              : workItem.importedBacklogStatusId,
-        })),
-      }),
-    );
+    updateState((state) => applyDeleteBacklogStatus(state, statusId));
   },
-  setBacklogStatusMapping(mapping: {
-    source: ConnectorBacklogSource;
-    connectionId: string;
-    sourceStatusKey: string;
-    backlogStatusId?: string;
-  }) {
-    const sourceStatusKey = normalizeConnectorStatusKey(
-      mapping.sourceStatusKey,
-    );
-    if (!mapping.connectionId || !sourceStatusKey) {
-      throw new Error("Source status mapping is incomplete.");
-    }
-
-    updateState((state) => {
-      const nextMappings = state.backlogStatusMappings.filter(
-        (candidate) =>
-          !(
-            candidate.source === mapping.source &&
-            candidate.connectionId === mapping.connectionId &&
-            candidate.sourceStatusKey === sourceStatusKey
-          ),
-      );
-
-      if (mapping.backlogStatusId) {
-        nextMappings.push({
-          source: mapping.source,
-          connectionId: mapping.connectionId,
-          sourceStatusKey,
-          backlogStatusId: mapping.backlogStatusId,
-        });
-      }
-
-      return reconcileImportedBacklogStatuses({
-        ...state,
-        backlogStatusMappings: nextMappings,
-      });
-    });
+  setBacklogStatusMapping(mapping: BacklogStatusMappingInput) {
+    updateState((state) => applyBacklogStatusMapping(state, mapping));
   },
   startTimer(timer: LocalTimerDraft) {
-    updateState((state) => ({
-      ...state,
-      timers: [
-        {
-          _id: createId("timer"),
-          startedAt: Date.now(),
-          localDate: timer.localDate,
-          workItemId: timer.workItemId,
-          projectId: timer.projectId,
-          taskId: timer.taskId,
-          note: timer.note,
-          accumulatedDurationMs: timer.accumulatedDurationMs ?? 0,
-          entryId: timer.entryId,
-        },
-      ],
-    }));
+    updateState((state) =>
+      applyStartTimer(state, timer, { createId, now: Date.now }),
+    );
   },
-  startTimerWithEntry(values: {
-    localDate: string;
-    workItemId?: string;
-    projectId?: string;
-    taskId?: string;
-    note?: string;
-    durationMs?: number;
-  }) {
-    updateState((state) => {
-      if (state.timers.length > 0) {
-        return state;
-      }
-
-      const nextEntry = createTimesheetEntry(state, {
-        localDate: values.localDate,
-        workItemId: values.workItemId,
-        projectId: values.projectId,
-        taskId: values.taskId,
-        note: values.note,
-        durationMs: values.durationMs ?? 0,
-        sourceBlockIds: [],
-      });
-
-      return {
-        ...state,
-        timers: [
-          {
-            _id: createId("timer"),
-            startedAt: Date.now(),
-            localDate: values.localDate,
-            workItemId: values.workItemId,
-            projectId: values.projectId,
-            taskId: values.taskId,
-            note: values.note,
-            accumulatedDurationMs: values.durationMs ?? 0,
-            entryId: nextEntry._id,
-          },
-        ],
-        timesheetEntries: [...state.timesheetEntries, nextEntry],
-      };
-    });
+  startTimerWithEntry(values: StartTimerWithEntryValues) {
+    updateState((state) =>
+      applyStartTimerWithEntry(state, values, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   updateTimer(
     timerId: string,
     patch: Partial<Omit<LocalTimer, "_id" | "startedAt">>,
   ) {
-    updateState((state) => {
-      return {
-        ...state,
-        timers: state.timers.map((timer) =>
-          timer._id === timerId ? { ...timer, ...patch } : timer,
-        ),
-      };
-    });
+    updateState((state) => applyUpdateTimer(state, timerId, patch));
   },
   cancelTimer(timerId: string) {
-    updateState((state) => ({
-      ...state,
-      timers: state.timers.filter((timer) => timer._id !== timerId),
-    }));
+    updateState((state) => applyCancelTimer(state, timerId));
   },
   saveManualTimeEntry(values: {
     localDate: string;
@@ -2894,220 +868,55 @@ export const localStore = {
     note?: string;
     durationMs: number;
   }) {
-    updateState((state) => ({
-      ...state,
-      timesheetEntries: [
-        ...state.timesheetEntries,
-        createTimesheetEntry(state, {
-          ...values,
-          sourceBlockIds: [],
-        }),
-      ],
-      workItems: applyLoggedTimeToWorkItems(state.workItems, {
-        workItemId: values.workItemId,
-        projectId: values.projectId,
-        taskId: values.taskId,
-        durationMsDelta: values.durationMs,
+    updateState((state) =>
+      saveManualTimesheetEntry(state, values, {
+        createId,
+        now: Date.now,
       }),
-    }));
+    );
   },
-  stageTimesheetImportRows(
-    rows: Array<{
-      date: string;
-      project: string;
-      task: string;
-      note?: string;
-      hours: number;
-    }>,
-  ) {
-    updateState((state) => ({
-      ...state,
-      timesheetImportDrafts: rows.map((row) =>
-        createTimesheetImportDraft(state, row),
-      ),
-    }));
+  stageTimesheetImportRows(rows: TimesheetImportRow[]) {
+    updateState((state) =>
+      applyStageTimesheetImportRows(state, rows, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   clearTimesheetImportDrafts() {
-    updateState((state) => ({
-      ...state,
-      timesheetImportDrafts: [],
-    }));
+    updateState((state) => applyClearTimesheetImportDrafts(state));
   },
   dismissTimesheetImportDraft(draftId: string) {
-    updateState((state) => ({
-      ...state,
-      timesheetImportDrafts: state.timesheetImportDrafts.filter(
-        (draft) => draft._id !== draftId,
-      ),
-    }));
+    updateState((state) =>
+      applyDismissTimesheetImportDraft(state, draftId),
+    );
   },
   dismissAllTimesheetImportDrafts() {
     this.clearTimesheetImportDrafts();
   },
   commitTimesheetImportDraft(draftId: string) {
-    updateState((state) => {
-      const draft = state.timesheetImportDrafts.find(
-        (item) => item._id === draftId,
-      );
-      if (!draft) {
-        return state;
-      }
-
-      const ensured = ensureImportedProjectAndTask(state, {
-        projectName: draft.projectName,
-        taskName: draft.taskName,
-      });
-
-      return {
-        ...state,
-        projects: ensured.projects,
-        timesheetEntries: [
-          ...state.timesheetEntries,
-          createTimesheetEntry(
-            {
-              ...state,
-              projects: ensured.projects,
-            },
-            {
-              localDate: draft.localDate,
-              projectId: ensured.projectId,
-              taskId: ensured.taskId,
-              note: draft.note,
-              durationMs: draft.durationMs,
-              sourceBlockIds: [],
-            },
-          ),
-        ],
-        workItems: applyLoggedTimeToWorkItems(state.workItems, {
-          projectId: ensured.projectId,
-          taskId: ensured.taskId,
-          durationMsDelta: draft.durationMs,
-        }),
-        timesheetImportDrafts: state.timesheetImportDrafts.filter(
-          (item) => item._id !== draftId,
-        ),
-      };
-    });
+    updateState((state) =>
+      applyCommitTimesheetImportDraft(state, draftId, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   commitReadyTimesheetImportDrafts() {
-    updateState((state) => {
-      const readyDrafts = state.timesheetImportDrafts.filter(
-        (draft) => !draft.potentialConflict,
-      );
-      if (readyDrafts.length === 0) {
-        return state;
-      }
-
-      let nextState = state;
-      for (const draft of readyDrafts) {
-        const ensured = ensureImportedProjectAndTask(nextState, {
-          projectName: draft.projectName,
-          taskName: draft.taskName,
-        });
-
-        nextState = {
-          ...nextState,
-          projects: ensured.projects,
-          timesheetEntries: [
-            ...nextState.timesheetEntries,
-            createTimesheetEntry(
-              {
-                ...nextState,
-                projects: ensured.projects,
-              },
-              {
-                localDate: draft.localDate,
-                projectId: ensured.projectId,
-                taskId: ensured.taskId,
-                note: draft.note,
-                durationMs: draft.durationMs,
-                sourceBlockIds: [],
-              },
-            ),
-          ],
-          workItems: applyLoggedTimeToWorkItems(nextState.workItems, {
-            projectId: ensured.projectId,
-            taskId: ensured.taskId,
-            durationMsDelta: draft.durationMs,
-          }),
-        };
-      }
-
-      return {
-        ...nextState,
-        timesheetImportDrafts: nextState.timesheetImportDrafts.filter(
-          (draft) => draft.potentialConflict,
-        ),
-      };
-    });
+    updateState((state) =>
+      applyCommitReadyTimesheetImportDrafts(state, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   addWorkItem(workItem: LocalWorkItemDraft) {
-    const title = workItem.title.trim();
-    if (!title) {
-      throw new Error("Work item title is required.");
-    }
-
-    let createdWorkItemId = "";
-
-    updateState((state) => {
-      let inheritedParentMapping: boolean | undefined;
-      let inheritedProjectId = workItem.projectId;
-      let inheritedTaskId = workItem.taskId;
-
-      if (workItem.parentWorkItemId) {
-        const parent = state.workItems.find(
-          (item) => item._id === workItem.parentWorkItemId,
-        );
-        if (!parent) {
-          throw new Error("Parent work item not found.");
-        }
-
-        if (
-          parent.parentWorkItemId ||
-          parent.parentSourceId ||
-          (parent.hierarchyLevel ?? 0) > 0
-        ) {
-          throw new Error("Subtasks cannot have subtasks.");
-        }
-
-        inheritedParentMapping =
-          inferInheritedParentMapping(
-            {
-              parentWorkItemId: workItem.parentWorkItemId,
-              projectId: workItem.projectId,
-              taskId: workItem.taskId,
-              inheritsParentMapping: workItem.inheritsParentMapping,
-            },
-            parent,
-          ) ?? false;
-
-        if (inheritedParentMapping) {
-          inheritedProjectId = parent.projectId;
-          inheritedTaskId = parent.taskId;
-        }
-      }
-
-      const createdWorkItem = createWorkItem({
-        ...workItem,
-        title,
-        projectId: inheritedProjectId,
-        taskId: inheritedTaskId,
-        inheritsParentMapping: inheritedParentMapping,
-        priority: workItem.parentWorkItemId ? undefined : workItem.priority,
-        backlogStatusId: workItem.backlogStatusId,
-      });
-      createdWorkItemId = createdWorkItem._id;
-      return {
-        ...state,
-        workItems: [createdWorkItem, ...state.workItems],
-      };
-    });
-
-    if (!createdWorkItemId) {
-      throw new Error("Work item could not be created.");
-    }
-
-    return createdWorkItemId;
+    return updateStateWithResult((state) =>
+      applyAddWorkItem(state, workItem, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   addSubtask(
     parentWorkItemId: string,
@@ -3122,492 +931,66 @@ export const localStore = {
     workItems: ConnectorImportCandidate[],
     options?: { archiveMissingFromConnectionId?: string },
   ) {
-    let importedCount = 0;
-    let updatedCount = 0;
-    let archivedCount = 0;
-
-    updateState((state) => {
-      const existingItemsByKey = new Map<string, LocalWorkItem>(
-        state.workItems
-          .filter(
-            (workItem): workItem is LocalWorkItem & { sourceId: string } =>
-              Boolean(workItem.sourceId),
-          )
-          .map(
-            (workItem) => [getWorkItemSourceKey(workItem), workItem] as const,
-          ),
-      );
-      const importedKeysForConnection = new Set<string>();
-
-      const importedItems: LocalWorkItem[] = [];
-      let nextWorkItems = state.workItems;
-      let changedExistingItems = false;
-      for (const workItem of workItems) {
-        const key = getWorkItemSourceKey(workItem);
-        const mappedBacklogStatusId = workItem.state?.trim()
-          ? findMappedBacklogStatusId(
-              state.backlogStatusMappings,
-              workItem.source,
-              workItem.connectionId,
-              normalizeConnectorStatusKey(workItem.state),
-            )
-          : undefined;
-        const existingWorkItem = existingItemsByKey.get(key);
-        if (options?.archiveMissingFromConnectionId === workItem.connectionId) {
-          importedKeysForConnection.add(key);
-        }
-        if (existingWorkItem) {
-          const mergedWorkItem = mergeConnectorWorkItem(
-            existingWorkItem,
-            workItem,
-            mappedBacklogStatusId,
-          );
-          if (mergedWorkItem !== existingWorkItem) {
-            if (!changedExistingItems) {
-              nextWorkItems = [...state.workItems];
-              changedExistingItems = true;
-            }
-
-            const existingIndex = nextWorkItems.findIndex(
-              (candidate) => candidate._id === existingWorkItem._id,
-            );
-            if (existingIndex >= 0) {
-              nextWorkItems[existingIndex] = mergedWorkItem;
-              existingItemsByKey.set(key, mergedWorkItem);
-            }
-          }
-
-          updatedCount += 1;
-          continue;
-        }
-
-        const importedItem = createConnectorWorkItem(
-          workItem,
-          mappedBacklogStatusId,
-        );
-
-        existingItemsByKey.set(key, importedItem);
-        importedItems.push(importedItem);
-        importedCount += 1;
-      }
-
-      if (options?.archiveMissingFromConnectionId) {
-        const archiveConnectionId = options.archiveMissingFromConnectionId;
-        const archivedWorkItems = (
-          changedExistingItems ? nextWorkItems : [...state.workItems]
-        ).map((workItem) => {
-          const sourceId = workItem.sourceId;
-
-          if (
-            workItem.source === "manual" ||
-            workItem.source === "outlook" ||
-            workItem.sourceConnectionId !== archiveConnectionId ||
-            !sourceId ||
-            workItem.keepWhenMissingFromSync
-          ) {
-            return workItem;
-          }
-
-          if (
-            importedKeysForConnection.has(
-              getWorkItemSourceKey({ source: workItem.source, sourceId }),
-            ) ||
-            workItem.status === "archived"
-          ) {
-            return workItem;
-          }
-
-          archivedCount += 1;
-          changedExistingItems = true;
-          return {
-            ...workItem,
-            status: "archived" as const,
-            archivedAt: workItem.archivedAt ?? Date.now(),
-          };
-        });
-
-        nextWorkItems = archivedWorkItems;
-      }
-
-      if (importedItems.length === 0 && !changedExistingItems) {
-        return state;
-      }
-
-      return {
-        ...state,
-        workItems: [...importedItems, ...nextWorkItems],
-      };
-    });
-
-    return {
-      importedCount,
-      updatedCount,
-      archivedCount,
-    };
+    return updateStateWithResult((state) =>
+      applyConnectorWorkItemImport(state, workItems, options, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   applyConnectorSyncWorkItemUpdates(updates: ConnectorSyncWorkItemUpdate[]) {
     if (updates.length === 0) {
       return;
     }
 
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.map((workItem) => {
-        const update = updates.find(
-          (item) => item.localWorkItemId === workItem._id,
-        );
-        if (!update) {
-          return workItem;
-        }
-
-        let nextWorkItem = workItem;
-        if (update.fields.originalEstimateHours) {
-          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
-            nextWorkItem,
-            "originalEstimateHours",
-            update.fields.originalEstimateHours,
-          );
-        }
-        if (update.fields.remainingEstimateHours) {
-          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
-            nextWorkItem,
-            "remainingEstimateHours",
-            update.fields.remainingEstimateHours,
-          );
-        }
-        if (update.fields.completedEstimateHours) {
-          nextWorkItem = applyConnectorFieldUpdateToWorkItem(
-            nextWorkItem,
-            "completedEstimateHours",
-            update.fields.completedEstimateHours,
-          );
-        }
-
-        return nextWorkItem;
-      }),
-    }));
+    updateState((state) =>
+      applyConnectorWorkItemUpdates(state, updates, Date.now),
+    );
   },
   keepLocalEstimateConflict(
     workItemId: string,
     fieldKey: LocalWorkItemEstimateFieldKey,
   ) {
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.map((workItem) => {
-        if (workItem._id !== workItemId) {
-          return workItem;
-        }
-
-        return {
-          ...workItem,
-          estimateSync: {
-            ...workItem.estimateSync,
-            [fieldKey]: {
-              ...workItem.estimateSync?.[fieldKey],
-              resolution: "keep_local" as const,
-              error: undefined,
-            },
-          },
-        };
-      }),
-    }));
+    updateState((state) =>
+      applyKeepLocalEstimateConflict(state, workItemId, fieldKey),
+    );
   },
   acceptRemoteEstimateValue(
     workItemId: string,
     fieldKey: LocalWorkItemEstimateFieldKey,
   ) {
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.map((workItem) => {
-        if (workItem._id !== workItemId) {
-          return workItem;
-        }
-
-        const fieldState = workItem.estimateSync?.[fieldKey];
-        const remoteValue =
-          fieldState?.conflict?.remoteValue ?? fieldState?.remoteValue;
-        return {
-          ...workItem,
-          [fieldKey]: remoteValue,
-          estimateSync: {
-            ...workItem.estimateSync,
-            [fieldKey]: {
-              ...fieldState,
-              baselineValue: remoteValue,
-              remoteValue,
-              resolution: undefined,
-              conflict: undefined,
-              error: undefined,
-            },
-          },
-        };
-      }),
-    }));
+    updateState((state) =>
+      applyAcceptRemoteEstimateValue(state, workItemId, fieldKey),
+    );
   },
   dismissEstimateIssue(
     workItemId: string,
     fieldKey: LocalWorkItemEstimateFieldKey,
   ) {
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.map((workItem) => {
-        if (workItem._id !== workItemId) {
-          return workItem;
-        }
-
-        const fieldState = workItem.estimateSync?.[fieldKey];
-        return {
-          ...workItem,
-          estimateSync: {
-            ...workItem.estimateSync,
-            [fieldKey]: {
-              ...fieldState,
-              baselineValue:
-                workItem[fieldKey] === fieldState?.remoteValue
-                  ? fieldState?.remoteValue
-                  : fieldState?.baselineValue,
-              resolution: undefined,
-              conflict: undefined,
-              error: undefined,
-            },
-          },
-        };
-      }),
-    }));
+    updateState((state) =>
+      applyDismissEstimateIssue(state, workItemId, fieldKey),
+    );
   },
   reorderWorkItems(orderedIds: string[]) {
     if (orderedIds.length < 2) {
       return;
     }
 
-    const nextIndexById = new Map(orderedIds.map((id, index) => [id, index]));
-
-    updateState((state) => {
-      const selectedItems = state.workItems.filter((workItem) =>
-        nextIndexById.has(workItem._id),
-      );
-      if (selectedItems.length !== orderedIds.length) {
-        return state;
-      }
-
-      const reorderedItems = [...selectedItems].sort(
-        (left, right) =>
-          nextIndexById.get(left._id)! - nextIndexById.get(right._id)!,
-      );
-
-      let cursor = 0;
-      let changed = false;
-
-      const nextWorkItems = state.workItems.map((workItem) => {
-        if (!nextIndexById.has(workItem._id)) {
-          return workItem;
-        }
-
-        const nextWorkItem = reorderedItems[cursor++] ?? workItem;
-        if (nextWorkItem._id !== workItem._id) {
-          changed = true;
-        }
-
-        return nextWorkItem;
-      });
-
-      return changed
-        ? {
-            ...state,
-            workItems: nextWorkItems,
-          }
-        : state;
-    });
+    updateState((state) => applyReorderWorkItems(state, orderedIds));
   },
   setBacklogSortMode(mode: BacklogSortMode) {
-    updateState((state) =>
-      state.backlogSortMode === mode
-        ? state
-        : { ...state, backlogSortMode: mode },
-    );
+    updateState((state) => applyBacklogSortMode(state, mode));
   },
   updateWorkItem(
     workItemId: string,
     patch: Partial<Omit<LocalWorkItem, "_id" | "createdAt" | "source">>,
   ) {
-    updateState((state) => {
-      const target = state.workItems.find(
-        (workItem) => workItem._id === workItemId,
-      );
-      if (!target) {
-        return state;
-      }
-
-      const parentWorkItemIdProvided = Object.prototype.hasOwnProperty.call(
-        patch,
-        "parentWorkItemId",
-      );
-      const parentSourceIdProvided = Object.prototype.hasOwnProperty.call(
-        patch,
-        "parentSourceId",
-      );
-      const nextParentWorkItemId = parentWorkItemIdProvided
-        ? typeof patch.parentWorkItemId === "string"
-          ? patch.parentWorkItemId || undefined
-          : patch.parentWorkItemId
-        : target.parentWorkItemId;
-      const nextParentSourceId = nextParentWorkItemId
-        ? undefined
-        : parentWorkItemIdProvided
-          ? undefined
-          : parentSourceIdProvided
-            ? patch.parentSourceId
-            : target.parentSourceId;
-
-      if (nextParentWorkItemId) {
-        assertValidParentWorkItem(
-          state.workItems,
-          workItemId,
-          nextParentWorkItemId,
-        );
-      }
-
-      const nextIsSubtask = Boolean(nextParentWorkItemId || nextParentSourceId);
-      const priorityProvided = Object.prototype.hasOwnProperty.call(
-        patch,
-        "priority",
-      );
-      const normalizedPriority = normalizePriorityValue(patch.priority);
-      const nextPriority = nextIsSubtask
-        ? undefined
-        : priorityProvided
-          ? normalizedPriority
-          : target.priority;
-      const mappingProvided =
-        Object.prototype.hasOwnProperty.call(patch, "projectId") ||
-        Object.prototype.hasOwnProperty.call(patch, "taskId");
-      const nextParent = nextParentWorkItemId
-        ? state.workItems.find((workItem) => workItem._id === nextParentWorkItemId)
-        : undefined;
-      let nextProjectId = Object.prototype.hasOwnProperty.call(patch, "projectId")
-        ? patch.projectId
-        : target.projectId;
-      let nextTaskId = Object.prototype.hasOwnProperty.call(patch, "taskId")
-        ? patch.taskId
-        : target.taskId;
-      let nextInheritsParentMapping = inferInheritedParentMapping(
-        {
-          parentWorkItemId: nextParentWorkItemId,
-          projectId: nextProjectId,
-          taskId: nextTaskId,
-          inheritsParentMapping:
-            Object.prototype.hasOwnProperty.call(patch, "inheritsParentMapping")
-              ? patch.inheritsParentMapping
-              : target.inheritsParentMapping,
-        },
-        nextParent,
-      );
-
-      if (
-        nextParent &&
-        (mappingProvided ||
-          nextParentWorkItemId !== target.parentWorkItemId ||
-          nextInheritsParentMapping)
-      ) {
-        const shouldInherit =
-          mappingProvided || nextParentWorkItemId !== target.parentWorkItemId
-            ? inferInheritedParentMapping(
-                {
-                  parentWorkItemId: nextParentWorkItemId,
-                  projectId: nextProjectId,
-                  taskId: nextTaskId,
-                  inheritsParentMapping: undefined,
-                },
-                nextParent,
-              ) ?? false
-            : nextInheritsParentMapping ?? false;
-
-        nextInheritsParentMapping = shouldInherit;
-        if (shouldInherit) {
-          nextProjectId = nextParent.projectId;
-          nextTaskId = nextParent.taskId;
-        }
-      } else if (!nextParentWorkItemId) {
-        nextInheritsParentMapping = undefined;
-      }
-
-      const nextTarget: LocalWorkItem = {
-        ...target,
-        ...patch,
-        title:
-          typeof patch.title === "string" ? patch.title.trim() : target.title,
-        note:
-          typeof patch.note === "string"
-            ? patch.note.trim() || undefined
-            : "note" in patch
-              ? patch.note
-              : target.note,
-        parentWorkItemId: nextParentWorkItemId,
-        parentSourceId: nextParentWorkItemId ? undefined : nextParentSourceId,
-        hierarchyLevel: nextIsSubtask ? 1 : 0,
-        priority: nextPriority,
-        projectId: nextProjectId,
-        taskId: nextTaskId,
-        inheritsParentMapping: nextInheritsParentMapping,
-        originalEstimateHours:
-          "originalEstimateHours" in patch
-            ? normalizeEstimateValue(patch.originalEstimateHours)
-            : target.originalEstimateHours,
-        remainingEstimateHours:
-          "remainingEstimateHours" in patch
-            ? normalizeEstimateValue(patch.remainingEstimateHours)
-            : target.remainingEstimateHours,
-        completedEstimateHours:
-          "completedEstimateHours" in patch
-            ? normalizeEstimateValue(patch.completedEstimateHours)
-            : target.completedEstimateHours,
-      };
-
-      return {
-        ...state,
-        workItems: state.workItems.map((workItem) => {
-          if (workItem._id === workItemId) {
-            return nextTarget;
-          }
-
-          if (
-            workItem.parentWorkItemId === workItemId &&
-            (Object.prototype.hasOwnProperty.call(patch, "projectId") ||
-              Object.prototype.hasOwnProperty.call(patch, "taskId"))
-          ) {
-            const childInheritsParentMapping =
-              inferInheritedParentMapping(workItem, target) ?? false;
-            if (childInheritsParentMapping) {
-              return {
-                ...workItem,
-                projectId: nextTarget.projectId,
-                taskId: nextTarget.taskId,
-                inheritsParentMapping: true,
-              };
-            }
-          }
-
-          return workItem;
-        }),
-      };
-    });
+    updateState((state) => applyUpdateWorkItem(state, workItemId, patch));
   },
   setWorkItemStatus(workItemId: string, status: LocalWorkItem["status"]) {
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.map((workItem) =>
-        workItem._id === workItemId
-          ? {
-              ...workItem,
-              status,
-              archivedAt:
-                status === "archived"
-                  ? (workItem.archivedAt ?? Date.now())
-                  : undefined,
-            }
-          : workItem,
-      ),
-    }));
+    updateState((state) =>
+      applyWorkItemStatus(state, workItemId, status, Date.now),
+    );
   },
   restoreWorkItem(workItemId: string) {
     this.setWorkItemStatus(workItemId, "active");
@@ -3616,14 +999,7 @@ export const localStore = {
     this.setWorkItemStatus(workItemId, "archived");
   },
   deleteWorkItem(workItemId: string) {
-    updateState((state) => ({
-      ...state,
-      workItems: state.workItems.filter(
-        (workItem) =>
-          workItem._id !== workItemId &&
-          workItem.parentWorkItemId !== workItemId,
-      ),
-    }));
+    updateState((state) => applyDeleteWorkItem(state, workItemId));
   },
   updateTimesheetEntry(
     entryId: string,
@@ -3634,224 +1010,62 @@ export const localStore = {
       durationMs: number;
     },
   ) {
-    updateState((state) => {
-      const entry = state.timesheetEntries.find((item) => item._id === entryId);
-      if (!entry) {
-        return state;
-      }
-
-      const nextEntry = createTimesheetEntry(state, {
-        localDate: entry.localDate,
-        workItemId: entry.workItemId,
-        projectId: values.projectId,
-        taskId: values.taskId,
-        note: values.note,
-        durationMs: values.durationMs,
-        sourceBlockIds: entry.sourceBlockIds,
-        entryId: entry._id,
-      });
-      const nextPersistedEntry = preserveTimesheetEntrySubmissionState(
-        entry,
-        values.taskId
-          ? nextEntry
-          : {
-              ...nextEntry,
-              label: entry.label,
-            },
-      );
-
-      return {
-        ...state,
-        timesheetEntries: state.timesheetEntries.map((item) =>
-          item._id === entryId ? nextPersistedEntry : item,
-        ),
-        workItems: applyLoggedTimeToWorkItems(
-          applyLoggedTimeToWorkItems(state.workItems, {
-            workItemId: entry.workItemId,
-            projectId: entry.projectId,
-            taskId: entry.taskId,
-            durationMsDelta: -entry.durationMs,
-          }),
-          {
-            workItemId: entry.workItemId,
-            projectId: values.projectId,
-            taskId: values.taskId,
-            durationMsDelta: values.durationMs,
-          },
-        ),
-      };
-    });
+    updateState((state) =>
+      applyUpdateTimesheetEntry(state, entryId, values, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   deleteTimesheetEntry(entryId: string) {
-    updateState((state) => {
-      const entry = state.timesheetEntries.find((item) => item._id === entryId);
-      return {
-        ...state,
-        timesheetEntries: state.timesheetEntries.filter(
-          (item) => item._id !== entryId,
-        ),
-        timers: state.timers.map((timer) =>
-          timer.entryId === entryId
-            ? {
-                ...timer,
-                entryId: undefined,
-              }
-            : timer,
-        ),
-        workItems: entry
-          ? applyLoggedTimeToWorkItems(state.workItems, {
-              workItemId: entry.workItemId,
-              projectId: entry.projectId,
-              taskId: entry.taskId,
-              durationMsDelta: -entry.durationMs,
-            })
-          : state.workItems,
-      };
-    });
+    updateState((state) => applyDeleteTimesheetEntry(state, entryId));
   },
   saveTimer(timerId: string) {
-    updateState((state) => {
-      const timer = state.timers.find((item) => item._id === timerId);
-      if (!timer) {
-        return state;
-      }
-
-      const existingEntry = timer.entryId
-        ? state.timesheetEntries.find((entry) => entry._id === timer.entryId)
-        : undefined;
-      const durationMs =
-        timer.accumulatedDurationMs + Math.max(0, Date.now() - timer.startedAt);
-      const nextEntry = createTimesheetEntry(state, {
-        localDate: timer.localDate,
-        workItemId: timer.workItemId,
-        projectId: timer.projectId,
-        taskId: timer.taskId,
-        note: timer.note,
-        durationMs,
-        sourceBlockIds: [],
-        entryId: timer.entryId,
-      });
-      const nextPersistedEntry = preserveTimesheetEntrySubmissionState(
-        existingEntry,
-        nextEntry,
-      );
-
-      return {
-        ...state,
-        timers: state.timers.filter((item) => item._id !== timerId),
-        timesheetEntries: timer.entryId
-          ? state.timesheetEntries.map((entry) =>
-              entry._id === timer.entryId ? nextPersistedEntry : entry,
-            )
-          : [...state.timesheetEntries, nextPersistedEntry],
-        workItems: applyLoggedTimeToWorkItems(
-          existingEntry
-            ? applyLoggedTimeToWorkItems(state.workItems, {
-                workItemId: existingEntry.workItemId,
-                projectId: existingEntry.projectId,
-                taskId: existingEntry.taskId,
-                durationMsDelta: -existingEntry.durationMs,
-              })
-            : state.workItems,
-          {
-            workItemId: timer.workItemId,
-            projectId: timer.projectId,
-            taskId: timer.taskId,
-            durationMsDelta: durationMs,
-          },
-        ),
-      };
-    });
+    updateState((state) =>
+      applySaveTimer(state, timerId, { createId, now: Date.now }),
+    );
   },
   markTimesheetEntriesSubmitted(entryIds: string[]) {
     if (entryIds.length === 0) {
       return;
     }
 
-    const selectedIds = new Set(entryIds);
-
-    updateState((state) => {
-      let changed = false;
-      const submittedAt = Date.now();
-      const nextEntries = state.timesheetEntries.map((entry) => {
-        if (!selectedIds.has(entry._id)) {
-          return entry;
-        }
-
-        changed = true;
-        return {
-          ...entry,
-          submittedAt,
-          submittedFingerprint:
-            createTimesheetEntrySubmissionFingerprint(entry),
-        };
-      });
-
-      return changed
-        ? {
-            ...state,
-            timesheetEntries: nextEntries,
-          }
-        : state;
-    });
+    updateState((state) =>
+      applyMarkTimesheetEntriesSubmitted(state, entryIds, Date.now),
+    );
   },
   restartTimesheetEntry(entryId: string) {
-    updateState((state) => {
-      const entry = state.timesheetEntries.find((item) => item._id === entryId);
-      if (!entry) {
-        return state;
-      }
-
-      return {
-        ...state,
-        timers: [
-          {
-            _id: createId("timer"),
-            startedAt: Date.now(),
-            localDate: entry.localDate,
-            workItemId: entry.workItemId,
-            projectId: entry.projectId,
-            taskId: entry.taskId,
-            note: entry.note,
-            accumulatedDurationMs: entry.durationMs,
-            entryId: entry._id,
-          },
-        ],
-      };
-    });
+    updateState((state) =>
+      applyRestartTimesheetEntry(state, entryId, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   addSampleActivity(url: string, title: string) {
     updateState((state) => ({
       ...state,
-      segments: [...state.segments, buildSampleSegment(state, url, title)],
+      segments: [
+        ...state.segments,
+        buildSampleActivitySegment(state, url, title, {
+          createId,
+          now: Date.now,
+        }),
+      ],
     }));
   },
   importBrowserBuckets(buckets: BrowserActivityBucket[]) {
-    updateState((state) => {
-      const nextDrafts = [...state.importedBrowserDrafts];
-
-      for (const bucket of buckets) {
-        const incoming = createImportedDraft(state, bucket);
-        const currentIndex = nextDrafts.findIndex(
-          (draft) => draft.bucketKey === bucket.bucketKey,
-        );
-        const current =
-          currentIndex >= 0 ? nextDrafts[currentIndex] : undefined;
-        const merged = preserveImportedDraft(state, current, incoming);
-
-        if (currentIndex >= 0) {
-          nextDrafts[currentIndex] = merged;
-        } else {
-          nextDrafts.push(merged);
-        }
-      }
-
-      return {
-        ...state,
-        importedBrowserDrafts: nextDrafts,
-        lastExtensionImportAt: Date.now(),
-      };
-    });
+    updateState((state) =>
+      applyImportBrowserBuckets(
+        state,
+        buckets,
+        {
+          mergeGapMs: defaultTeamSettings.mergeGapMs,
+          microBlockThresholdMs: defaultTeamSettings.microBlockThresholdMs,
+        },
+        Date.now,
+      ),
+    );
   },
   setExtensionBridgeStatus(status: ExtensionBridgeStatus) {
     updateState((state) => ({
@@ -3875,333 +1089,89 @@ export const localStore = {
     }));
   },
   importOutlookMeetings(meetings: OutlookCalendarEvent[], localDate: string) {
-    updateState((state) => {
-      const currentByEventId = new Map(
-        state.outlookMeetingDrafts
-          .filter((meeting) => meeting.localDate === localDate)
-          .map((meeting) => [meeting.eventId, meeting] as const),
-      );
-      const incomingIds = new Set(meetings.map((meeting) => meeting.eventId));
-      const preservedOtherDates = state.outlookMeetingDrafts.filter(
-        (meeting) => meeting.localDate !== localDate,
-      );
-      const preservedTerminalForDate = state.outlookMeetingDrafts.filter(
-        (meeting) =>
-          meeting.localDate === localDate &&
-          !incomingIds.has(meeting.eventId) &&
-          (meeting.status === "dismissed" || meeting.status === "committed"),
-      );
-      const nextForDate = meetings.map((meeting) =>
-        preserveOutlookMeetingDraft(
-          currentByEventId.get(meeting.eventId),
-          createOutlookMeetingDraft(meeting),
-        ),
-      );
-
-      return {
-        ...state,
-        outlookMeetingDrafts: [
-          ...preservedOtherDates,
-          ...preservedTerminalForDate,
-          ...nextForDate,
-        ].sort((left, right) => left.startedAt - right.startedAt),
-      };
-    });
+    updateState((state) =>
+      applyImportOutlookMeetings(state, meetings, localDate, Date.now),
+    );
   },
   getTimeline(
     localDate: string,
   ): TimelineMutationResult & { status: "local"; localDate: string } {
-    const state = readState();
-    const blocks = materializeBlocks(state, localDate);
-    const browserDrafts = materializeImportedDrafts(state, localDate);
-    const outlookMeetings = materializeOutlookMeetings(state, localDate);
-    const committedEntries = state.timesheetEntries.filter(
-      (entry) => entry.localDate === localDate,
-    );
-    return {
-      status: "local",
-      localDate,
-      blocks,
-      browserDrafts,
-      outlookMeetings,
-      trackedMs:
-        blocks.reduce((sum, block) => sum + block.durationMs, 0) +
-        browserDrafts.reduce((sum, draft) => sum + draft.durationMs, 0) +
-        outlookMeetings.reduce((sum, meeting) => sum + meeting.durationMs, 0),
-      committedMs: committedEntries.reduce(
-        (sum, entry) => sum + entry.durationMs,
-        0,
-      ),
-      extensionBridgeStatus: state.extensionBridgeStatus,
-    };
+    return materializeTimeline(readState(), localDate, {
+      mergeGapMs: defaultTeamSettings.mergeGapMs,
+      microBlockThresholdMs: defaultTeamSettings.microBlockThresholdMs,
+    });
   },
   upsertEditedBlock(block: ActivityBlockRecord) {
-    updateState((state) => ({
-      ...state,
-      editedBlocks: [
-        ...state.editedBlocks.filter(
-          (item) => blockId(item) !== blockId(block),
-        ),
-        { ...block, id: blockId(block), status: "edited", locked: true },
-      ],
-    }));
+    updateState((state) => applyUpsertEditedBlock(state, block));
   },
   updateImportedBrowserDraft(
     draftId: string,
-    patch: Partial<
-      Pick<
-        ImportedBrowserDraft,
-        | "projectId"
-        | "note"
-        | "status"
-        | "dismissed"
-        | "assignmentSource"
-        | "explanation"
-      >
-    >,
+    patch: ImportedBrowserDraftPatch,
   ) {
-    updateState((state) => ({
-      ...state,
-      importedBrowserDrafts: state.importedBrowserDrafts.map((draft) =>
-        draft._id === draftId
-          ? {
-              ...draft,
-              ...patch,
-              manuallyEdited: true,
-            }
-          : draft,
-      ),
-    }));
+    updateState((state) =>
+      applyUpdateImportedBrowserDraft(state, draftId, patch),
+    );
   },
   updateOutlookMeetingDraft(
     meetingId: string,
-    patch: Partial<
-      Pick<
-        OutlookMeetingDraft,
-        | "projectId"
-        | "note"
-        | "status"
-        | "dismissed"
-        | "assignmentSource"
-        | "explanation"
-      >
-    >,
+    patch: OutlookMeetingDraftPatch,
   ) {
-    updateState((state) => ({
-      ...state,
-      outlookMeetingDrafts: state.outlookMeetingDrafts.map((meeting) =>
-        meeting._id === meetingId
-          ? {
-              ...meeting,
-              ...patch,
-              manuallyEdited: true,
-            }
-          : meeting,
-      ),
-    }));
+    updateState((state) =>
+      applyUpdateOutlookMeetingDraft(state, meetingId, patch),
+    );
   },
   dismissBlock(block: ActivityBlockRecord) {
-    updateState((state) => ({
-      ...state,
-      editedBlocks: state.editedBlocks.filter(
-        (item) => blockId(item) !== blockId(block),
-      ),
-      dismissedSegmentIds: [
-        ...new Set([...state.dismissedSegmentIds, ...block.sourceSegmentIds]),
-      ],
-    }));
+    updateState((state) => applyDismissActivityBlock(state, block));
   },
   dismissImportedBrowserDraft(draftId: string) {
-    this.updateImportedBrowserDraft(draftId, {
-      dismissed: true,
-      status: "dismissed",
-      explanation:
-        "Dismissed locally. This browser bucket stays on-device and will not appear in review again.",
-    });
+    updateState((state) =>
+      applyDismissImportedBrowserDraft(state, draftId),
+    );
   },
   dismissOutlookMeetingDraft(meetingId: string) {
-    this.updateOutlookMeetingDraft(meetingId, {
-      dismissed: true,
-      status: "dismissed",
-      explanation:
-        "Dismissed locally. This Outlook meeting will stay out of the review queue.",
-    });
+    updateState((state) =>
+      applyDismissOutlookMeetingDraft(state, meetingId),
+    );
   },
   commitBlock(block: ActivityBlockRecord) {
-    if (!block.projectId) {
-      throw new Error("Assign a project before committing a timesheet entry");
-    }
-    updateState((state) => ({
-      ...state,
-      timesheetEntries: [
-        ...state.timesheetEntries,
-        {
-          _id: createId("timesheet"),
-          localDate: block.localDate,
-          projectId: block.projectId!,
-          label: block.display.label,
-          note: block.note,
-          durationMs: block.durationMs,
-          sourceBlockIds: [blockId(block)],
-          committedAt: Date.now(),
-        },
-      ],
-      dismissedSegmentIds: [
-        ...new Set([...state.dismissedSegmentIds, ...block.sourceSegmentIds]),
-      ],
-      editedBlocks: state.editedBlocks.filter(
-        (item) => blockId(item) !== blockId(block),
-      ),
-    }));
+    updateState((state) =>
+      applyCommitActivityBlock(state, block, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   commitImportedBrowserDraft(draftId: string) {
-    updateState((state) => {
-      const draft = state.importedBrowserDrafts.find(
-        (item) => item._id === draftId,
-      );
-      if (!draft?.projectId) {
-        return state;
-      }
-
-      const sourceBlockId = `bucket:${draft.bucketKey}`;
-      if (
-        state.timesheetEntries.some((entry) =>
-          entry.sourceBlockIds.includes(sourceBlockId),
-        )
-      ) {
-        return {
-          ...state,
-          importedBrowserDrafts: state.importedBrowserDrafts.map((item) =>
-            item._id === draftId
-              ? { ...item, status: "committed", manuallyEdited: true }
-              : item,
-          ),
-        };
-      }
-
-      return {
-        ...state,
-        timesheetEntries: [
-          ...state.timesheetEntries,
-          {
-            _id: createId("timesheet"),
-            localDate: draft.localDate,
-            projectId: draft.projectId,
-            label: draft.dominantLabel,
-            note: draft.note,
-            durationMs: draft.durationMs,
-            sourceBlockIds: [sourceBlockId],
-            committedAt: Date.now(),
-          },
-        ],
-        importedBrowserDrafts: state.importedBrowserDrafts.map((item) =>
-          item._id === draftId
-            ? {
-                ...item,
-                status: "committed",
-                manuallyEdited: true,
-                explanation:
-                  "Committed to the local timesheet. The original browser bucket remains local-only.",
-              }
-            : item,
-        ),
-      };
-    });
+    updateState((state) =>
+      applyCommitImportedBrowserDraft(state, draftId, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   commitOutlookMeetingDraft(meetingId: string) {
-    updateState((state) => {
-      const meeting = state.outlookMeetingDrafts.find(
-        (item) => item._id === meetingId,
-      );
-      if (!meeting?.projectId) {
-        return state;
-      }
-
-      const sourceBlockId = `meeting:${meeting.eventId}`;
-      if (
-        state.timesheetEntries.some((entry) =>
-          entry.sourceBlockIds.includes(sourceBlockId),
-        )
-      ) {
-        return {
-          ...state,
-          outlookMeetingDrafts: state.outlookMeetingDrafts.map((item) =>
-            item._id === meetingId
-              ? { ...item, status: "committed", manuallyEdited: true }
-              : item,
-          ),
-        };
-      }
-
-      return {
-        ...state,
-        timesheetEntries: [
-          ...state.timesheetEntries,
-          {
-            _id: createId("timesheet"),
-            localDate: meeting.localDate,
-            projectId: meeting.projectId,
-            label: meeting.subject,
-            note: meeting.note,
-            durationMs: meeting.durationMs,
-            sourceBlockIds: [sourceBlockId],
-            committedAt: Date.now(),
-          },
-        ],
-        outlookMeetingDrafts: state.outlookMeetingDrafts.map((item) =>
-          item._id === meetingId
-            ? {
-                ...item,
-                status: "committed",
-                manuallyEdited: true,
-                explanation:
-                  "Committed to the local timesheet. The source Outlook meeting is not synced anywhere else.",
-              }
-            : item,
-        ),
-      };
-    });
+    updateState((state) =>
+      applyCommitOutlookMeetingDraft(state, meetingId, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
-  saveRuleFromBlock(block: RuleSeed) {
-    if (!block.projectId) {
-      throw new Error("Assign a project before saving a rule");
-    }
-    updateState((state) => ({
-      ...state,
-      rules: [
-        ...state.rules,
-        {
-          id: createId("rule"),
-          userId: state.user._id,
-          teamId: state.team?._id ?? "local_team",
-          enabled: true,
-          priority: 50,
-          source: "manual",
-          status: "active",
-          action: "suggest",
-          targetProjectId: block.projectId!,
-          condition: {
-            domain: block.domain,
-            pathnamePrefix: block.pathname === "/" ? undefined : block.pathname,
-          },
-          baseConfidence: 0.9,
-        },
-      ],
-    }));
+  saveRuleFromBlock(block: TimelineRuleSeed) {
+    updateState((state) =>
+      applySaveRuleFromBlock(state, block, {
+        createId,
+        now: Date.now,
+      }),
+    );
   },
   saveRuleFromImportedBrowserDraft(draftId: string) {
-    const draft = readState().importedBrowserDrafts.find(
-      (item) => item._id === draftId,
+    updateState((state) =>
+      applySaveRuleFromImportedBrowserDraft(state, draftId, {
+        createId,
+        now: Date.now,
+      }),
     );
-    if (!draft?.projectId) {
-      throw new Error("Assign a project before saving a rule");
-    }
-
-    this.saveRuleFromBlock({
-      projectId: draft.projectId,
-      domain: draft.dominantDomain,
-      pathname: draft.dominantPathname,
-    });
   },
   setUserPreferences(preferences: Partial<UserPreferences>) {
     updateState((state) => ({

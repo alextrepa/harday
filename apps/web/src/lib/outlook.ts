@@ -3,27 +3,15 @@ import {
   PublicClientApplication,
   type AccountInfo,
 } from "@azure/msal-browser";
+import type {
+  OutlookCalendarEvent,
+  OutlookConnectionSnapshot,
+} from "@/domain/integrations/outlook";
 
-export interface OutlookConnectionSnapshot {
-  configured: boolean;
-  connected: boolean;
-  accountEmail?: string;
-  accountName?: string;
-  lastError?: string;
-}
-
-export interface OutlookCalendarEvent {
-  eventId: string;
-  localDate: string;
-  startedAt: number;
-  endedAt: number;
-  durationMs: number;
-  subject: string;
-  organizer?: string;
-  location?: string;
-  isOnlineMeeting: boolean;
-  webLink?: string;
-}
+export type {
+  OutlookCalendarEvent,
+  OutlookConnectionSnapshot,
+} from "@/domain/integrations/outlook";
 
 interface GraphDateTimeTimeZone {
   dateTime: string;

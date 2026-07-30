@@ -13,8 +13,9 @@ import {
   formatDurationHoursInput,
   normalizeHoursInput,
   parseHoursInput,
-} from "@/features/timer/hours-input";
-import { getLocalProjectDisplayName, localStore } from "@/lib/local-store";
+} from "@/domain/time/duration";
+import { getLocalProjectDisplayName } from "@/domain/local-state";
+import { localStore } from "@/lib/local-store";
 import { useLocalProjects, useLocalState } from "@/lib/local-hooks";
 
 interface TimeEntryModalProps {

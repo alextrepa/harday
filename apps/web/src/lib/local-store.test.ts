@@ -1080,4 +1080,56 @@ describe("localStore backlog status sync", () => {
       submittedFingerprint: undefined,
     });
   });
+
+  it("recovers from malformed persisted JSON without overwriting it", async () => {
+    window.localStorage.setItem("timetracker.local-state.v2", "{not-json");
+    vi.mocked(window.localStorage.setItem).mockClear();
+
+    const { localStore } = await import("./local-store");
+
+    expect(localStore.snapshot().projects.length).toBeGreaterThan(0);
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it("normalizes malformed collection shapes and team settings", async () => {
+    window.localStorage.setItem(
+      "timetracker.local-state.v2",
+      JSON.stringify({
+        projects: "invalid",
+        workItems: {},
+        timesheetEntries: null,
+        team: {
+          _id: "team-1",
+          name: "Local",
+          slug: "local",
+          settings: {
+            mergeGapMs: 1,
+          },
+        },
+      }),
+    );
+
+    const { localStore } = await import("./local-store");
+    const state = localStore.snapshot();
+
+    expect(state.workItems).toEqual([]);
+    expect(state.timesheetEntries).toEqual([]);
+    expect(state.team?.settings).toMatchObject({
+      mergeGapMs: 1,
+      idleThresholdMs: 2 * 60 * 1000,
+      microBlockThresholdMs: 3 * 60 * 1000,
+    });
+  });
+
+  it("does not persist a no-op transition", async () => {
+    const { localStore } = await import("./local-store");
+    localStore.snapshot();
+    vi.mocked(window.localStorage.setItem).mockClear();
+    vi.mocked(window.dispatchEvent).mockClear();
+
+    localStore.saveTimer("missing");
+
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
+  });
 });

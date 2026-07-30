@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useUserPreferences } from "@/lib/local-hooks";
-import type { ThemeMode } from "@/lib/local-store";
+import type { ThemeMode } from "@/domain/local-state";
 
 function getSystemTheme(): "dark" | "light" {
   if (typeof window === "undefined") {

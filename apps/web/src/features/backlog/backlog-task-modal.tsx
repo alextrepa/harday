@@ -16,8 +16,17 @@ import {
 } from "@/features/backlog/backlog-status";
 import {
   getDirectChildWorkItems,
-  isSubtaskItem,
-} from "@/features/backlog/work-item-hierarchy";
+  isSubtaskWorkItem,
+} from "@/domain/backlog/work-item-hierarchy";
+import {
+  buildBacklogTaskDraft,
+  buildBacklogTaskPatch,
+  buildManualTimeEntryNote,
+  collectBlockedParentIds,
+  createBacklogTaskEditorFields,
+  validateBacklogTaskEditor,
+  type BacklogTaskEditorFields,
+} from "@/features/backlog/backlog-task-editor";
 import {
   WorkItemIcon,
   resolveWorkItemIcon,
@@ -31,100 +40,23 @@ import { syncBacklogWorkItemToSource } from "@/features/backlog/work-item-source
 import {
   normalizeHoursInput,
   parseHoursInput,
-} from "@/features/timer/hours-input";
+} from "@/domain/time/duration";
 import {
   useLocalProjects,
   useLocalState,
   useLocalWorkItems,
 } from "@/lib/local-hooks";
 import {
-  getLocalProjectDisplayName,
   type LocalWorkItem,
-  localStore,
-} from "@/lib/local-store";
+  getLocalProjectDisplayName,
+} from "@/domain/local-state";
+import { localStore } from "@/lib/local-store";
 import { cn, todayIsoDate } from "@/lib/utils";
 
 interface BacklogTaskModalProps {
   workItemId?: string;
   parentWorkItemId?: string;
   onClose: () => void;
-}
-
-function formatPriorityInput(priority?: number) {
-  return typeof priority === "number" ? String(priority) : "";
-}
-
-function isSamePriorityValue(
-  left: number | undefined | null,
-  right: number | undefined,
-) {
-  return left === right;
-}
-
-function parsePriorityInput(value: string) {
-  if (value.trim() === "") {
-    return undefined;
-  }
-
-  const parsedValue = Number(value);
-  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
-    return null;
-  }
-
-  return parsedValue;
-}
-
-function formatEstimateInput(value?: number) {
-  return typeof value === "number" ? String(value) : "";
-}
-
-function parseEstimateInput(value: string) {
-  if (value.trim() === "") {
-    return undefined;
-  }
-
-  const parsedValue = Number(value);
-  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
-    return null;
-  }
-
-  return Math.round(parsedValue * 10_000) / 10_000;
-}
-
-function buildManualTimeEntryNote(
-  note: string,
-  title: string,
-  sourceId?: string,
-) {
-  const trimmedNote = note.trim();
-  return trimmedNote || buildWorkItemTimerComment(title, sourceId);
-}
-
-function collectBlockedParentIds(
-  workItem: LocalWorkItem,
-  workItems: LocalWorkItem[],
-) {
-  const blockedParentIds = new Set<string>([workItem._id]);
-  const queue = [workItem];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
-
-    const childItems = getDirectChildWorkItems(current, workItems);
-    for (const childItem of childItems) {
-      if (blockedParentIds.has(childItem._id)) {
-        continue;
-      }
-
-      blockedParentIds.add(childItem._id);
-      queue.push(childItem);
-    }
-  }
-
-  return blockedParentIds;
 }
 
 export function BacklogTaskModal({
@@ -236,7 +168,7 @@ export function BacklogTaskModal({
     () =>
       workItems
         .filter(
-          (item) => !isSubtaskItem(item) && !blockedParentIds.has(item._id),
+          (item) => !isSubtaskWorkItem(item) && !blockedParentIds.has(item._id),
         )
         .map((item) => ({
           value: item._id,
@@ -261,6 +193,19 @@ export function BacklogTaskModal({
     () => parseHoursInput(durationHours),
     [durationHours],
   );
+  const editorFields: BacklogTaskEditorFields = {
+    title,
+    note,
+    priority,
+    backlogStatusId,
+    parentWorkItemId: parentTaskId,
+    projectId,
+    taskId,
+    originalEstimateHours,
+    remainingEstimateHours,
+    completedEstimateHours,
+    keepWhenMissingFromSync: workItem?.keepWhenMissingFromSync ?? false,
+  };
   const hasDurationDraft = durationHours.trim().length > 0;
   const durationError = !hasDurationDraft
     ? null
@@ -270,39 +215,19 @@ export function BacklogTaskModal({
         ? "Enter a positive duration"
         : null;
   const isSubtaskDraft = isCreateSubtaskMode ? true : Boolean(parentTaskId);
-  const priorityError =
-    !isSubtaskDraft && parsePriorityInput(priority) === null
-      ? "Enter a whole number"
-      : null;
-  const originalEstimateError =
-    parseEstimateInput(originalEstimateHours) === null
-      ? "Enter a non-negative number"
-      : null;
-  const remainingEstimateError =
-    parseEstimateInput(remainingEstimateHours) === null
-      ? "Enter a non-negative number"
-      : null;
-  const completedEstimateError =
-    parseEstimateInput(completedEstimateHours) === null
-      ? "Enter a non-negative number"
-      : null;
+  const editorValidation = validateBacklogTaskEditor(editorFields, {
+    isSubtask: isSubtaskDraft,
+    requireParent: isCreateSubtaskMode,
+  });
+  const { priorityError } = editorValidation;
   const canSubmitDuration = Boolean(parsedDurationMs && parsedDurationMs > 0);
   const canStartTimer = Boolean(
     !currentTimer && workItem?.status !== "archived",
   );
-  const canCreateSubtask =
-    title.trim().length > 0 &&
-    Boolean(parentTaskId) &&
-    !originalEstimateError &&
-    !remainingEstimateError &&
-    !completedEstimateError;
-  const canCreateRootTask = title.trim().length > 0;
-  const canSaveTask =
-    title.trim().length > 0 &&
-    (isSubtaskDraft || parsePriorityInput(priority) !== null) &&
-    !originalEstimateError &&
-    !remainingEstimateError &&
-    !completedEstimateError;
+  const canCreateSubtask = editorValidation.canSave;
+  const canCreateRootTask = validateBacklogTaskEditor(editorFields, {
+    isSubtask: false,
+  }).canSave;
 
   const selectedProject = useMemo(
     () => projects.find((project) => project._id === projectId),
@@ -316,7 +241,7 @@ export function BacklogTaskModal({
     () =>
       workItem
         ? [
-            isSubtaskItem(workItem) ? "Subtask" : undefined,
+            isSubtaskWorkItem(workItem) ? "Subtask" : undefined,
             workItem.source !== "manual" && workItem.source !== "outlook"
               ? workItem.sourceConnectionLabel
               : undefined,
@@ -364,22 +289,29 @@ export function BacklogTaskModal({
     ? resolveWorkItemIcon(workItem, workItemIconData)
     : null;
 
-  useEffect(() => {
-    if (isCreateRootMode) {
-      setTitle("");
-      setNote("");
+  const applyEditorFields = useCallback(
+    (fields: BacklogTaskEditorFields) => {
+      setTitle(fields.title);
+      setNote(fields.note);
+      setPriority(fields.priority);
+      setOriginalEstimateHours(fields.originalEstimateHours);
+      setRemainingEstimateHours(fields.remainingEstimateHours);
+      setCompletedEstimateHours(fields.completedEstimateHours);
+      setBacklogStatusId(fields.backlogStatusId);
+      setParentTaskId(fields.parentWorkItemId);
+      setProjectId(fields.projectId);
+      setTaskId(fields.taskId);
       setTimeEntryNote("");
-      setPriority("");
-      setOriginalEstimateHours("");
-      setRemainingEstimateHours("");
-      setCompletedEstimateHours("");
-      setBacklogStatusId("");
-      setParentTaskId("");
-      setProjectId("");
-      setTaskId("");
       setDurationHours("");
       setIsArchivePending(false);
       setIsDeletePending(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (isCreateRootMode) {
+      applyEditorFields(createBacklogTaskEditorFields());
       return;
     }
 
@@ -389,20 +321,14 @@ export function BacklogTaskModal({
         return;
       }
 
-      setTitle("");
-      setNote("");
-      setTimeEntryNote("");
-      setPriority("");
-      setOriginalEstimateHours("");
-      setRemainingEstimateHours("");
-      setCompletedEstimateHours("");
-      setBacklogStatusId(parentWorkItem.backlogStatusId ?? "");
-      setParentTaskId(parentWorkItem._id);
-      setProjectId(parentWorkItem.projectId ?? "");
-      setTaskId(parentWorkItem.taskId ?? "");
-      setDurationHours("");
-      setIsArchivePending(false);
-      setIsDeletePending(false);
+      applyEditorFields(
+        createBacklogTaskEditorFields(undefined, {
+          backlogStatusId: parentWorkItem.backlogStatusId ?? "",
+          parentWorkItemId: parentWorkItem._id,
+          projectId: parentWorkItem.projectId ?? "",
+          taskId: parentWorkItem.taskId ?? "",
+        }),
+      );
       return;
     }
 
@@ -411,27 +337,13 @@ export function BacklogTaskModal({
       return;
     }
 
-    setTitle(workItem.title);
-    setNote(workItem.note ?? "");
-    setTimeEntryNote("");
-    setPriority(formatPriorityInput(workItem.priority));
-    setOriginalEstimateHours(
-      formatEstimateInput(workItem.originalEstimateHours),
+    applyEditorFields(
+      createBacklogTaskEditorFields(workItem, {
+        parentWorkItemId: resolvedParentTaskId,
+      }),
     );
-    setRemainingEstimateHours(
-      formatEstimateInput(workItem.remainingEstimateHours),
-    );
-    setCompletedEstimateHours(
-      formatEstimateInput(workItem.completedEstimateHours),
-    );
-    setBacklogStatusId(workItem.backlogStatusId ?? "");
-    setParentTaskId(resolvedParentTaskId);
-    setProjectId(workItem.projectId ?? "");
-    setTaskId(workItem.taskId ?? "");
-    setDurationHours("");
-    setIsArchivePending(false);
-    setIsDeletePending(false);
   }, [
+    applyEditorFields,
     isCreateRootMode,
     isCreateSubtaskMode,
     onClose,
@@ -486,41 +398,28 @@ export function BacklogTaskModal({
         return null;
       }
 
-      const parsedPriority = parsePriorityInput(priority);
-      if (!parentTaskId && parsedPriority === null) {
-        return null;
-      }
-      const parsedOriginalEstimateHours = parseEstimateInput(
-        originalEstimateHours,
+      return buildBacklogTaskPatch(
+        workItem,
+        {
+          title,
+          note,
+          priority,
+          backlogStatusId,
+          parentWorkItemId: parentTaskId,
+          projectId,
+          taskId,
+          originalEstimateHours,
+          remainingEstimateHours,
+          completedEstimateHours,
+          keepWhenMissingFromSync:
+            workItem.keepWhenMissingFromSync ?? false,
+        },
+        {
+          isSubtask: Boolean(parentTaskId),
+          preserveTitle,
+          includeHierarchy: true,
+        },
       );
-      const parsedRemainingEstimateHours = parseEstimateInput(
-        remainingEstimateHours,
-      );
-      const parsedCompletedEstimateHours = parseEstimateInput(
-        completedEstimateHours,
-      );
-      if (
-        parsedOriginalEstimateHours === null ||
-        parsedRemainingEstimateHours === null ||
-        parsedCompletedEstimateHours === null
-      ) {
-        return null;
-      }
-      const nextPriority = parsedPriority === null ? undefined : parsedPriority;
-
-      return {
-        title: trimmedTitle || workItem.title,
-        note: note.trim() || undefined,
-        priority: parentTaskId ? undefined : nextPriority,
-        backlogStatusId: backlogStatusId || undefined,
-        parentWorkItemId: parentTaskId || undefined,
-        parentSourceId: undefined,
-        projectId: projectId || undefined,
-        taskId: taskId || undefined,
-        originalEstimateHours: parsedOriginalEstimateHours,
-        remainingEstimateHours: parsedRemainingEstimateHours,
-        completedEstimateHours: parsedCompletedEstimateHours,
-      };
     },
     [
       backlogStatusId,
@@ -671,38 +570,28 @@ export function BacklogTaskModal({
   }
 
   function submitCreatedSubtask() {
-    if (!parentTaskId) {
-      return;
-    }
-
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      return;
-    }
-
-    localStore.addSubtask(parentTaskId, {
-      title: trimmedTitle,
-      note: note.trim() || undefined,
-      backlogStatusId: backlogStatusId || undefined,
-      projectId: projectId || undefined,
-      taskId: taskId || undefined,
+    const draft = buildBacklogTaskDraft(editorFields, {
+      isSubtask: true,
+      requireParent: true,
     });
+    if (!draft?.parentWorkItemId) {
+      return;
+    }
+
+    const { parentWorkItemId: draftParentId, ...subtaskDraft } = draft;
+    localStore.addSubtask(draftParentId, subtaskDraft);
     onClose();
   }
 
   function submitCreatedTask() {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
+    const draft = buildBacklogTaskDraft(editorFields, {
+      isSubtask: false,
+    });
+    if (!draft) {
       return;
     }
 
-    localStore.addWorkItem({
-      title: trimmedTitle,
-      note: note.trim() || undefined,
-      backlogStatusId: backlogStatusId || undefined,
-      projectId: projectId || undefined,
-      taskId: taskId || undefined,
-    });
+    localStore.addWorkItem(draft);
     onClose();
   }
 

@@ -30,6 +30,7 @@ run(process.execPath, [path.join(scriptRoot, "run-renderer.cjs"), "build"], {
 run(process.platform === "win32" ? "corepack.cmd" : "corepack", ["pnpm", "package:connectors"], {
   cwd: repoRoot,
   env: process.env,
+  shell: process.platform === "win32",
 });
 
 run(process.execPath, [path.join(scriptRoot, "prepare-internal-api.cjs")], {

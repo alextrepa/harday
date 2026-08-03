@@ -2,6 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { serialize } from "node:v8";
 
 const MAX_CONNECTOR_PLUGIN_RESULT_BYTES = 8 * 1024 * 1024;
+const MAX_CONNECTOR_PLUGIN_ERROR_MESSAGE_CHARACTERS = 4_096;
 
 if (!parentPort) {
   throw new Error("Connector plugin worker requires a parent port.");
@@ -30,6 +31,17 @@ async function run() {
   throw new Error(`Unknown connector plugin method: ${workerData.method}`);
 }
 
+function errorMessage(error) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unknown connector plugin error.";
+  if (message.length <= MAX_CONNECTOR_PLUGIN_ERROR_MESSAGE_CHARACTERS) {
+    return message;
+  }
+  return `${message.slice(0, MAX_CONNECTOR_PLUGIN_ERROR_MESSAGE_CHARACTERS - 1)}…`;
+}
+
 try {
   const result = await run();
   if (serialize(result).byteLength > MAX_CONNECTOR_PLUGIN_RESULT_BYTES) {
@@ -42,9 +54,6 @@ try {
 } catch (error) {
   parentPort.postMessage({
     ok: false,
-    error:
-      error instanceof Error
-        ? error.message
-        : "Unknown connector plugin error.",
+    error: errorMessage(error),
   });
 }

@@ -10,7 +10,6 @@ TimeTracker is a work-focused, local-first time tracker for daily timesheets, pr
 - manual time entry creation and editing
 - daily time page
 - backlog management
-- optional Outlook meeting import
 - optional Azure DevOps and Jira connector support through local API/plugin surfaces
 - Electron desktop shell and packaging
 

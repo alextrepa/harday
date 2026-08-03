@@ -113,11 +113,6 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_DESKTOP_SHELL": JSON.stringify(
         isDesktopMode ? "true" : "false",
       ),
-      ...(isDesktopMode
-        ? {
-            "import.meta.env.VITE_ENABLE_OUTLOOK": JSON.stringify("false"),
-          }
-        : {}),
     },
     plugins: [
       react(),

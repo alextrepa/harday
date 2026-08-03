@@ -268,6 +268,39 @@ describe("connector plugin installation boundary", () => {
     });
   });
 
+  it("does not broaden allowed origins when development plugins are enabled", async () => {
+    const root = await tempDir();
+    const server = createAppApiServer({
+      statePath: path.join(root, "state.json"),
+      installedPluginDirectory: path.join(root, "installed"),
+      allowDevelopmentPlugins: true,
+      allowedOrigins: ["http://127.0.0.1:5173"],
+    });
+    servers.push(server);
+
+    await expect(
+      dispatchJsonRequest(server, {
+        method: "GET",
+        path: "/api/health",
+        headers: { Origin: "http://127.0.0.1:5173" },
+      }),
+    ).resolves.toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+
+    await expect(
+      dispatchJsonRequest(server, {
+        method: "GET",
+        path: "/api/health",
+        headers: { Origin: "http://127.0.0.1:9999" },
+      }),
+    ).resolves.toEqual({
+      status: 403,
+      body: { error: "Request origin is not allowed." },
+    });
+  });
+
   it("rejects DNS-rebinding host headers", async () => {
     const root = await tempDir();
     const server = createAppApiServer({

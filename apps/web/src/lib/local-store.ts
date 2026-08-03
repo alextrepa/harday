@@ -66,20 +66,15 @@ import {
   buildSampleActivitySegment,
   commitActivityBlock as applyCommitActivityBlock,
   commitImportedBrowserDraft as applyCommitImportedBrowserDraft,
-  commitOutlookMeetingDraft as applyCommitOutlookMeetingDraft,
   dismissActivityBlock as applyDismissActivityBlock,
   dismissImportedBrowserDraft as applyDismissImportedBrowserDraft,
-  dismissOutlookMeetingDraft as applyDismissOutlookMeetingDraft,
   importBrowserBuckets as applyImportBrowserBuckets,
-  importOutlookMeetings as applyImportOutlookMeetings,
   materializeTimeline,
   saveRuleFromBlock as applySaveRuleFromBlock,
   saveRuleFromImportedBrowserDraft as applySaveRuleFromImportedBrowserDraft,
   updateImportedBrowserDraft as applyUpdateImportedBrowserDraft,
-  updateOutlookMeetingDraft as applyUpdateOutlookMeetingDraft,
   upsertEditedBlock as applyUpsertEditedBlock,
   type ImportedBrowserDraftPatch,
-  type OutlookMeetingDraftPatch,
   type TimelineRuleSeed,
 } from "@/domain/time/timeline-transitions";
 import {
@@ -100,10 +95,6 @@ import {
   updateProject as applyUpdateProject,
   updateProjectTask as applyUpdateProjectTask,
 } from "@/domain/projects/project-transitions";
-import type {
-  OutlookCalendarEvent,
-  OutlookConnectionSnapshot,
-} from "@/domain/integrations/outlook";
 import type {
   BacklogSortMode,
   ExtensionBridgeStatus,
@@ -159,13 +150,13 @@ export type {
   LocalWorkItemEstimateFieldKey,
   LocalWorkItemEstimateFieldState,
   LocalWorkItemEstimateSyncState,
-  OutlookMeetingDraft,
   ThemeMode,
   TimelineMutationResult,
   UserPreferences,
 } from "@/domain/local-state";
 
 const STORAGE_KEY = "timetracker.local-state.v2";
+const RETIRED_AUTH_CACHE_PREFIX = "msal.";
 
 const defaultCapture: CaptureSettings = {
   urlMode: "sanitized_path",
@@ -215,7 +206,6 @@ function createDefaultState(): LocalAppState {
     dismissedSegmentIds: [],
     editedBlocks: [],
     importedBrowserDrafts: [],
-    outlookMeetingDrafts: [],
     timers: [],
     timesheetEntries: [],
     timesheetImportDrafts: [],
@@ -224,10 +214,6 @@ function createDefaultState(): LocalAppState {
     backlogStatusMappings: [],
     backlogSortMode: "custom",
     capture: defaultCapture,
-    outlookIntegration: {
-      configured: false,
-      connected: false,
-    },
     userPreferences: defaultUserPreferences,
     updatedAt: Date.now(),
   });
@@ -237,9 +223,13 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
   const defaults = createDefaultState();
   const {
     activityLoggerEnabled: _removedActivityLoggerEnabled,
+    outlookIntegration: _removedOutlookIntegration,
+    outlookMeetingDrafts: _removedOutlookMeetingDrafts,
     ...persistedState
   } = state as Partial<LocalAppState> & {
     activityLoggerEnabled?: boolean;
+    outlookIntegration?: unknown;
+    outlookMeetingDrafts?: unknown;
   };
   const rawWorkItems = arrayOrDefault<PersistedLocalWorkItem>(
     persistedState.workItems,
@@ -298,10 +288,6 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
         persistedState.importedBrowserDrafts,
         defaults.importedBrowserDrafts,
       ),
-      outlookMeetingDrafts: arrayOrDefault(
-        persistedState.outlookMeetingDrafts,
-        defaults.outlookMeetingDrafts,
-      ),
       timers: arrayOrDefault(persistedState.timers, defaults.timers).map((timer) =>
         normalizeTimer(timer),
       ),
@@ -336,15 +322,29 @@ function normalizeState(state: Partial<LocalAppState>): LocalAppState {
             ? persistedState.capture.maxPathSegments
             : defaults.capture.maxPathSegments,
       },
-      outlookIntegration: {
-        ...defaults.outlookIntegration,
-        ...persistedState.outlookIntegration,
-      },
       userPreferences: {
         ...defaults.userPreferences,
         ...persistedState.userPreferences,
       },
     }),
+  );
+}
+
+function containsRetiredOutlookState(state: unknown) {
+  if (typeof state !== "object" || state === null) {
+    return false;
+  }
+
+  const legacyState = state as Partial<LocalAppState> & {
+    outlookIntegration?: unknown;
+    outlookMeetingDrafts?: unknown;
+  };
+
+  return (
+    "outlookIntegration" in legacyState ||
+    "outlookMeetingDrafts" in legacyState ||
+    (Array.isArray(legacyState.workItems) &&
+      legacyState.workItems.some((workItem) => workItem?.source === "outlook"))
   );
 }
 
@@ -506,13 +506,6 @@ function mergeDesktopBootstrapState(
   ) {
     nextState.importedBrowserDrafts = bootstrapState.importedBrowserDrafts;
   }
-  if (
-    (nextState.outlookMeetingDrafts?.length ?? 0) === 0 &&
-    (bootstrapState.outlookMeetingDrafts?.length ?? 0) > 0
-  ) {
-    nextState.outlookMeetingDrafts = bootstrapState.outlookMeetingDrafts;
-  }
-
   const nextUpdatedAt =
     typeof nextState.updatedAt === "number" &&
     Number.isFinite(nextState.updatedAt)
@@ -529,7 +522,30 @@ function mergeDesktopBootstrapState(
   return nextState;
 }
 
+function purgeRetiredAuthCache() {
+  for (const storageName of ["localStorage", "sessionStorage"] as const) {
+    try {
+      const storage = window[storageName];
+      const retiredKeys = Array.from(
+        { length: storage.length },
+        (_, index) => storage.key(index),
+      ).filter(
+        (key): key is string =>
+          key?.toLowerCase().startsWith(RETIRED_AUTH_CACHE_PREFIX) ===
+          true,
+      );
+
+      for (const key of retiredKeys) {
+        storage.removeItem(key);
+      }
+    } catch {
+      // Browser storage can be unavailable under restrictive privacy settings.
+    }
+  }
+}
+
 function loadState(): LocalAppState {
+  purgeRetiredAuthCache();
   const bootstrapState = window.timetrackerDesktop?.bootstrapLocalState;
   let stored: string | null;
   try {
@@ -567,7 +583,20 @@ function loadState(): LocalAppState {
     return mergedState;
   }
   try {
-    return normalizeState(parsedState);
+    const normalizedState = normalizeState(parsedState);
+    if (containsRetiredOutlookState(parsedState)) {
+      try {
+        if (window.localStorage.getItem(STORAGE_KEY) === stored) {
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(normalizedState),
+          );
+        }
+      } catch {
+        // Keep the sanitized state in memory when persistence is unavailable.
+      }
+    }
+    return normalizedState;
   } catch {
     return normalizeState(bootstrapState ?? createDefaultState());
   }
@@ -1065,26 +1094,6 @@ export const localStore = {
       extensionBridgeStatus: status,
     }));
   },
-  setOutlookIntegration(snapshot: OutlookConnectionSnapshot) {
-    updateState((state) => ({
-      ...state,
-      outlookIntegration: snapshot,
-    }));
-  },
-  patchOutlookIntegration(patch: Partial<OutlookConnectionSnapshot>) {
-    updateState((state) => ({
-      ...state,
-      outlookIntegration: {
-        ...state.outlookIntegration,
-        ...patch,
-      },
-    }));
-  },
-  importOutlookMeetings(meetings: OutlookCalendarEvent[], localDate: string) {
-    updateState((state) =>
-      applyImportOutlookMeetings(state, meetings, localDate, Date.now),
-    );
-  },
   getTimeline(
     localDate: string,
   ): TimelineMutationResult & { status: "local"; localDate: string } {
@@ -1104,25 +1113,12 @@ export const localStore = {
       applyUpdateImportedBrowserDraft(state, draftId, patch),
     );
   },
-  updateOutlookMeetingDraft(
-    meetingId: string,
-    patch: OutlookMeetingDraftPatch,
-  ) {
-    updateState((state) =>
-      applyUpdateOutlookMeetingDraft(state, meetingId, patch),
-    );
-  },
   dismissBlock(block: ActivityBlockRecord) {
     updateState((state) => applyDismissActivityBlock(state, block));
   },
   dismissImportedBrowserDraft(draftId: string) {
     updateState((state) =>
       applyDismissImportedBrowserDraft(state, draftId),
-    );
-  },
-  dismissOutlookMeetingDraft(meetingId: string) {
-    updateState((state) =>
-      applyDismissOutlookMeetingDraft(state, meetingId),
     );
   },
   commitBlock(block: ActivityBlockRecord) {
@@ -1136,14 +1132,6 @@ export const localStore = {
   commitImportedBrowserDraft(draftId: string) {
     updateState((state) =>
       applyCommitImportedBrowserDraft(state, draftId, {
-        createId,
-        now: Date.now,
-      }),
-    );
-  },
-  commitOutlookMeetingDraft(meetingId: string) {
-    updateState((state) =>
-      applyCommitOutlookMeetingDraft(state, meetingId, {
         createId,
         now: Date.now,
       }),

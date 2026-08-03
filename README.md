@@ -9,7 +9,6 @@ TimeTracker is a local-first time-tracking workspace with a web app, an Electron
 - start/stop timer flow
 - manual time entries and notes
 - backlog management
-- optional Outlook meeting import
 - desktop packaging for local use
 
 ## Privacy Boundary
@@ -119,28 +118,6 @@ Remove dependencies and build output:
 ```sh
 just clean-all --force
 ```
-
-## Outlook Meeting Import
-
-Outlook import is optional. The local-first timer workflow does not require any environment variables.
-
-To enable Outlook meeting import in the web app, set:
-
-```sh
-VITE_MICROSOFT_CLIENT_ID=your-app-client-id
-VITE_MICROSOFT_TENANT_ID=common
-```
-
-`VITE_MICROSOFT_TENANT_ID` is optional and defaults to `common`.
-
-For local development, add these SPA redirect URIs to the Microsoft Entra app registration:
-
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-- `http://localhost:4173`
-- `http://127.0.0.1:4173`
-
-The browser client requests `Calendars.ReadBasic` and imports timed Outlook meetings into the local review flow.
 
 ## Runtime Surfaces
 

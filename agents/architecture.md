@@ -39,7 +39,7 @@ Current deep domain modules demonstrate this boundary:
 - `domain/time/timesheet-entry.ts` owns manual entry creation, edits, deletion, ordering, submission state, and the corresponding work-item estimate adjustments.
 - `domain/time/timesheet-import.ts` owns import normalization, conflict detection, draft review, project/task recovery, and single or batch commit.
 - `domain/time/timer-transitions.ts` owns timer hydration, start/edit/cancel/save/restart behavior, elapsed-time calculation, and replacement of restarted entries.
-- `domain/time/timeline-transitions.ts` owns imported browser and Outlook review preservation, timeline materialization, dismissal, idempotent commits, and rule creation.
+- `domain/time/timeline-transitions.ts` owns imported browser review preservation, timeline materialization, dismissal, idempotent commits, and rule creation.
 
 These modules are the Interface between workflow orchestration and persistence. Keep their behavior deterministic and free of browser APIs. A domain module should be deep enough that removing it would force meaningful rules back into several callers; avoid shallow one-function wrappers that only rename an operation.
 
@@ -100,8 +100,17 @@ context. Each plugin operation runs in a new Node worker thread and exchanges
 validated structured messages with the host. The worker is stateless and is
 terminated after the operation completes. The parent tracks every active
 worker and calls `worker.terminate()` on timeout, cancellation, or application
-shutdown. Because workers are threads rather than child processes, they cannot
-outlive the parent application or remain as orphan connector processes.
+shutdown. Worker capacity is reserved before asynchronous discovery, package
+discovery is serialized against installation and removal, and worker result and
+error payloads are bounded. Because workers are threads rather than child
+processes, they cannot outlive the parent application or remain as orphan
+connector processes.
+
+Development plugin loading and browser-origin authorization are separate
+permissions. The local API accepts browser requests only from exact configured
+origins; enabling loose development directories must never broaden that
+allowlist. Plugin manifests and entrypoints must remain regular files within
+their canonical plugin directory without traversing symbolic-link ancestors.
 
 Worker threads isolate plugin JavaScript state, failures, event loops, and
 dependencies, but they are not a security sandbox. Installed plugin code still

@@ -131,24 +131,15 @@ function writeJson(response: ServerResponse, statusCode: number, body?: unknown)
 function isAllowedRequestOrigin(
   origin: string,
   allowedOrigins: ReadonlySet<string>,
-  allowDevelopmentOrigins: boolean,
 ) {
-  if (allowedOrigins.has(origin)) {
-    return true;
-  }
-  if (!allowDevelopmentOrigins) {
-    return false;
-  }
+  return allowedOrigins.has(origin);
+}
 
-  try {
-    const parsed = new URL(origin);
-    return (
-      parsed.protocol === "http:" &&
-      (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")
-    );
-  } catch {
-    return false;
-  }
+function configuredAllowedOrigins() {
+  return (process.env.TIMETRACKER_APP_API_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
 function isAllowedRequestHost(hostHeader: string) {
@@ -315,7 +306,9 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
     allowDevelopmentPlugins,
     requestTimeoutMs: options.pluginRequestTimeoutMs,
   });
-  const allowedOrigins = new Set(options.allowedOrigins ?? []);
+  const allowedOrigins = new Set(
+    options.allowedOrigins ?? configuredAllowedOrigins(),
+  );
   const runtime: AppApiRuntime = { storage, pluginManager, stopping: false };
 
   const server = createServer(async (request, response) => {
@@ -336,7 +329,6 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
       !isAllowedRequestOrigin(
         requestOrigin,
         allowedOrigins,
-        allowDevelopmentPlugins,
       )
     ) {
       writeJson(response, 403, { error: "Request origin is not allowed." });

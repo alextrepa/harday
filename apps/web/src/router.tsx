@@ -9,7 +9,6 @@ import {
 import { lazy, Suspense, type ReactNode } from "react";
 import { z } from "zod";
 import { AppShell } from "@/features/layout/app-shell";
-import { useBootstrapSession } from "@/lib/session";
 import { todayIsoDate } from "@/lib/utils";
 
 const SignInPage = lazy(async () => {
@@ -76,7 +75,6 @@ const reviewSearchSchema = z.object({
 });
 
 function RootComponent() {
-  useBootstrapSession();
   return (
     <>
       <Outlet />

@@ -9,11 +9,9 @@ import {
 import type {
   ImportedBrowserDraft,
   LocalAppState,
-  OutlookMeetingDraft,
   TimelineMutationResult,
 } from "@/domain/local-state";
 import { formatLocalDateFromTimestamp } from "@/domain/time/duration";
-import type { OutlookCalendarEvent } from "@/domain/integrations/outlook";
 
 export interface TimelineFactories {
   createId: (prefix: string) => string;
@@ -33,18 +31,6 @@ export type TimelineRuleSeed = Pick<
 export type ImportedBrowserDraftPatch = Partial<
   Pick<
     ImportedBrowserDraft,
-    | "projectId"
-    | "note"
-    | "status"
-    | "dismissed"
-    | "assignmentSource"
-    | "explanation"
-  >
->;
-
-export type OutlookMeetingDraftPatch = Partial<
-  Pick<
-    OutlookMeetingDraft,
     | "projectId"
     | "note"
     | "status"
@@ -269,105 +255,6 @@ export function importBrowserBuckets(
   };
 }
 
-function createOutlookMeetingDraft(
-  meeting: OutlookCalendarEvent,
-  now: () => number,
-): OutlookMeetingDraft {
-  const detailParts = [meeting.organizer, meeting.location].filter(Boolean);
-
-  return {
-    _id: `meeting_${meeting.eventId}`,
-    eventId: meeting.eventId,
-    localDate: meeting.localDate,
-    startedAt: meeting.startedAt,
-    endedAt: meeting.endedAt,
-    durationMs: meeting.durationMs,
-    subject: meeting.subject,
-    organizer: meeting.organizer,
-    location: meeting.location,
-    isOnlineMeeting: meeting.isOnlineMeeting,
-    webLink: meeting.webLink,
-    dismissed: false,
-    status: "draft",
-    importedAt: now(),
-    source: "outlook_calendar",
-    assignmentSource: "none",
-    explanation:
-      detailParts.length > 0
-        ? `Imported from Outlook calendar. ${detailParts.join(" · ")}`
-        : "Imported from Outlook calendar.",
-    manuallyEdited: false,
-  };
-}
-
-function preserveOutlookMeetingDraft(
-  existing: OutlookMeetingDraft | undefined,
-  incoming: OutlookMeetingDraft,
-) {
-  if (!existing) {
-    return incoming;
-  }
-  if (existing.status === "committed" || existing.status === "dismissed") {
-    return existing;
-  }
-
-  return {
-    ...incoming,
-    projectId: existing.projectId,
-    note: existing.note,
-    dismissed: existing.dismissed,
-    status: existing.projectId ? existing.status : incoming.status,
-    assignmentSource: existing.projectId
-      ? existing.assignmentSource
-      : incoming.assignmentSource,
-    explanation: existing.manuallyEdited
-      ? existing.explanation
-      : incoming.explanation,
-    manuallyEdited: existing.manuallyEdited,
-  };
-}
-
-export function importOutlookMeetings(
-  state: LocalAppState,
-  meetings: OutlookCalendarEvent[],
-  localDate: string,
-  now: () => number,
-): LocalAppState {
-  const currentByEventId = new Map(
-    state.outlookMeetingDrafts.map(
-      (meeting) => [meeting.eventId, meeting] as const,
-    ),
-  );
-  const uniqueMeetings = Array.from(
-    new Map(meetings.map((meeting) => [meeting.eventId, meeting])).values(),
-  );
-  const incomingIds = new Set(
-    uniqueMeetings.map((meeting) => meeting.eventId),
-  );
-  const preservedDrafts = state.outlookMeetingDrafts.filter(
-    (meeting) =>
-      !incomingIds.has(meeting.eventId) &&
-      (meeting.localDate !== localDate ||
-        meeting.status === "dismissed" ||
-        meeting.status === "committed" ||
-        meeting.manuallyEdited),
-  );
-  const nextForDate = uniqueMeetings.map((meeting) =>
-    preserveOutlookMeetingDraft(
-      currentByEventId.get(meeting.eventId),
-      createOutlookMeetingDraft(meeting, now),
-    ),
-  );
-
-  return {
-    ...state,
-    outlookMeetingDrafts: [
-      ...preservedDrafts,
-      ...nextForDate,
-    ].sort((left, right) => left.startedAt - right.startedAt),
-  };
-}
-
 export function materializeTimeline(
   state: LocalAppState,
   localDate: string,
@@ -383,15 +270,6 @@ export function materializeTimeline(
         draft.status !== "committed",
     )
     .sort((left, right) => left.startedAt - right.startedAt);
-  const outlookMeetings = state.outlookMeetingDrafts
-    .filter(
-      (meeting) =>
-        meeting.localDate === localDate &&
-        !meeting.dismissed &&
-        meeting.status !== "dismissed" &&
-        meeting.status !== "committed",
-    )
-    .sort((left, right) => left.startedAt - right.startedAt);
   const committedEntries = state.timesheetEntries.filter(
     (entry) => entry.localDate === localDate,
   );
@@ -401,11 +279,9 @@ export function materializeTimeline(
     localDate,
     blocks,
     browserDrafts,
-    outlookMeetings,
     trackedMs:
       blocks.reduce((sum, block) => sum + block.durationMs, 0) +
-      browserDrafts.reduce((sum, draft) => sum + draft.durationMs, 0) +
-      outlookMeetings.reduce((sum, meeting) => sum + meeting.durationMs, 0),
+      browserDrafts.reduce((sum, draft) => sum + draft.durationMs, 0),
     committedMs: committedEntries.reduce(
       (sum, entry) => sum + entry.durationMs,
       0,
@@ -446,21 +322,6 @@ export function updateImportedBrowserDraft(
   };
 }
 
-export function updateOutlookMeetingDraft(
-  state: LocalAppState,
-  meetingId: string,
-  patch: OutlookMeetingDraftPatch,
-): LocalAppState {
-  return {
-    ...state,
-    outlookMeetingDrafts: state.outlookMeetingDrafts.map((meeting) =>
-      meeting._id === meetingId
-        ? { ...meeting, ...patch, manuallyEdited: true }
-        : meeting,
-    ),
-  };
-}
-
 export function dismissActivityBlock(
   state: LocalAppState,
   block: ActivityBlockRecord,
@@ -487,18 +348,6 @@ export function dismissImportedBrowserDraft(
     status: "dismissed",
     explanation:
       "Dismissed locally. This browser bucket stays on-device and will not appear in review again.",
-  });
-}
-
-export function dismissOutlookMeetingDraft(
-  state: LocalAppState,
-  meetingId: string,
-) {
-  return updateOutlookMeetingDraft(state, meetingId, {
-    dismissed: true,
-    status: "dismissed",
-    explanation:
-      "Dismissed locally. This Outlook meeting will stay out of the review queue.",
   });
 }
 
@@ -595,58 +444,6 @@ export function commitImportedBrowserDraft(
           },
         ],
         importedBrowserDrafts,
-      };
-}
-
-export function commitOutlookMeetingDraft(
-  state: LocalAppState,
-  meetingId: string,
-  factories: TimelineFactories,
-): LocalAppState {
-  const meeting = state.outlookMeetingDrafts.find(
-    (item) => item._id === meetingId,
-  );
-  if (
-    !meeting?.projectId ||
-    meeting.dismissed ||
-    meeting.status === "dismissed" ||
-    meeting.status === "committed"
-  ) {
-    return state;
-  }
-
-  const sourceBlockId = `meeting:${meeting.eventId}`;
-  const outlookMeetingDrafts = state.outlookMeetingDrafts.map((item) =>
-    item._id === meetingId
-      ? {
-          ...item,
-          status: "committed" as const,
-          manuallyEdited: true,
-          explanation: hasCommittedSource(state, sourceBlockId)
-            ? item.explanation
-            : "Committed to the local timesheet. The source Outlook meeting is not synced anywhere else.",
-        }
-      : item,
-  );
-
-  return hasCommittedSource(state, sourceBlockId)
-    ? { ...state, outlookMeetingDrafts }
-    : {
-        ...state,
-        timesheetEntries: [
-          ...state.timesheetEntries,
-          {
-            _id: factories.createId("timesheet"),
-            localDate: meeting.localDate,
-            projectId: meeting.projectId,
-            label: meeting.subject,
-            note: meeting.note,
-            durationMs: meeting.durationMs,
-            sourceBlockIds: [sourceBlockId],
-            committedAt: factories.now(),
-          },
-        ],
-        outlookMeetingDrafts,
       };
 }
 

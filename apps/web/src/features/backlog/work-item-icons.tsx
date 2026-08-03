@@ -8,16 +8,18 @@ import {
 import type { LocalProject, LocalWorkItem } from "@/domain/local-state";
 import { getConnectorsOverview } from "@/lib/app-api";
 import { ProjectIcon } from "@/lib/project-icons";
+import { useResolvedTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 
 type ResolvedWorkItemIcon =
   | { kind: "project"; project: LocalProject }
-  | { kind: "connector"; svg: string }
+  | { kind: "connector"; svg: string; currentColor: string }
   | { kind: "default" };
 
 type WorkItemIconData = {
   projectsById: Map<string, LocalProject>;
   connectorIconsBySource: Record<string, string>;
+  connectorCurrentColor: string;
   connectorTaskIconModesByConnectionId: Record<
     string,
     ConnectorTaskIconDisplayMode
@@ -37,6 +39,7 @@ function normalizeConnectorTaskIconDisplayMode(
 export function useWorkItemIconData(
   projects: LocalProject[],
 ): WorkItemIconData {
+  const resolvedTheme = useResolvedTheme();
   const projectsById = useMemo(
     () => new Map(projects.map((project) => [project._id, project] as const)),
     [projects],
@@ -74,7 +77,27 @@ export function useWorkItemIconData(
   return {
     projectsById,
     connectorIconsBySource,
+    connectorCurrentColor: resolvedTheme === "dark" ? "#fafafa" : "#171717",
     connectorTaskIconModesByConnectionId,
+  };
+}
+
+const FIXED_SVG_PAINT_ATTRIBUTE =
+  /\b(?:color|fill|stroke|stop-color|flood-color|lighting-color)\s*=\s*["']\s*(?!(?:currentColor|none|transparent)\s*["'])[^"']+/i;
+const FIXED_SVG_PAINT_STYLE =
+  /\b(?:color|fill|stroke|stop-color|flood-color|lighting-color)\s*:\s*(?!(?:currentColor|none|transparent)(?:\s*!important)?\s*(?:[;}"']|$))[^;}"']+/i;
+
+export function resolveConnectorIconPaint(svg: string, currentColor: string) {
+  const usesCurrentColor = /\bcurrentColor\b/i.test(svg);
+  const hasFixedPaint =
+    FIXED_SVG_PAINT_ATTRIBUTE.test(svg) || FIXED_SVG_PAINT_STYLE.test(svg);
+
+  return {
+    usesMask: usesCurrentColor && !hasFixedPaint,
+    svg:
+      usesCurrentColor && hasFixedPaint
+        ? svg.replaceAll(/currentColor/gi, currentColor)
+        : svg,
   };
 }
 
@@ -85,8 +108,7 @@ export function resolveWorkItemIcon(
   const project = workItem.projectId
     ? iconData.projectsById.get(workItem.projectId)
     : undefined;
-  const hasConnectorSource =
-    workItem.source !== "manual" && workItem.source !== "outlook";
+  const hasConnectorSource = workItem.source !== "manual";
 
   if (!hasConnectorSource) {
     return project ? { kind: "project", project } : { kind: "default" };
@@ -100,7 +122,11 @@ export function resolveWorkItemIcon(
   );
 
   if (connectorTaskIconMode === "always" && connectorIcon) {
-    return { kind: "connector", svg: connectorIcon };
+    return {
+      kind: "connector",
+      svg: connectorIcon,
+      currentColor: iconData.connectorCurrentColor,
+    };
   }
 
   if (project) {
@@ -108,7 +134,11 @@ export function resolveWorkItemIcon(
   }
 
   if (connectorTaskIconMode === "fallback" && connectorIcon) {
-    return { kind: "connector", svg: connectorIcon };
+    return {
+      kind: "connector",
+      svg: connectorIcon,
+      currentColor: iconData.connectorCurrentColor,
+    };
   }
 
   return { kind: "default" };
@@ -122,18 +152,8 @@ export function WorkItemIcon({
   className?: string;
 }) {
   if (icon.kind === "connector") {
-    const usesCurrentColor = /\bcurrentColor\b/i.test(icon.svg);
-    const hasFixedPaint = /\b(?:fill|stroke)\s*=\s*["'](?!currentColor\b|none\b)[^"']+/i.test(
-      icon.svg,
-    );
-    const resolvedSvg =
-      usesCurrentColor && hasFixedPaint && typeof document !== "undefined"
-        ? icon.svg.replaceAll(
-            /currentColor/gi,
-            getComputedStyle(document.documentElement).color || "#737373",
-          )
-        : icon.svg;
-    const iconSource = `data:image/svg+xml,${encodeURIComponent(resolvedSvg)}`;
+    const paint = resolveConnectorIconPaint(icon.svg, icon.currentColor);
+    const iconSource = `data:image/svg+xml,${encodeURIComponent(paint.svg)}`;
     return (
       <span
         className={cn(
@@ -142,7 +162,7 @@ export function WorkItemIcon({
         )}
         aria-hidden="true"
       >
-        {usesCurrentColor && !hasFixedPaint ? (
+        {paint.usesMask ? (
           <span
             className="size-4 bg-current"
             style={{

@@ -7,10 +7,8 @@ import type { LocalAppState } from "@/domain/local-state";
 import {
   commitActivityBlock,
   commitImportedBrowserDraft,
-  commitOutlookMeetingDraft,
   dismissActivityBlock,
   importBrowserBuckets,
-  importOutlookMeetings,
   materializeTimeline,
   saveRuleFromBlock,
   saveRuleFromImportedBrowserDraft,
@@ -48,7 +46,6 @@ function createState(
     dismissedSegmentIds: [],
     editedBlocks: [],
     importedBrowserDrafts: [],
-    outlookMeetingDrafts: [],
     timers: [],
     timesheetEntries: [],
     timesheetImportDrafts: [],
@@ -62,10 +59,6 @@ function createState(
       blockedDomains: [],
       sensitiveDomains: [],
       maxPathSegments: 4,
-    },
-    outlookIntegration: {
-      configured: false,
-      connected: false,
     },
     userPreferences: {
       themeMode: "system",
@@ -177,117 +170,6 @@ describe("timeline imports", () => {
     });
     expect(reimported.lastExtensionImportAt).toBe(700);
   });
-
-  it("preserves terminal Outlook drafts missing from a later import", () => {
-    const imported = importOutlookMeetings(
-      createState(),
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-30",
-          startedAt: 100,
-          endedAt: 400,
-          durationMs: 300,
-          subject: "Planning",
-          isOnlineMeeting: true,
-        },
-      ],
-      "2026-07-30",
-      () => 500,
-    );
-    imported.outlookMeetingDrafts[0]!.status = "dismissed";
-
-    const reimported = importOutlookMeetings(
-      imported,
-      [],
-      "2026-07-30",
-      () => 600,
-    );
-
-    expect(reimported.outlookMeetingDrafts).toEqual([
-      expect.objectContaining({
-        eventId: "event-1",
-        status: "dismissed",
-      }),
-    ]);
-  });
-
-  it("preserves manually edited Outlook drafts missing from a later import", () => {
-    const imported = importOutlookMeetings(
-      createState(),
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-30",
-          startedAt: 100,
-          endedAt: 400,
-          durationMs: 300,
-          subject: "Planning",
-          isOnlineMeeting: true,
-        },
-      ],
-      "2026-07-30",
-      () => 500,
-    );
-    imported.outlookMeetingDrafts[0]!.manuallyEdited = true;
-    imported.outlookMeetingDrafts[0]!.note = "Keep this";
-
-    const reimported = importOutlookMeetings(
-      imported,
-      [],
-      "2026-07-30",
-      () => 600,
-    );
-
-    expect(reimported.outlookMeetingDrafts[0]).toMatchObject({
-      eventId: "event-1",
-      note: "Keep this",
-      manuallyEdited: true,
-    });
-  });
-
-  it("moves one Outlook draft when an event is rescheduled", () => {
-    const first = importOutlookMeetings(
-      createState(),
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-30",
-          startedAt: 100,
-          endedAt: 400,
-          durationMs: 300,
-          subject: "Planning",
-          isOnlineMeeting: true,
-        },
-      ],
-      "2026-07-30",
-      () => 500,
-    );
-    const moved = importOutlookMeetings(
-      first,
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-31",
-          startedAt: 500,
-          endedAt: 900,
-          durationMs: 400,
-          subject: "Planning",
-          isOnlineMeeting: true,
-        },
-      ],
-      "2026-07-31",
-      () => 600,
-    );
-
-    expect(moved.outlookMeetingDrafts).toEqual([
-      expect.objectContaining({
-        _id: "meeting_event-1",
-        localDate: "2026-07-31",
-        durationMs: 400,
-      }),
-    ]);
-  });
 });
 
 describe("timeline commits", () => {
@@ -329,7 +211,7 @@ describe("timeline commits", () => {
     expect(second.timesheetEntries).toHaveLength(1);
   });
 
-  it("commits browser and Outlook drafts idempotently", () => {
+  it("commits browser drafts idempotently", () => {
     const browserState = updateImportedBrowserDraft(
       importBrowserBuckets(
         createState(),
@@ -350,40 +232,8 @@ describe("timeline commits", () => {
       "browser_bucket-1",
       createFactories(),
     );
-    const outlookState = importOutlookMeetings(
-      createState(),
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-30",
-          startedAt: 100,
-          endedAt: 400,
-          durationMs: 300,
-          subject: "Planning",
-          isOnlineMeeting: false,
-        },
-      ],
-      "2026-07-30",
-      () => 500,
-    );
-    outlookState.outlookMeetingDrafts[0]!.projectId = "project-1";
-    const firstOutlookCommit = commitOutlookMeetingDraft(
-      outlookState,
-      "meeting_event-1",
-      createFactories(),
-    );
-    const secondOutlookCommit = commitOutlookMeetingDraft(
-      firstOutlookCommit,
-      "meeting_event-1",
-      createFactories(),
-    );
-
     expect(secondBrowserCommit.timesheetEntries).toHaveLength(1);
-    expect(secondOutlookCommit.timesheetEntries).toHaveLength(1);
     expect(secondBrowserCommit.importedBrowserDrafts[0]?.status).toBe(
-      "committed",
-    );
-    expect(secondOutlookCommit.outlookMeetingDrafts[0]?.status).toBe(
       "committed",
     );
   });
@@ -430,23 +280,7 @@ describe("timeline read model and rules", () => {
       defaults,
       () => 500,
     );
-    const outlookState = importOutlookMeetings(
-      browserState,
-      [
-        {
-          eventId: "event-1",
-          localDate: "2026-07-30",
-          startedAt: 500,
-          endedAt: 700,
-          durationMs: 200,
-          subject: "Planning",
-          isOnlineMeeting: false,
-        },
-      ],
-      "2026-07-30",
-      () => 600,
-    );
-    outlookState.timesheetEntries = [
+    browserState.timesheetEntries = [
       {
         _id: "entry-1",
         localDate: "2026-07-30",
@@ -458,15 +292,14 @@ describe("timeline read model and rules", () => {
     ];
 
     const timeline = materializeTimeline(
-      outlookState,
+      browserState,
       "2026-07-30",
       defaults,
     );
 
-    expect(timeline.trackedMs).toBe(500);
+    expect(timeline.trackedMs).toBe(300);
     expect(timeline.committedMs).toBe(250);
     expect(timeline.browserDrafts).toHaveLength(1);
-    expect(timeline.outlookMeetings).toHaveLength(1);
   });
 
   it("creates a rule from an assigned imported browser draft", () => {

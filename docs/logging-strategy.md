@@ -13,7 +13,6 @@ We will log one structured, context-rich event per meaningful operation per runt
 In this repo, "meaningful operation" does not mean every function call or UI render. It means things like:
 
 - a timer being started or saved
-- Outlook meetings being imported
 - a timesheet entry being committed
 - an app API request completing
 
@@ -70,7 +69,6 @@ The privacy boundary is stricter than a normal SaaS app. These fields must never
 - URL fragments
 - full page titles
 - full window titles
-- Outlook subjects, organizers, locations, or meeting links
 - uncommitted notes
 - dismissed or private activity details
 - unaccepted rule proposals
@@ -86,7 +84,7 @@ These are acceptable as the default business context:
 - `domain`
 - sanitized `pathname` or `pathname_depth`
 - `fingerprint`
-- source kind like `extension_bridge`, `outlook_calendar`, `manual`, `macos_agent`
+- source kind like `extension_bridge`, `manual`, `macos_agent`
 - counts, durations, confidence, mixed-bucket flags, rule match outcomes
 
 ### Remote sink policy
@@ -218,8 +216,6 @@ Start with:
 - `web.timesheet.entry_updated`
 - `web.timesheet.entry_deleted`
 - `web.timesheet.entry_committed`
-- `web.outlook_meetings.imported`
-- `web.outlook_draft.committed`
 - `web.rule.saved`
 
 First instrumentation points:

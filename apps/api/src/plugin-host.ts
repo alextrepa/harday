@@ -50,6 +50,7 @@ const pluginInvocationConnectionSchema = z.object({
 type PluginInvocationConnection = z.infer<typeof pluginInvocationConnectionSchema>;
 type PluginMethod = "validateConnection" | "syncConnection";
 const MAX_CONCURRENT_PLUGIN_OPERATIONS = 4;
+const MAX_CONNECTOR_PLUGIN_ERROR_MESSAGE_CHARACTERS = 4_096;
 
 interface WorkerReply {
   ok: boolean;
@@ -74,6 +75,12 @@ export class ConnectorPluginManager {
   private readonly requestTimeoutMs: number;
   private readonly workerScriptUrl: URL;
   private readonly activeWorkers = new Map<Worker, ActiveWorker>();
+  private activeOperationReservations = 0;
+  private activePackageReaders = 0;
+  private packageReadersDrainedPromise?: Promise<void>;
+  private resolvePackageReadersDrained?: () => void;
+  private operationsDrainedPromise?: Promise<void>;
+  private resolveOperationsDrained?: () => void;
   private initializationPromise?: Promise<void>;
   private packageMutationPromise?: Promise<unknown>;
   private shutdownPromise?: Promise<void>;
@@ -94,7 +101,7 @@ export class ConnectorPluginManager {
   }
 
   get activeOperationCount() {
-    return this.activeWorkers.size;
+    return this.activeOperationReservations;
   }
 
   async listPlugins(): Promise<ConnectorPluginManifest[]> {
@@ -110,9 +117,9 @@ export class ConnectorPluginManager {
     archiveFilename: string,
   ): Promise<InstalledConnectorPlugin> {
     this.assertRunning();
-    await this.ensureInitialized();
     return await this.runPackageMutation(async () => {
-      if (this.activeWorkers.size > 0) {
+      await this.ensureInitialized();
+      if (this.activeOperationReservations > 0) {
         throw new Error("Wait for active connector operations to finish before installing a plugin.");
       }
 
@@ -127,8 +134,8 @@ export class ConnectorPluginManager {
 
   async uninstallPlugin(pluginId: string): Promise<ConnectorPluginManifest> {
     this.assertRunning();
-    await this.ensureInitialized();
     return await this.runPackageMutation(async () => {
+      await this.ensureInitialized();
       const activePluginWorkers = Array.from(this.activeWorkers.values()).filter(
         (activeWorker) => activeWorker.pluginId === pluginId,
       );
@@ -201,7 +208,9 @@ export class ConnectorPluginManager {
           activeWorker.cancel(new Error("Connector operation stopped because the app is shutting down.")),
         ),
       ].filter((operation): operation is Promise<unknown> => Boolean(operation));
-      this.shutdownPromise = Promise.allSettled(pendingOperations).then(() => undefined);
+      this.shutdownPromise = Promise.allSettled(pendingOperations).then(async () => {
+        await this.waitForOperationsToDrain();
+      });
     }
 
     await this.shutdownPromise;
@@ -213,110 +222,120 @@ export class ConnectorPluginManager {
     params: Record<string, unknown>,
     schema: { parse: (value: unknown) => T },
   ): Promise<T> {
-    if (this.shuttingDown) {
-      throw new Error("Connector plugin host is shutting down.");
-    }
-    if (this.mutatingPluginPackage) {
-      throw new Error("Connector plugin package change is in progress.");
-    }
-    if (this.activeWorkers.size >= MAX_CONCURRENT_PLUGIN_OPERATIONS) {
-      throw new Error("Too many connector plugin operations are already running.");
-    }
+    const releaseOperation = this.reservePluginOperation();
+    try {
+      const plugin = await this.getPlugin(pluginId);
+      this.assertRunning();
+      if (this.mutatingPluginPackage) {
+        throw new Error("Connector plugin package change is in progress.");
+      }
 
-    const plugin = await this.getPlugin(pluginId);
-    if (this.shuttingDown) {
-      throw new Error("Connector plugin host is shutting down.");
-    }
-    if (this.mutatingPluginPackage) {
-      throw new Error("Connector plugin package change is in progress.");
-    }
-    const worker = new Worker(this.workerScriptUrl, {
-      env: {},
-      execArgv: [],
-      stdout: true,
-      stderr: true,
-      workerData: {
-        apiVersion: CONNECTOR_PLUGIN_API_VERSION,
-        entrypointUrl: pathToFileURL(plugin.entrypointPath).toString(),
-        method,
-        params,
-      },
-      resourceLimits: {
-        maxOldGenerationSizeMb: 128,
-        maxYoungGenerationSizeMb: 32,
-        stackSizeMb: 4,
-      },
-    });
-    worker.stdout?.resume();
-    worker.stderr?.resume();
-
-    return await new Promise<T>((resolve, reject) => {
-      let settled = false;
-      const timeout = setTimeout(() => {
-        void finalize(
-          new Error(`Connector plugin "${pluginId}" timed out while handling ${method}.`),
-        );
-      }, this.requestTimeoutMs);
-
-      let finalizationPromise: Promise<void> | undefined;
-      const finalize = (error?: Error, result?: unknown) => {
-        finalizationPromise ??= (async () => {
-          settled = true;
-          clearTimeout(timeout);
-          worker.removeAllListeners();
-
-          try {
-            await worker.terminate();
-          } catch {
-            // The worker may already have exited after posting its result.
-          } finally {
-            this.activeWorkers.delete(worker);
-          }
-
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          try {
-            resolve(schema.parse(result));
-          } catch (parseError) {
-            reject(parseError);
-          }
-        })();
-        return finalizationPromise;
-      };
-
-      this.activeWorkers.set(worker, {
-        pluginId,
-        cancel: async (error) => await finalize(error),
-      });
-
-      worker.once("message", (message: WorkerReply) => {
-        if (message?.ok === true) {
-          void finalize(undefined, message.result);
+      return await new Promise<T>((resolve, reject) => {
+        let worker: Worker;
+        try {
+          worker = new Worker(this.workerScriptUrl, {
+            env: {},
+            execArgv: [],
+            stdout: true,
+            stderr: true,
+            workerData: {
+              apiVersion: CONNECTOR_PLUGIN_API_VERSION,
+              entrypointUrl: pathToFileURL(plugin.entrypointPath).toString(),
+              method,
+              params,
+            },
+            resourceLimits: {
+              maxOldGenerationSizeMb: 128,
+              maxYoungGenerationSizeMb: 32,
+              stackSizeMb: 4,
+            },
+          });
+        } catch (error) {
+          releaseOperation();
+          reject(error);
           return;
         }
 
-        const detail =
-          typeof message?.error === "string" && message.error.trim()
-            ? message.error.trim()
-            : "Unknown connector plugin error.";
-        void finalize(new Error(detail));
-      });
-      worker.once("error", (error) => {
-        void finalize(error);
-      });
-      worker.once("exit", (code) => {
-        if (!settled) {
+        let settled = false;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+
+        let finalizationPromise: Promise<void> | undefined;
+        const finalize = (error?: Error, result?: unknown) => {
+          finalizationPromise ??= (async () => {
+            settled = true;
+            if (timeout) {
+              clearTimeout(timeout);
+            }
+            worker.removeAllListeners();
+
+            try {
+              await worker.terminate();
+            } catch {
+              // The worker may already have exited after posting its result.
+            } finally {
+              this.activeWorkers.delete(worker);
+              releaseOperation();
+            }
+
+            if (error) {
+              reject(error);
+              return;
+            }
+
+            try {
+              resolve(schema.parse(result));
+            } catch (parseError) {
+              reject(parseError);
+            }
+          })();
+          return finalizationPromise;
+        };
+
+        worker.once("error", (error) => {
+          void finalize(error);
+        });
+        worker.once("message", (message: WorkerReply) => {
+          if (message?.ok === true) {
+            void finalize(undefined, message.result);
+            return;
+          }
+
+          const detail =
+            typeof message?.error === "string" && message.error.trim()
+              ? message.error
+                  .trim()
+                  .slice(0, MAX_CONNECTOR_PLUGIN_ERROR_MESSAGE_CHARACTERS)
+              : "Unknown connector plugin error.";
+          void finalize(new Error(detail));
+        });
+        worker.once("exit", (code) => {
+          if (!settled) {
+            void finalize(
+              new Error(
+                `Connector plugin "${pluginId}" exited before returning a result (code ${code}).`,
+              ),
+            );
+          }
+        });
+
+        this.activeWorkers.set(worker, {
+          pluginId,
+          cancel: async (error) => await finalize(error),
+        });
+        timeout = setTimeout(() => {
           void finalize(
             new Error(
-              `Connector plugin "${pluginId}" exited before returning a result (code ${code}).`,
+              `Connector plugin "${pluginId}" timed out while handling ${method}.`,
             ),
           );
-        }
+        }, this.requestTimeoutMs);
+        worker.stdout?.resume();
+        worker.stderr?.resume();
       });
-    });
+    } catch (error) {
+      releaseOperation();
+      throw error;
+    }
   }
 
   private async getPlugin(pluginId: string): Promise<ResolvedConnectorPlugin> {
@@ -331,29 +350,31 @@ export class ConnectorPluginManager {
 
   private async discoverPlugins(): Promise<Map<string, ResolvedConnectorPlugin>> {
     await this.ensureInitialized();
-    const plugins = new Map<string, ResolvedConnectorPlugin>();
+    return await this.runPackageRead(async () => {
+      const plugins = new Map<string, ResolvedConnectorPlugin>();
 
-    for (const plugin of await discoverInstalledConnectorPlugins(
-      this.installedPluginDirectory,
-    )) {
-      plugins.set(plugin.manifest.id, plugin);
-    }
+      for (const plugin of await discoverInstalledConnectorPlugins(
+        this.installedPluginDirectory,
+      )) {
+        plugins.set(plugin.manifest.id, plugin);
+      }
 
-    if (this.allowDevelopmentPlugins) {
-      for (const directory of this.developmentPluginDirectories) {
-        try {
-          const plugin = await readConnectorPlugin(directory, "development");
-          plugins.set(plugin.manifest.id, plugin);
-        } catch (error) {
-          console.error(
-            `Skipping invalid development connector plugin "${directory}".`,
-            error,
-          );
+      if (this.allowDevelopmentPlugins) {
+        for (const directory of this.developmentPluginDirectories) {
+          try {
+            const plugin = await readConnectorPlugin(directory, "development");
+            plugins.set(plugin.manifest.id, plugin);
+          } catch (error) {
+            console.error(
+              `Skipping invalid development connector plugin "${directory}".`,
+              error,
+            );
+          }
         }
       }
-    }
 
-    return plugins;
+      return plugins;
+    });
   }
 
   private async ensureInitialized() {
@@ -395,6 +416,73 @@ export class ConnectorPluginManager {
     }
   }
 
+  private reservePluginOperation() {
+    this.assertRunning();
+    if (this.mutatingPluginPackage) {
+      throw new Error("Connector plugin package change is in progress.");
+    }
+    if (this.activeOperationReservations >= MAX_CONCURRENT_PLUGIN_OPERATIONS) {
+      throw new Error("Too many connector plugin operations are already running.");
+    }
+
+    this.activeOperationReservations += 1;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.activeOperationReservations -= 1;
+      if (this.activeOperationReservations === 0) {
+        this.resolveOperationsDrained?.();
+        this.resolveOperationsDrained = undefined;
+        this.operationsDrainedPromise = undefined;
+      }
+    };
+  }
+
+  private async waitForOperationsToDrain() {
+    if (this.activeOperationReservations === 0) {
+      return;
+    }
+    if (!this.operationsDrainedPromise) {
+      this.operationsDrainedPromise = new Promise<void>((resolve) => {
+        this.resolveOperationsDrained = resolve;
+      });
+    }
+    await this.operationsDrainedPromise;
+  }
+
+  private async runPackageRead<T>(operation: () => Promise<T>): Promise<T> {
+    while (this.packageMutationPromise) {
+      await this.packageMutationPromise.catch(() => undefined);
+    }
+
+    this.activePackageReaders += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activePackageReaders -= 1;
+      if (this.activePackageReaders === 0) {
+        this.resolvePackageReadersDrained?.();
+        this.resolvePackageReadersDrained = undefined;
+        this.packageReadersDrainedPromise = undefined;
+      }
+    }
+  }
+
+  private async waitForPackageReadersToDrain() {
+    if (this.activePackageReaders === 0) {
+      return;
+    }
+    if (!this.packageReadersDrainedPromise) {
+      this.packageReadersDrainedPromise = new Promise<void>((resolve) => {
+        this.resolvePackageReadersDrained = resolve;
+      });
+    }
+    await this.packageReadersDrainedPromise;
+  }
+
   private async runPackageMutation<T>(operation: () => Promise<T>): Promise<T> {
     this.assertRunning();
     if (this.mutatingPluginPackage) {
@@ -402,7 +490,10 @@ export class ConnectorPluginManager {
     }
 
     this.mutatingPluginPackage = true;
-    const mutation = operation();
+    const mutation = (async () => {
+      await this.waitForPackageReadersToDrain();
+      return await operation();
+    })();
     this.packageMutationPromise = mutation;
     try {
       return await mutation;

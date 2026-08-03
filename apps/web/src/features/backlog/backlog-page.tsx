@@ -2053,10 +2053,10 @@ export function BacklogPage() {
           : null;
     const sourceMetaParts = [
       isLogicalChild ? "Task" : undefined,
-      workItem.source !== "manual" && workItem.source !== "outlook"
+      workItem.source !== "manual"
         ? workItem.sourceConnectionLabel
         : undefined,
-      workItem.source !== "manual" && workItem.source !== "outlook"
+      workItem.source !== "manual"
         ? workItem.sourceProjectName
         : undefined,
       workItem.sourceWorkItemType,
@@ -2070,7 +2070,7 @@ export function BacklogPage() {
         ? parseWorkItemReference(workItem.sourceId)
         : undefined;
     const sourceUrl =
-      workItem.source !== "manual" && workItem.source !== "outlook"
+      workItem.source !== "manual"
         ? workItem.sourceId
         : undefined;
     const sourceMetaLabel = [
@@ -2688,8 +2688,7 @@ export function BacklogPage() {
                       ) : null}
                     </label>
 
-                    {workItem.source !== "manual" &&
-                    workItem.source !== "outlook" ? (
+                    {workItem.source !== "manual" ? (
                       <label className="connector-form-toggle backlog-sync-keep-toggle">
                         <Checkbox
                           checked={editorKeepWhenMissingFromSync}
@@ -3221,12 +3220,10 @@ export function BacklogPage() {
       : undefined;
   const draggedWorkItemSourceMetaParts = draggedWorkItem
     ? [
-        draggedWorkItem.source !== "manual" &&
-        draggedWorkItem.source !== "outlook"
+        draggedWorkItem.source !== "manual"
           ? draggedWorkItem.sourceConnectionLabel
           : undefined,
-        draggedWorkItem.source !== "manual" &&
-        draggedWorkItem.source !== "outlook"
+        draggedWorkItem.source !== "manual"
           ? draggedWorkItem.sourceProjectName
           : undefined,
         draggedWorkItem.sourceWorkItemType,

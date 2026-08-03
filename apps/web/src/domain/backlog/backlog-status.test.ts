@@ -23,7 +23,6 @@ function createState(
     dismissedSegmentIds: [],
     editedBlocks: [],
     importedBrowserDrafts: [],
-    outlookMeetingDrafts: [],
     timers: [],
     timesheetEntries: [],
     timesheetImportDrafts: [],
@@ -37,10 +36,6 @@ function createState(
       blockedDomains: [],
       sensitiveDomains: [],
       maxPathSegments: 4,
-    },
-    outlookIntegration: {
-      configured: false,
-      connected: false,
     },
     userPreferences: {
       themeMode: "system",

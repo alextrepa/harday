@@ -1,9 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ActivityBlockRecord } from "@timetracker/shared";
-import type {
-  ImportedBrowserDraft,
-  OutlookMeetingDraft,
-} from "@/domain/local-state";
+import type { ImportedBrowserDraft } from "@/domain/local-state";
 import { localStore } from "@/lib/local-store";
 
 export function useLocalState() {
@@ -29,10 +26,6 @@ export function useLocalRules() {
 
 export function useExtensionBridgeStatus() {
   return useLocalState().extensionBridgeStatus;
-}
-
-export function useOutlookIntegration() {
-  return useLocalState().outlookIntegration;
 }
 
 export function useUserPreferences() {
@@ -80,25 +73,10 @@ export function useLocalTimelineActions() {
     updateImportedBrowserDraftNote: useCallback((draft: ImportedBrowserDraft, note: string) => {
       localStore.updateImportedBrowserDraft(draft._id, { note });
     }, []),
-    assignOutlookMeetingDraft: useCallback((meeting: OutlookMeetingDraft, projectId: string) => {
-      localStore.updateOutlookMeetingDraft(meeting._id, {
-        projectId,
-        status: projectId ? "assigned" : "draft",
-        assignmentSource: projectId ? "manual" : "none",
-        explanation: projectId
-          ? "Assigned manually from the imported Outlook meeting."
-          : "Assignment cleared. This meeting stays local until you review it.",
-      });
-    }, []),
-    updateOutlookMeetingDraftNote: useCallback((meeting: OutlookMeetingDraft, note: string) => {
-      localStore.updateOutlookMeetingDraft(meeting._id, { note });
-    }, []),
     dismissBlock: localStore.dismissBlock,
     dismissImportedBrowserDraft: localStore.dismissImportedBrowserDraft.bind(localStore),
-    dismissOutlookMeetingDraft: localStore.dismissOutlookMeetingDraft.bind(localStore),
     commitBlock: localStore.commitBlock,
     commitImportedBrowserDraft: localStore.commitImportedBrowserDraft.bind(localStore),
-    commitOutlookMeetingDraft: localStore.commitOutlookMeetingDraft.bind(localStore),
     saveRuleFromBlock: localStore.saveRuleFromBlock,
     saveRuleFromImportedBrowserDraft: localStore.saveRuleFromImportedBrowserDraft.bind(localStore),
   };

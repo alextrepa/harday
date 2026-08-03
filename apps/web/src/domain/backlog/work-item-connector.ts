@@ -325,7 +325,6 @@ export function importConnectorWorkItems(
 
       if (
         workItem.source === "manual" ||
-        workItem.source === "outlook" ||
         workItem.sourceConnectionId !== archiveConnectionId ||
         !sourceId ||
         workItem.keepWhenMissingFromSync

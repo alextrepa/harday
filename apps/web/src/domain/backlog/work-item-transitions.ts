@@ -43,29 +43,47 @@ export function normalizePersistedWorkItem(
         : workItem.status;
   const isSubtask = isSubtaskWorkItem(workItem);
   const createdAt = workItem.createdAt ?? now();
+  const isRetiredBuiltInSource = workItem.source === "outlook";
 
   return {
     ...workItem,
     title: workItem.title.trim(),
     status,
-    source: workItem.source ?? "manual",
-    sourceConnectionId: workItem.sourceConnectionId,
-    sourceConnectionLabel: workItem.sourceConnectionLabel,
-    sourceProjectName: workItem.sourceProjectName,
-    sourceWorkItemType: workItem.sourceWorkItemType,
+    source: isRetiredBuiltInSource ? "manual" : (workItem.source ?? "manual"),
+    sourceId: isRetiredBuiltInSource ? undefined : workItem.sourceId,
+    sourceConnectionId: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceConnectionId,
+    sourceConnectionLabel: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceConnectionLabel,
+    sourceProjectName: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceProjectName,
+    sourceWorkItemType: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceWorkItemType,
     hierarchyLevel: isSubtask ? 1 : 0,
     parentWorkItemId,
-    parentSourceId: workItem.parentSourceId,
+    parentSourceId: isRetiredBuiltInSource
+      ? undefined
+      : workItem.parentSourceId,
     priority: isSubtask
       ? undefined
       : normalizeWorkItemPriority(workItem.priority),
-    importedPriority: isSubtask
+    importedPriority: isSubtask || isRetiredBuiltInSource
       ? undefined
       : normalizeWorkItemPriority(workItem.importedPriority),
     backlogStatusId: workItem.backlogStatusId,
-    importedBacklogStatusId: workItem.importedBacklogStatusId,
-    sourceStatusKey: workItem.sourceStatusKey,
-    sourceStatusLabel: workItem.sourceStatusLabel,
+    importedBacklogStatusId: isRetiredBuiltInSource
+      ? undefined
+      : workItem.importedBacklogStatusId,
+    sourceStatusKey: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceStatusKey,
+    sourceStatusLabel: isRetiredBuiltInSource
+      ? undefined
+      : workItem.sourceStatusLabel,
     originalEstimateHours: normalizeWorkItemEstimateValue(
       workItem.originalEstimateHours,
     ),
@@ -78,9 +96,13 @@ export function normalizePersistedWorkItem(
     completedEstimateHours: normalizeWorkItemEstimateValue(
       workItem.completedEstimateHours,
     ),
-    estimateSync: workItem.estimateSync,
-    keepWhenMissingFromSync: workItem.keepWhenMissingFromSync ?? false,
-    archivedByMissingSync: workItem.archivedByMissingSync ?? false,
+    estimateSync: isRetiredBuiltInSource ? undefined : workItem.estimateSync,
+    keepWhenMissingFromSync: isRetiredBuiltInSource
+      ? false
+      : (workItem.keepWhenMissingFromSync ?? false),
+    archivedByMissingSync: isRetiredBuiltInSource
+      ? false
+      : (workItem.archivedByMissingSync ?? false),
     createdAt,
     archivedAt:
       workItem.archivedAt ??

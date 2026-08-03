@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   RiArrowLeftLine as ArrowLeft,
-  RiCalendarEventLine as Calendar,
   RiDeleteBinLine as Trash2,
   RiPencilLine as Pencil,
   RiRefreshLine as RefreshCw,
@@ -58,8 +57,7 @@ import {
   syncConnectorConnection,
   uninstallConnectorPlugin,
 } from "@/lib/app-api";
-import { useLocalState, useOutlookIntegration } from "@/lib/local-hooks";
-import { connectOutlook, disconnectOutlook } from "@/lib/outlook";
+import { useLocalState } from "@/lib/local-hooks";
 import { cn } from "@/lib/utils";
 import type {
   ConnectorConnectionSummary,
@@ -79,8 +77,6 @@ import {
   ConnectorPluginIcon,
 } from "./connector-settings-ui";
 
-const OUTLOOK_PLUGIN_ID = "outlook_calendar";
-
 type ConnectorFormState = {
   pluginId: string;
   editingConnectionId: string | null;
@@ -97,20 +93,6 @@ function prettifySummaryKey(key: string) {
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function OutlookPluginIcon({ className }: { className?: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/60 text-foreground",
-        className,
-      )}
-      aria-hidden="true"
-    >
-      <Calendar className="size-5" />
-    </span>
-  );
 }
 
 function PluginCatalogCard({
@@ -260,7 +242,6 @@ function PluginDetailHeader({
 
 export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
   const state = useLocalState();
-  const outlook = useOutlookIntegration();
   const isDevelopmentBuild =
     window.timetrackerDesktop?.runtime?.developmentBuild === true;
   const canInstallConnectorPlugins = Boolean(
@@ -269,7 +250,6 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
   const canUninstallConnectorPlugins = Boolean(
     window.timetrackerDesktop?.uninstallConnectorPlugin,
   ) && !isDevelopmentBuild;
-  const [isUpdatingOutlook, setIsUpdatingOutlook] = useState(false);
   const [connectors, setConnectors] = useState<ConnectorsOverview | null>(
     getCachedConnectorsOverview,
   );
@@ -281,7 +261,7 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
   const importedCountsByPlugin = useMemo(
     () =>
       state.workItems.reduce<Record<string, number>>((counts, workItem) => {
-        if (workItem.source === "manual" || workItem.source === "outlook") {
+        if (workItem.source === "manual") {
           return counts;
         }
 
@@ -333,29 +313,6 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
           formState.initialValues,
         )
       : false;
-
-  const handleOutlookActivation = async (enabled: boolean) => {
-    setIsUpdatingOutlook(true);
-    setStatusMessage(null);
-    setConnectorError(null);
-    try {
-      if (enabled) {
-        await connectOutlook();
-        setStatusMessage("Outlook Calendar activated.");
-      } else {
-        await disconnectOutlook();
-        setStatusMessage("Outlook Calendar deactivated.");
-      }
-    } catch (error) {
-      setConnectorError(
-        error instanceof Error
-          ? error.message
-          : "Unable to update Outlook Calendar.",
-      );
-    } finally {
-      setIsUpdatingOutlook(false);
-    }
-  };
 
   const handlePluginActivation = async (
     group: ConnectorOverviewGroup,
@@ -577,91 +534,6 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
       {connectorError ? (
         <MessagePanel tone="warning">{connectorError}</MessagePanel>
       ) : null}
-    </>
-  );
-
-  const renderOutlookDetail = () => (
-    <>
-      <PluginDetailHeader
-        name="Outlook Calendar"
-        description="Import meetings into local review drafts, then explicitly commit the time you want to keep."
-        icon={<OutlookPluginIcon className="size-14" />}
-        enabled={outlook.connected}
-        disabled={isUpdatingOutlook || !outlook.configured}
-        onEnabledChange={(enabled) => void handleOutlookActivation(enabled)}
-        badges={
-          <>
-            <Badge variant={outlook.connected ? "secondary" : "outline"}>
-              {outlook.connected ? "Active" : "Inactive"}
-            </Badge>
-            <Badge variant="outline">Built in</Badge>
-            <Badge variant="outline">
-              {state.outlookMeetingDrafts.length} meetings imported
-            </Badge>
-          </>
-        }
-      />
-      {renderMessages()}
-      <section className="settings-section">
-        <h3 className="settings-section-title">Configuration</h3>
-        <p className="settings-section-desc">
-          Outlook authentication opens in your browser. Imported meetings stay
-          local until you commit them to the timesheet.
-        </p>
-        <AppPanel className="gap-5">
-          {outlook.configured ? (
-            <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-              <p>
-                Status: {outlook.connected ? "Connected" : "Not connected"}
-              </p>
-              <p>
-                Account: {outlook.accountEmail ?? "No active Microsoft account"}
-              </p>
-              <p>
-                Imported meetings buffered locally:{" "}
-                {state.outlookMeetingDrafts.length}
-              </p>
-              <p>
-                {outlook.lastError ??
-                  (outlook.connected
-                    ? "Timed Outlook meetings are ready for local review."
-                    : "Activate the plugin to sign in with Microsoft and pull meetings.")}
-              </p>
-            </div>
-          ) : (
-            <Empty className="border border-dashed border-border/70 bg-muted/10 py-10">
-              <EmptyHeader>
-                <EmptyTitle>Outlook is not configured</EmptyTitle>
-                <EmptyDescription>
-                  Set <code>VITE_MICROSOFT_CLIENT_ID</code> to enable Outlook
-                  import. <code>VITE_MICROSOFT_TENANT_ID</code> is optional and
-                  defaults to <code>common</code>.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-          {outlook.configured ? (
-            <>
-              <Separator />
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  disabled={isUpdatingOutlook || outlook.connected}
-                  onClick={() => void handleOutlookActivation(true)}
-                >
-                  Connect Outlook
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={isUpdatingOutlook || !outlook.connected}
-                  onClick={() => void handleOutlookActivation(false)}
-                >
-                  Disconnect
-                </Button>
-              </div>
-            </>
-          ) : null}
-        </AppPanel>
-      </section>
     </>
   );
 
@@ -988,9 +860,7 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
         onInstall={() => void handleInstallPlugin()}
       >
 
-      {pluginId === OUTLOOK_PLUGIN_ID ? (
-        renderOutlookDetail()
-      ) : selectedConnectorGroup ? (
+      {selectedConnectorGroup ? (
         renderConnectorDetail(selectedConnectorGroup)
       ) : pluginId && connectors ? (
         <>
@@ -1020,57 +890,52 @@ export function SettingsPluginsPage({ pluginId }: { pluginId?: string }) {
         <>
           {renderMessages()}
           <section className="settings-section">
-            <div className="grid gap-3 md:grid-cols-2">
-              {connectorGroups.map((group) => (
-                <PluginCatalogCard
-                  key={group.plugin.id}
-                  pluginId={group.plugin.id}
-                  name={group.plugin.displayName}
-                  description={
-                    group.plugin.description ??
-                    "Configure this connector and sync imported work into backlog."
-                  }
-                  icon={<ConnectorPluginIcon plugin={group.plugin} />}
-                  enabled={group.enabled}
-                  disabled={
-                    isMutatingConnector || group.plugin.entrypoint.length === 0
-                  }
-                  onEnabledChange={(enabled) =>
-                    void handlePluginActivation(group, enabled)
-                  }
-                  metadata={
-                    <>
-                      <Badge variant="outline">
-                        Version {group.plugin.version}
-                      </Badge>
-                      <Badge variant="outline">
-                        {group.connections.length} connection
-                        {group.connections.length === 1 ? "" : "s"}
-                      </Badge>
-                    </>
-                  }
-                />
-              ))}
-              <PluginCatalogCard
-                pluginId={OUTLOOK_PLUGIN_ID}
-                name="Outlook Calendar"
-                description="Import calendar meetings into local review drafts before committing time."
-                icon={<OutlookPluginIcon />}
-                enabled={outlook.connected}
-                disabled={isUpdatingOutlook || !outlook.configured}
-                onEnabledChange={(enabled) =>
-                  void handleOutlookActivation(enabled)
-                }
-                metadata={
-                  <>
-                    <Badge variant="outline">Built in</Badge>
-                    <Badge variant="outline">
-                      {state.outlookMeetingDrafts.length} meetings
-                    </Badge>
-                  </>
-                }
-              />
-            </div>
+            {connectorGroups.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {connectorGroups.map((group) => (
+                  <PluginCatalogCard
+                    key={group.plugin.id}
+                    pluginId={group.plugin.id}
+                    name={group.plugin.displayName}
+                    description={
+                      group.plugin.description ??
+                      "Configure this connector and sync imported work into backlog."
+                    }
+                    icon={<ConnectorPluginIcon plugin={group.plugin} />}
+                    enabled={group.enabled}
+                    disabled={
+                      isMutatingConnector ||
+                      group.plugin.entrypoint.length === 0
+                    }
+                    onEnabledChange={(enabled) =>
+                      void handlePluginActivation(group, enabled)
+                    }
+                    metadata={
+                      <>
+                        <Badge variant="outline">
+                          Version {group.plugin.version}
+                        </Badge>
+                        <Badge variant="outline">
+                          {group.connections.length} connection
+                          {group.connections.length === 1 ? "" : "s"}
+                        </Badge>
+                      </>
+                    }
+                  />
+                ))}
+              </div>
+            ) : connectors && !connectorError ? (
+              <Empty className="border border-dashed border-border/70 bg-muted/10 py-10">
+                <EmptyHeader>
+                  <EmptyTitle>No connector plugins installed</EmptyTitle>
+                  <EmptyDescription>
+                    {canInstallConnectorPlugins
+                      ? "Install a connector package to add it to this catalog."
+                      : "Packaged connector installation is available in the desktop app."}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : null}
             {connectors === null && !connectorError ? (
               <MessagePanel>Loading connector plugins…</MessagePanel>
             ) : null}

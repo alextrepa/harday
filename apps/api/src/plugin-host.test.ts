@@ -12,6 +12,7 @@ import {
 import { create } from "tar";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConnectorPluginManager } from "./plugin-host.ts";
+import { readConnectorPlugin } from "./plugin-package.ts";
 
 const ICON = "<svg viewBox='0 0 16 16'><path d='M0 0h16v16H0z' /></svg>";
 
@@ -237,6 +238,79 @@ describe("ConnectorPluginManager", () => {
     expect(pluginManager.activeOperationCount).toBe(0);
   });
 
+  it("reserves worker capacity before asynchronous plugin discovery", async () => {
+    const root = await tempDir();
+    const pluginDirectory = await createPluginDirectory(
+      root,
+      "jira",
+      "export async function validateConnection() { while (true) {} }",
+    );
+    const pluginManager = manager({
+      installedPluginDirectory: path.join(root, "installed"),
+      developmentPluginDirectories: [pluginDirectory],
+      allowDevelopmentPlugins: true,
+      requestTimeoutMs: 50,
+    });
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () =>
+        pluginManager.validateConnection("jira", {}),
+      ),
+    );
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" && result.reason instanceof Error
+        ? [result.reason.message]
+        : [],
+    );
+
+    expect(errors.filter((message) => message.includes("Too many connector"))).toHaveLength(1);
+    expect(errors.filter((message) => message.includes("timed out"))).toHaveLength(4);
+    expect(pluginManager.activeOperationCount).toBe(0);
+  });
+
+  it("captures worker startup failures and releases the operation reservation", async () => {
+    const root = await tempDir();
+    const pluginDirectory = await createPluginDirectory(
+      root,
+      "jira",
+      "export async function validateConnection() {}",
+    );
+    const pluginManager = manager({
+      installedPluginDirectory: path.join(root, "installed"),
+      developmentPluginDirectories: [pluginDirectory],
+      allowDevelopmentPlugins: true,
+      workerScriptUrl: new URL("missing-plugin-worker.mjs", import.meta.url),
+    });
+
+    await expect(
+      pluginManager.validateConnection("jira", {}),
+    ).rejects.toThrow();
+    expect(pluginManager.activeOperationCount).toBe(0);
+  });
+
+  it("bounds plugin error messages before they cross the worker boundary", async () => {
+    const root = await tempDir();
+    const pluginDirectory = await createPluginDirectory(
+      root,
+      "jira",
+      "export async function validateConnection() { throw new Error('x'.repeat(20_000)); }",
+    );
+    const pluginManager = manager({
+      installedPluginDirectory: path.join(root, "installed"),
+      developmentPluginDirectories: [pluginDirectory],
+      allowDevelopmentPlugins: true,
+    });
+
+    const error = await pluginManager.validateConnection("jira", {}).then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toHaveLength(4_096);
+    expect((error as Error).message.endsWith("…")).toBe(true);
+  });
+
   it("terminates active workers during host shutdown", async () => {
     const root = await tempDir();
     const pluginDirectory = await createPluginDirectory(
@@ -299,6 +373,36 @@ describe("ConnectorPluginManager", () => {
       path.basename(archivePath),
     );
     expect(replacement.replaced).toBe(true);
+  });
+
+  it("serializes plugin discovery behind package installation", async () => {
+    const root = await tempDir();
+    const pluginDirectory = await createPluginDirectory(
+      path.join(root, "source"),
+      "jira",
+      "export async function validateConnection(config) { return { normalizedConfig: config, connectionSummary: {} }; }",
+    );
+    const archivePath = path.join(root, "jira-1.0.0.harday-connector");
+    await packagePlugin(pluginDirectory, archivePath);
+    const pluginManager = manager({
+      installedPluginDirectory: path.join(root, "installed"),
+    });
+
+    const installation = pluginManager.installPluginArchive(
+      await readFile(archivePath),
+      path.basename(archivePath),
+    );
+    const discovery = pluginManager.listPlugins();
+
+    await expect(installation).resolves.toMatchObject({ installed: true });
+    await expect(discovery).resolves.toEqual([
+      expect.objectContaining({ id: "jira" }),
+    ]);
+
+    const uninstall = pluginManager.uninstallPlugin("jira");
+    const discoveryAfterUninstall = pluginManager.listPlugins();
+    await expect(uninstall).resolves.toMatchObject({ id: "jira" });
+    await expect(discoveryAfterUninstall).resolves.toEqual([]);
   });
 
   it("terminates active plugin work and removes only managed packages on uninstall", async () => {
@@ -434,6 +538,34 @@ describe("ConnectorPluginManager", () => {
         path.basename(archivePath),
       ),
     ).rejects.toThrow("unsupported type");
+  });
+
+  it("rejects an entrypoint whose parent directory is a symbolic link", async () => {
+    const root = await tempDir();
+    const pluginDirectory = await createPluginDirectory(
+      root,
+      "jira",
+      "export async function validateConnection() {}",
+      { entrypoint: "linked/plugin.mjs" },
+    );
+    const externalDirectory = path.join(root, "external");
+    await mkdir(externalDirectory, { recursive: true });
+    await writeFile(
+      path.join(externalDirectory, "plugin.mjs"),
+      "export async function validateConnection() {}",
+      "utf8",
+    );
+    await symlink(externalDirectory, path.join(pluginDirectory, "linked"));
+    const pluginManager = manager({
+      installedPluginDirectory: path.join(root, "installed"),
+      developmentPluginDirectories: [pluginDirectory],
+      allowDevelopmentPlugins: true,
+    });
+
+    await expect(
+      readConnectorPlugin(pluginDirectory, "development"),
+    ).rejects.toThrow("must not traverse symbolic links");
+    await expect(pluginManager.listPlugins()).resolves.toEqual([]);
   });
 
   it("skips development plugins requiring a different host API version", async () => {

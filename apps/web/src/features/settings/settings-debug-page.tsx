@@ -143,7 +143,6 @@ export function SettingsDebugPage() {
         <h2 className="settings-section-title">Local Storage Status</h2>
 
         <div className="space-y-1 text-sm text-foreground/70">
-          <p>{state.outlookMeetingDrafts.length} imported Outlook meetings</p>
           <p>{state.timesheetEntries.length} committed timesheet entries</p>
           <p>{state.rules.length} explicit local rules</p>
         </div>

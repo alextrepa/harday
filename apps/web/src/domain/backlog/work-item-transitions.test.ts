@@ -6,6 +6,7 @@ import {
   deleteWorkItem,
   dismissEstimateIssue,
   keepLocalEstimateConflict,
+  normalizePersistedWorkItem,
   setWorkItemStatus,
   updateWorkItem,
 } from "@/domain/backlog/work-item-transitions";
@@ -25,7 +26,6 @@ function createState(
     dismissedSegmentIds: [],
     editedBlocks: [],
     importedBrowserDrafts: [],
-    outlookMeetingDrafts: [],
     timers: [],
     timesheetEntries: [],
     timesheetImportDrafts: [],
@@ -39,10 +39,6 @@ function createState(
       blockedDomains: [],
       sensitiveDomains: [],
       maxPathSegments: 4,
-    },
-    outlookIntegration: {
-      configured: false,
-      connected: false,
     },
     userPreferences: {
       themeMode: "system",
@@ -62,6 +58,36 @@ function createFactories() {
 }
 
 describe("work item transitions", () => {
+  it("keeps retired built-in connector work as manual local data", () => {
+    const workItem = normalizePersistedWorkItem(
+      {
+        _id: "legacy-item",
+        title: "Imported meeting task",
+        status: "active",
+        source: "outlook",
+        sourceId: "event-1",
+        sourceConnectionId: "legacy-connection",
+        sourceConnectionLabel: "Calendar",
+        parentSourceId: "legacy-parent",
+        keepWhenMissingFromSync: true,
+        createdAt: 1,
+      },
+      () => 100,
+    );
+
+    expect(workItem).toMatchObject({
+      _id: "legacy-item",
+      title: "Imported meeting task",
+      source: "manual",
+      keepWhenMissingFromSync: false,
+      archivedByMissingSync: false,
+    });
+    expect(workItem.sourceId).toBeUndefined();
+    expect(workItem.sourceConnectionId).toBeUndefined();
+    expect(workItem.sourceConnectionLabel).toBeUndefined();
+    expect(workItem.parentSourceId).toBeUndefined();
+  });
+
   it("creates a subtask that follows its parent mapping", () => {
     const factories = createFactories();
     const parent = addWorkItem(

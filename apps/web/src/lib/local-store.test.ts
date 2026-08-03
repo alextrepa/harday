@@ -2,6 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 function installMockWindow() {
   const storage = new Map<string, string>();
+  const sessionStorage = new Map<string, string>();
+
+  function createStorage(target: Map<string, string>) {
+    return {
+      get length() {
+        return target.size;
+      },
+      key: vi.fn((index: number) => Array.from(target.keys())[index] ?? null),
+      getItem: vi.fn((key: string) => target.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        target.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        target.delete(key);
+      }),
+      clear: vi.fn(() => {
+        target.clear();
+      }),
+    };
+  }
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -9,18 +29,8 @@ function installMockWindow() {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
-      localStorage: {
-        getItem: vi.fn((key: string) => storage.get(key) ?? null),
-        setItem: vi.fn((key: string, value: string) => {
-          storage.set(key, value);
-        }),
-        removeItem: vi.fn((key: string) => {
-          storage.delete(key);
-        }),
-        clear: vi.fn(() => {
-          storage.clear();
-        }),
-      },
+      localStorage: createStorage(storage),
+      sessionStorage: createStorage(sessionStorage),
     },
   });
 }
@@ -142,7 +152,6 @@ describe("localStore backlog status sync", () => {
         dismissedSegmentIds: [],
         editedBlocks: [],
         importedBrowserDrafts: [],
-        outlookMeetingDrafts: [],
         timers: [],
         timesheetEntries: [],
         timesheetImportDrafts: [],
@@ -163,10 +172,6 @@ describe("localStore backlog status sync", () => {
           sensitiveDomains: [],
           maxPathSegments: 4,
         },
-        outlookIntegration: {
-          configured: false,
-          connected: false,
-        },
         userPreferences: {
           themeMode: "system",
         },
@@ -183,6 +188,146 @@ describe("localStore backlog status sync", () => {
         color: expect.stringMatching(/^#[0-9a-f]{6}$/i),
       }),
     );
+  });
+
+  it("removes retired auth and draft state while preserving committed local data", async () => {
+    const accountCacheKey =
+      "msal.2|uid.utid|login.microsoftonline.com|tenant-id";
+    const tokenCacheKey =
+      "msal.2|uid.utid|login.microsoftonline.com|refreshtoken|client-id|||";
+    window.localStorage.setItem(accountCacheKey, "encrypted-account");
+    window.localStorage.setItem(tokenCacheKey, "encrypted-token");
+    window.sessionStorage.setItem(
+      "msal.client-id.interaction.status",
+      "pending",
+    );
+    window.localStorage.setItem(
+      "timetracker.local-state.v2",
+      JSON.stringify({
+        outlookIntegration: {
+          configured: true,
+          connected: true,
+          accountEmail: "local@example.com",
+        },
+        outlookMeetingDrafts: [
+          {
+            _id: "meeting-event-1",
+            eventId: "event-1",
+            subject: "Planning",
+          },
+        ],
+        workItems: [
+          {
+            _id: "legacy-work-item",
+            title: "Planning follow-up",
+            status: "active",
+            source: "outlook",
+            sourceId: "event-1",
+            parentSourceId: "event-parent",
+            createdAt: 1,
+          },
+        ],
+        timesheetEntries: [
+          {
+            _id: "committed-meeting",
+            localDate: "2026-08-01",
+            label: "Planning",
+            durationMs: 60 * 60 * 1000,
+            sourceBlockIds: ["meeting:event-1"],
+            committedAt: 2,
+          },
+        ],
+        updatedAt: 3,
+      }),
+    );
+    vi.mocked(window.localStorage.setItem).mockClear();
+
+    const { localStore } = await import("./local-store");
+    const state = localStore.snapshot();
+
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith(
+      accountCacheKey,
+    );
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith(tokenCacheKey);
+    expect(window.sessionStorage.removeItem).toHaveBeenCalledWith(
+      "msal.client-id.interaction.status",
+    );
+    expect(state).not.toHaveProperty("outlookIntegration");
+    expect(state).not.toHaveProperty("outlookMeetingDrafts");
+    expect(state.workItems[0]).toMatchObject({
+      _id: "legacy-work-item",
+      source: "manual",
+    });
+    expect(state.workItems[0]?.sourceId).toBeUndefined();
+    expect(state.workItems[0]?.parentSourceId).toBeUndefined();
+    expect(state.timesheetEntries[0]).toMatchObject({
+      _id: "committed-meeting",
+      label: "Planning",
+      durationMs: 60 * 60 * 1000,
+      sourceBlockIds: ["meeting:event-1"],
+      committedAt: 2,
+    });
+    const persistedState = JSON.parse(
+      window.localStorage.getItem("timetracker.local-state.v2")!,
+    );
+    expect(persistedState).not.toHaveProperty("outlookIntegration");
+    expect(persistedState).not.toHaveProperty("outlookMeetingDrafts");
+    expect(persistedState.workItems[0]).toMatchObject({
+      _id: "legacy-work-item",
+      source: "manual",
+    });
+    expect(persistedState.workItems[0]).not.toHaveProperty("sourceId");
+    expect(persistedState.workItems[0]).not.toHaveProperty("parentSourceId");
+    expect(persistedState.timesheetEntries[0]).toMatchObject({
+      _id: "committed-meeting",
+      sourceBlockIds: ["meeting:event-1"],
+    });
+    expect(window.localStorage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not overwrite state changed by another tab during retired state migration", async () => {
+    const legacyState = JSON.stringify({
+      outlookMeetingDrafts: [{ eventId: "event-1", subject: "Planning" }],
+      timesheetEntries: [
+        {
+          _id: "entry-1",
+          localDate: "2026-08-01",
+          label: "Planning",
+          durationMs: 60 * 60 * 1000,
+          committedAt: 2,
+        },
+      ],
+      updatedAt: 3,
+    });
+    const concurrentlyUpdatedState = JSON.stringify({
+      outlookMeetingDrafts: [{ eventId: "event-1", subject: "Planning" }],
+      timesheetEntries: [
+        {
+          _id: "entry-1",
+          localDate: "2026-08-01",
+          label: "Planning",
+          durationMs: 60 * 60 * 1000,
+          committedAt: 2,
+        },
+        {
+          _id: "entry-2",
+          localDate: "2026-08-01",
+          label: "Newer entry",
+          durationMs: 30 * 60 * 1000,
+          committedAt: 4,
+        },
+      ],
+      updatedAt: 4,
+    });
+    const getItem = vi.mocked(window.localStorage.getItem);
+    getItem
+      .mockReturnValueOnce(legacyState)
+      .mockReturnValueOnce(concurrentlyUpdatedState);
+
+    const { localStore } = await import("./local-store");
+    localStore.snapshot();
+
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
   });
 
   it("archives imported work items that disappear during auto-sync reconciliation", async () => {
@@ -549,7 +694,6 @@ describe("localStore backlog status sync", () => {
         dismissedSegmentIds: [],
         editedBlocks: [],
         importedBrowserDrafts: [],
-        outlookMeetingDrafts: [],
         timers: [],
         timesheetEntries: [],
         workItems: [],
@@ -562,10 +706,6 @@ describe("localStore backlog status sync", () => {
           blockedDomains: [],
           sensitiveDomains: [],
           maxPathSegments: 4,
-        },
-        outlookIntegration: {
-          configured: false,
-          connected: false,
         },
         userPreferences: {
           themeMode: "system",
@@ -666,7 +806,6 @@ describe("localStore backlog status sync", () => {
         dismissedSegmentIds: [],
         editedBlocks: [],
         importedBrowserDrafts: [],
-        outlookMeetingDrafts: [],
         timers: [],
         timesheetEntries: [
           {
@@ -688,10 +827,6 @@ describe("localStore backlog status sync", () => {
           blockedDomains: [],
           sensitiveDomains: [],
           maxPathSegments: 4,
-        },
-        outlookIntegration: {
-          configured: false,
-          connected: false,
         },
         userPreferences: {
           themeMode: "system",

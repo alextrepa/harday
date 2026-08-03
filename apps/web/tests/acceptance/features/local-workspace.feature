@@ -24,6 +24,12 @@ Feature: Open the local time workspace
     When I open the former connectors settings route
     Then I arrive at the plugins catalog
 
+  Scenario: Explain an empty plugin catalog
+    Given I have no saved TimeTracker workspace
+    When I open the plugins catalog
+    Then the empty plugin catalog is explained
+    And Outlook Calendar is not offered
+
   Scenario: Uninstall a packaged connector while preserving imported work
     Given I have no saved TimeTracker workspace
     When I install a packaged connector from settings

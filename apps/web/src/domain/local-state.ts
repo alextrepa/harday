@@ -9,7 +9,6 @@ import type {
   RuleRecord,
   TeamSettings,
 } from "@timetracker/shared";
-import type { OutlookConnectionSnapshot } from "@/domain/integrations/outlook";
 import type { LocalProjectIcon } from "@/domain/projects/project-icon";
 
 export interface LocalProject {
@@ -165,7 +164,7 @@ export interface LocalWorkItem {
   _id: string;
   title: string;
   status: "active" | "archived";
-  source: "manual" | ConnectorBacklogSource | "outlook";
+  source: "manual" | ConnectorBacklogSource;
   sourceId?: string;
   sourceConnectionId?: string;
   sourceConnectionLabel?: string;
@@ -253,29 +252,6 @@ export interface ExtensionBridgeStatus {
   lastError?: string;
 }
 
-export interface OutlookMeetingDraft {
-  _id: string;
-  eventId: string;
-  localDate: string;
-  startedAt: number;
-  endedAt: number;
-  durationMs: number;
-  subject: string;
-  organizer?: string;
-  location?: string;
-  isOnlineMeeting: boolean;
-  webLink?: string;
-  dismissed: boolean;
-  status: ImportedDraftStatus;
-  projectId?: string;
-  note?: string;
-  importedAt: number;
-  source: "outlook_calendar";
-  assignmentSource: AssignmentSource;
-  explanation: string;
-  manuallyEdited: boolean;
-}
-
 export interface LocalAppState {
   user: {
     _id: string;
@@ -289,7 +265,6 @@ export interface LocalAppState {
   dismissedSegmentIds: string[];
   editedBlocks: ActivityBlockRecord[];
   importedBrowserDrafts: ImportedBrowserDraft[];
-  outlookMeetingDrafts: OutlookMeetingDraft[];
   timers: LocalTimer[];
   timesheetEntries: LocalTimesheetEntry[];
   timesheetImportDrafts: LocalTimesheetImportDraft[];
@@ -300,7 +275,6 @@ export interface LocalAppState {
   capture: CaptureSettings;
   lastExtensionImportAt?: number;
   extensionBridgeStatus?: ExtensionBridgeStatus;
-  outlookIntegration: OutlookConnectionSnapshot;
   userPreferences: UserPreferences;
   desktopBootstrapAppliedAt?: number;
   updatedAt: number;
@@ -309,7 +283,6 @@ export interface LocalAppState {
 export interface TimelineMutationResult {
   blocks: ActivityBlockRecord[];
   browserDrafts: ImportedBrowserDraft[];
-  outlookMeetings: OutlookMeetingDraft[];
   trackedMs: number;
   committedMs: number;
   extensionBridgeStatus?: ExtensionBridgeStatus;

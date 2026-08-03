@@ -22,7 +22,6 @@ Use this file as the local index for important library choices. Check official d
 - date-fns
 - zod
 - ExcelJS
-- Microsoft MSAL Browser
 
 ## Web UI Usage
 
@@ -46,13 +45,12 @@ Use this file as the local index for important library choices. Check official d
 - Timesheet entry creation, editing, deletion, ordering, submission state, and linked estimate adjustments: `apps/web/src/domain/time/timesheet-entry.ts`
 - Timesheet import normalization, conflict detection, draft lifecycle, project/task recovery, and commits: `apps/web/src/domain/time/timesheet-import.ts`
 - Timer hydration, single-active-timer enforcement, start/edit/cancel/save/restart transitions, elapsed duration, and restarted-entry replacement: `apps/web/src/domain/time/timer-transitions.ts`
-- Imported browser and Outlook review preservation, timeline materialization, dismissals, commits, and rule creation: `apps/web/src/domain/time/timeline-transitions.ts`
+- Imported browser review preservation, timeline materialization, dismissals, commits, and rule creation: `apps/web/src/domain/time/timeline-transitions.ts`
 - Project task budgets and consumption: `apps/web/src/domain/projects/task-budget.ts`
 - Project task import normalization: `apps/web/src/domain/projects/task-import.ts`
 - Project task/workbook import transitions and the canonical transfer-row contract: `apps/web/src/domain/projects/project-import.ts`
 - Project/task creation, hydration, ordering, edits, and archive transitions: `apps/web/src/domain/projects/project-transitions.ts`
 - Persisted project icon contract: `apps/web/src/domain/projects/project-icon.ts`
-- Outlook event and snapshot contracts: `apps/web/src/domain/integrations/outlook.ts`
 
 Keep React rendering and runtime adapters outside these modules. For example, the persisted project icon contract lives in `domain`, while `ProjectIcon` rendering and uploaded-image preparation live in `apps/web/src/lib/project-icons.tsx`.
 

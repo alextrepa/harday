@@ -158,9 +158,21 @@ When("I open the former connectors settings route", async ({ page }) => {
   await page.goto("/settings/connectors");
 });
 
+When("I open the plugins catalog", async ({ page }) => {
+  await page.goto("/settings/plugins");
+});
+
 Then("I arrive at the plugins catalog", async ({ page }) => {
   await expect(page).toHaveURL(/\/settings\/plugins$/);
   await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+});
+
+Then("the empty plugin catalog is explained", async ({ page }) => {
+  await expect(page.getByText("No connector plugins installed")).toBeVisible();
+});
+
+Then("Outlook Calendar is not offered", async ({ page }) => {
+  await expect(page.getByText("Outlook Calendar")).toHaveCount(0);
 });
 
 Then("the connector plugin is reported as installed", async ({ page }) => {

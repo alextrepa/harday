@@ -2,7 +2,7 @@ import { syncConnectorConnection } from "@/lib/app-api";
 import type { LocalWorkItem } from "@/domain/local-state";
 
 export function syncBacklogWorkItemToSource(workItem: LocalWorkItem) {
-  if (workItem.source === "manual" || workItem.source === "outlook" || !workItem.sourceConnectionId) {
+  if (workItem.source === "manual" || !workItem.sourceConnectionId) {
     return;
   }
 

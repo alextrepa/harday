@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -53,6 +54,31 @@ async function pathExists(candidate: string) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function assertRegularPluginFile(
+  pluginDirectory: string,
+  canonicalPluginDirectory: string,
+  candidate: string,
+  description: string,
+) {
+  const candidateStat = await lstat(candidate);
+  if (!candidateStat.isFile() || candidateStat.isSymbolicLink()) {
+    throw new Error(`${description} must be a regular file.`);
+  }
+
+  const relativeCandidate = path.relative(pluginDirectory, candidate);
+  const expectedCanonicalPath = path.resolve(
+    canonicalPluginDirectory,
+    relativeCandidate,
+  );
+  const canonicalCandidate = await realpath(candidate);
+  if (
+    !isPathInside(canonicalPluginDirectory, canonicalCandidate) ||
+    canonicalCandidate !== expectedCanonicalPath
+  ) {
+    throw new Error(`${description} must not traverse symbolic links.`);
   }
 }
 
@@ -141,7 +167,15 @@ export async function readConnectorPlugin(
   directory: string,
   source: ResolvedConnectorPlugin["source"],
 ): Promise<ResolvedConnectorPlugin> {
-  const manifestPath = path.join(directory, "plugin.json");
+  const pluginDirectory = path.resolve(directory);
+  const canonicalPluginDirectory = await realpath(pluginDirectory);
+  const manifestPath = path.join(pluginDirectory, "plugin.json");
+  await assertRegularPluginFile(
+    pluginDirectory,
+    canonicalPluginDirectory,
+    manifestPath,
+    "Connector plugin manifest",
+  );
   const rawManifest = await readFile(manifestPath, "utf8");
   const manifest = connectorPluginManifestSchema.parse(JSON.parse(rawManifest));
 
@@ -151,15 +185,17 @@ export async function readConnectorPlugin(
     );
   }
 
-  const entrypointPath = resolveConnectorPluginEntrypoint(directory, manifest);
-  const entrypointStat = await lstat(entrypointPath);
-  if (!entrypointStat.isFile() || entrypointStat.isSymbolicLink()) {
-    throw new Error(`Connector plugin "${manifest.id}" entrypoint must be a regular file.`);
-  }
+  const entrypointPath = resolveConnectorPluginEntrypoint(pluginDirectory, manifest);
+  await assertRegularPluginFile(
+    pluginDirectory,
+    canonicalPluginDirectory,
+    entrypointPath,
+    `Connector plugin "${manifest.id}" entrypoint`,
+  );
 
   return {
     manifest,
-    directory,
+    directory: pluginDirectory,
     entrypointPath,
     source,
   };

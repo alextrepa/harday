@@ -82,8 +82,7 @@ export function findMappedBacklogStatusId(
   if (
     !connectionId ||
     !sourceStatusKey ||
-    source === "manual" ||
-    source === "outlook"
+    source === "manual"
   ) {
     return undefined;
   }

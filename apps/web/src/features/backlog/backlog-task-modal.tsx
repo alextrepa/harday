@@ -242,10 +242,10 @@ export function BacklogTaskModal({
       workItem
         ? [
             isSubtaskWorkItem(workItem) ? "Subtask" : undefined,
-            workItem.source !== "manual" && workItem.source !== "outlook"
+            workItem.source !== "manual"
               ? workItem.sourceConnectionLabel
               : undefined,
-            workItem.source !== "manual" && workItem.source !== "outlook"
+            workItem.source !== "manual"
               ? workItem.sourceProjectName
               : undefined,
             workItem.sourceWorkItemType,
@@ -268,7 +268,7 @@ export function BacklogTaskModal({
       ? parseWorkItemReference(workItem.sourceId)
       : undefined;
   const sourceUrl =
-    workItem && workItem.source !== "manual" && workItem.source !== "outlook"
+    workItem && workItem.source !== "manual"
       ? workItem.sourceId
       : undefined;
   const sourceMetaLabel = [

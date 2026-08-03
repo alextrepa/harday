@@ -51,7 +51,7 @@
 - Inject ID and time factories into domain operations that create records so their rules stay deterministic and directly testable.
 - Keep related invariants local to one deep module. Work-item hierarchy, inherited mappings, connector reconciliation, and estimate conflict decisions must not be reimplemented in feature components or the persistence adapter.
 - Keep project/task and timer lifecycle changes behind their domain transition modules. Components and the local-store Adapter issue commands; they do not rebuild records or calculate transition timestamps.
-- Keep imported browser and Outlook review behavior in the timeline transition module so preservation, dismissal, commit idempotency, and rule creation remain uniform across sources.
+- Keep imported browser review behavior in the timeline transition module so preservation, dismissal, commit idempotency, and rule creation stay deterministic.
 - Keep timesheet import conflict detection, project/task recovery, and batch commit in the timesheet-import transition module so the whole import remains atomic and directly testable.
 - Treat `local-store.ts` as an Adapter: it may load, migrate, persist, notify, and coordinate runtime side effects, but deterministic lifecycle rules belong in `domain`.
 - Add safe defaults for older local records when adding fields.

@@ -1,31 +1,37 @@
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { createRequire } from "node:module";
-import { access, readdir, readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
+import { readFile } from "node:fs/promises";
 import {
-  connectorSyncWorkItemSchema,
+  CONNECTOR_PLUGIN_API_VERSION,
   connectorFieldValuesSchema,
-  connectorPluginManifestSchema,
   connectorPluginSyncResultSchema,
   connectorPluginValidationResultSchema,
+  connectorSyncWorkItemSchema,
   type ConnectorFieldValues,
   type ConnectorPluginManifest,
   type ConnectorPluginSyncResult,
-  type ConnectorSyncWorkItem,
   type ConnectorPluginValidationResult,
+  type ConnectorSyncWorkItem,
 } from "../../../packages/shared/src/connectors.ts";
 import { z } from "zod";
+import {
+  discoverInstalledConnectorPlugins,
+  installConnectorPluginArchive,
+  reconcileConnectorPluginInstallRoot,
+  readConnectorPlugin,
+  uninstallConnectorPluginPackage,
+  type InstalledConnectorPlugin,
+  type ResolvedConnectorPlugin,
+} from "./plugin-package.ts";
 
 interface PluginHostOptions {
-  pluginDirectories?: string[];
+  installedPluginDirectory: string;
+  developmentPluginDirectories?: string[];
+  bundledPluginArchives?: string[];
+  allowDevelopmentPlugins?: boolean;
   requestTimeoutMs?: number;
-}
-
-interface ResolvedPlugin {
-  manifest: ConnectorPluginManifest;
-  directory: string;
-  entrypointPath: string;
-  modulePromise?: Promise<ConnectorPluginModule>;
+  workerScriptUrl?: URL;
 }
 
 const pluginInvocationConnectionSchema = z.object({
@@ -42,16 +48,18 @@ const pluginInvocationConnectionSchema = z.object({
 });
 
 type PluginInvocationConnection = z.infer<typeof pluginInvocationConnectionSchema>;
+type PluginMethod = "validateConnection" | "syncConnection";
+const MAX_CONCURRENT_PLUGIN_OPERATIONS = 4;
 
-interface ConnectorPluginModule {
-  validateConnection(config: ConnectorFieldValues): Promise<unknown>;
-  syncConnection(connection: PluginInvocationConnection, workItems: ConnectorSyncWorkItem[]): Promise<unknown>;
+interface WorkerReply {
+  ok: boolean;
+  result?: unknown;
+  error?: unknown;
 }
 
-const requireFromHere = createRequire(import.meta.url);
-
-function defaultPluginDirectory() {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../plugins");
+interface ActiveWorker {
+  pluginId: string;
+  cancel(error: Error): Promise<void>;
 }
 
 function comparePlugins(left: ConnectorPluginManifest, right: ConnectorPluginManifest) {
@@ -59,29 +67,110 @@ function comparePlugins(left: ConnectorPluginManifest, right: ConnectorPluginMan
 }
 
 export class ConnectorPluginManager {
-  private readonly pluginDirectories: string[];
+  private readonly installedPluginDirectory: string;
+  private readonly developmentPluginDirectories: string[];
+  private readonly bundledPluginArchives: string[];
+  private readonly allowDevelopmentPlugins: boolean;
   private readonly requestTimeoutMs: number;
-  private pluginsPromise?: Promise<Map<string, ResolvedPlugin>>;
+  private readonly workerScriptUrl: URL;
+  private readonly activeWorkers = new Map<Worker, ActiveWorker>();
+  private initializationPromise?: Promise<void>;
+  private packageMutationPromise?: Promise<unknown>;
+  private shutdownPromise?: Promise<void>;
+  private mutatingPluginPackage = false;
+  private shuttingDown = false;
 
-  constructor(options: PluginHostOptions = {}) {
-    this.pluginDirectories = options.pluginDirectories?.length
-      ? options.pluginDirectories
-      : [defaultPluginDirectory()];
+  constructor(options: PluginHostOptions) {
+    this.installedPluginDirectory = path.resolve(options.installedPluginDirectory);
+    this.developmentPluginDirectories = (options.developmentPluginDirectories ?? []).map(
+      (directory) => path.resolve(directory),
+    );
+    this.bundledPluginArchives = (options.bundledPluginArchives ?? []).map(
+      (archive) => path.resolve(archive),
+    );
+    this.allowDevelopmentPlugins = options.allowDevelopmentPlugins ?? false;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.workerScriptUrl = options.workerScriptUrl ?? new URL("./plugin-worker.mjs", import.meta.url);
+  }
+
+  get activeOperationCount() {
+    return this.activeWorkers.size;
   }
 
   async listPlugins(): Promise<ConnectorPluginManifest[]> {
-    const plugins = await this.loadPlugins();
+    this.assertRunning();
+    const plugins = await this.discoverPlugins();
     return Array.from(plugins.values())
       .map((plugin) => plugin.manifest)
       .sort(comparePlugins);
+  }
+
+  async installPluginArchive(
+    archiveBytes: Uint8Array,
+    archiveFilename: string,
+  ): Promise<InstalledConnectorPlugin> {
+    this.assertRunning();
+    await this.ensureInitialized();
+    return await this.runPackageMutation(async () => {
+      if (this.activeWorkers.size > 0) {
+        throw new Error("Wait for active connector operations to finish before installing a plugin.");
+      }
+
+      return await installConnectorPluginArchive({
+        archiveBytes,
+        archiveFilename,
+        installRoot: this.installedPluginDirectory,
+        replaceExisting: true,
+      });
+    });
+  }
+
+  async uninstallPlugin(pluginId: string): Promise<ConnectorPluginManifest> {
+    this.assertRunning();
+    await this.ensureInitialized();
+    return await this.runPackageMutation(async () => {
+      const activePluginWorkers = Array.from(this.activeWorkers.values()).filter(
+        (activeWorker) => activeWorker.pluginId === pluginId,
+      );
+      await Promise.allSettled(
+        activePluginWorkers.map((activeWorker) =>
+          activeWorker.cancel(
+            new Error(`Connector plugin "${pluginId}" was uninstalled.`),
+          ),
+        ),
+      );
+
+      const removedPlugin = await uninstallConnectorPluginPackage({
+        installRoot: this.installedPluginDirectory,
+        pluginId,
+      });
+      if (!removedPlugin) {
+        throw new Error(`Connector plugin "${pluginId}" is not installed as a managed package.`);
+      }
+
+      return removedPlugin.manifest;
+    });
+  }
+
+  async cancelPluginOperations(pluginId: string, error: Error): Promise<void> {
+    const operations = Array.from(this.activeWorkers.values()).filter(
+      (activeWorker) => activeWorker.pluginId === pluginId,
+    );
+    await Promise.allSettled(
+      operations.map((activeWorker) => activeWorker.cancel(error)),
+    );
   }
 
   async validateConnection(
     pluginId: string,
     config: ConnectorFieldValues,
   ): Promise<ConnectorPluginValidationResult> {
-    return this.invokePlugin(pluginId, "validateConnection", { config }, connectorPluginValidationResultSchema);
+    return await this.invokePlugin(
+      pluginId,
+      "validateConnection",
+      { config: connectorFieldValuesSchema.parse(config) },
+      connectorPluginValidationResultSchema,
+    );
   }
 
   async syncConnection(
@@ -94,33 +183,144 @@ export class ConnectorPluginManager {
       workItems: workItems.map((workItem) => connectorSyncWorkItemSchema.parse(workItem)),
     };
 
-    return this.invokePlugin(pluginId, "syncConnection", payload, connectorPluginSyncResultSchema);
+    return await this.invokePlugin(
+      pluginId,
+      "syncConnection",
+      payload,
+      connectorPluginSyncResultSchema,
+    );
   }
 
-  async invokePlugin<T>(
+  async shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shuttingDown = true;
+      const pendingOperations = [
+        this.initializationPromise,
+        this.packageMutationPromise,
+        ...Array.from(this.activeWorkers.values()).map((activeWorker) =>
+          activeWorker.cancel(new Error("Connector operation stopped because the app is shutting down.")),
+        ),
+      ].filter((operation): operation is Promise<unknown> => Boolean(operation));
+      this.shutdownPromise = Promise.allSettled(pendingOperations).then(() => undefined);
+    }
+
+    await this.shutdownPromise;
+  }
+
+  private async invokePlugin<T>(
     pluginId: string,
-    method: "validateConnection" | "syncConnection",
+    method: PluginMethod,
     params: Record<string, unknown>,
     schema: { parse: (value: unknown) => T },
   ): Promise<T> {
-    const plugin = await this.getPlugin(pluginId);
-    const pluginModule = await this.loadPluginModule(plugin);
-    const operation =
-      method === "validateConnection"
-        ? pluginModule.validateConnection(connectorFieldValuesSchema.parse(params.config))
-        : pluginModule.syncConnection(
-            pluginInvocationConnectionSchema.parse(params.connection),
-            Array.isArray(params.workItems)
-              ? params.workItems.map((workItem) => connectorSyncWorkItemSchema.parse(workItem))
-              : [],
-          );
+    if (this.shuttingDown) {
+      throw new Error("Connector plugin host is shutting down.");
+    }
+    if (this.mutatingPluginPackage) {
+      throw new Error("Connector plugin package change is in progress.");
+    }
+    if (this.activeWorkers.size >= MAX_CONCURRENT_PLUGIN_OPERATIONS) {
+      throw new Error("Too many connector plugin operations are already running.");
+    }
 
-    const result = await this.withTimeout(operation, `Connector plugin "${pluginId}" timed out while handling ${method}.`);
-    return schema.parse(result);
+    const plugin = await this.getPlugin(pluginId);
+    if (this.shuttingDown) {
+      throw new Error("Connector plugin host is shutting down.");
+    }
+    if (this.mutatingPluginPackage) {
+      throw new Error("Connector plugin package change is in progress.");
+    }
+    const worker = new Worker(this.workerScriptUrl, {
+      env: {},
+      execArgv: [],
+      stdout: true,
+      stderr: true,
+      workerData: {
+        apiVersion: CONNECTOR_PLUGIN_API_VERSION,
+        entrypointUrl: pathToFileURL(plugin.entrypointPath).toString(),
+        method,
+        params,
+      },
+      resourceLimits: {
+        maxOldGenerationSizeMb: 128,
+        maxYoungGenerationSizeMb: 32,
+        stackSizeMb: 4,
+      },
+    });
+    worker.stdout?.resume();
+    worker.stderr?.resume();
+
+    return await new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        void finalize(
+          new Error(`Connector plugin "${pluginId}" timed out while handling ${method}.`),
+        );
+      }, this.requestTimeoutMs);
+
+      let finalizationPromise: Promise<void> | undefined;
+      const finalize = (error?: Error, result?: unknown) => {
+        finalizationPromise ??= (async () => {
+          settled = true;
+          clearTimeout(timeout);
+          worker.removeAllListeners();
+
+          try {
+            await worker.terminate();
+          } catch {
+            // The worker may already have exited after posting its result.
+          } finally {
+            this.activeWorkers.delete(worker);
+          }
+
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          try {
+            resolve(schema.parse(result));
+          } catch (parseError) {
+            reject(parseError);
+          }
+        })();
+        return finalizationPromise;
+      };
+
+      this.activeWorkers.set(worker, {
+        pluginId,
+        cancel: async (error) => await finalize(error),
+      });
+
+      worker.once("message", (message: WorkerReply) => {
+        if (message?.ok === true) {
+          void finalize(undefined, message.result);
+          return;
+        }
+
+        const detail =
+          typeof message?.error === "string" && message.error.trim()
+            ? message.error.trim()
+            : "Unknown connector plugin error.";
+        void finalize(new Error(detail));
+      });
+      worker.once("error", (error) => {
+        void finalize(error);
+      });
+      worker.once("exit", (code) => {
+        if (!settled) {
+          void finalize(
+            new Error(
+              `Connector plugin "${pluginId}" exited before returning a result (code ${code}).`,
+            ),
+          );
+        }
+      });
+    });
   }
 
-  private async getPlugin(pluginId: string): Promise<ResolvedPlugin> {
-    const plugins = await this.loadPlugins();
+  private async getPlugin(pluginId: string): Promise<ResolvedConnectorPlugin> {
+    const plugins = await this.discoverPlugins();
     const plugin = plugins.get(pluginId);
     if (!plugin) {
       throw new Error(`Connector plugin "${pluginId}" is not installed.`);
@@ -129,85 +329,89 @@ export class ConnectorPluginManager {
     return plugin;
   }
 
-  private async loadPluginModule(plugin: ResolvedPlugin): Promise<ConnectorPluginModule> {
-    if (!plugin.modulePromise) {
-      const moduleLoader =
-        plugin.entrypointPath.endsWith(".cjs") || plugin.entrypointPath.endsWith(".cts")
-          ? Promise.resolve(requireFromHere(plugin.entrypointPath))
-          : import(/* @vite-ignore */ pathToFileURL(plugin.entrypointPath).toString());
+  private async discoverPlugins(): Promise<Map<string, ResolvedConnectorPlugin>> {
+    await this.ensureInitialized();
+    const plugins = new Map<string, ResolvedConnectorPlugin>();
 
-      plugin.modulePromise = moduleLoader.then((module) => {
-        if (
-          typeof (module as Partial<ConnectorPluginModule>).validateConnection !== "function" ||
-          typeof (module as Partial<ConnectorPluginModule>).syncConnection !== "function"
-        ) {
-          throw new Error(`Connector plugin "${plugin.manifest.id}" does not export validateConnection and syncConnection.`);
-        }
-
-        return module as ConnectorPluginModule;
-      });
+    for (const plugin of await discoverInstalledConnectorPlugins(
+      this.installedPluginDirectory,
+    )) {
+      plugins.set(plugin.manifest.id, plugin);
     }
 
-    return await plugin.modulePromise;
-  }
-
-  private async withTimeout<T>(operation: Promise<T>, message: string): Promise<T> {
-    return await new Promise<T>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error(message)), this.requestTimeoutMs);
-
-      operation.then(
-        (result) => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        },
-        (error) => {
-          clearTimeout(timeoutId);
-          reject(error);
-        },
-      );
-    });
-  }
-
-  private async loadPlugins(): Promise<Map<string, ResolvedPlugin>> {
-    if (!this.pluginsPromise) {
-      this.pluginsPromise = this.discoverPlugins();
-    }
-
-    return await this.pluginsPromise;
-  }
-
-  private async discoverPlugins(): Promise<Map<string, ResolvedPlugin>> {
-    const plugins = new Map<string, ResolvedPlugin>();
-
-    for (const pluginRoot of this.pluginDirectories) {
-      let entries: string[] = [];
-      try {
-        entries = await readdir(pluginRoot);
-      } catch {
-        continue;
-      }
-
-      for (const entry of entries) {
-        const pluginDirectory = path.join(pluginRoot, entry);
-        const manifestPath = path.join(pluginDirectory, "plugin.json");
-
+    if (this.allowDevelopmentPlugins) {
+      for (const directory of this.developmentPluginDirectories) {
         try {
-          await access(manifestPath);
-        } catch {
-          continue;
+          const plugin = await readConnectorPlugin(directory, "development");
+          plugins.set(plugin.manifest.id, plugin);
+        } catch (error) {
+          console.error(
+            `Skipping invalid development connector plugin "${directory}".`,
+            error,
+          );
         }
-
-        const rawManifest = await readFile(manifestPath, "utf8");
-        const manifest = connectorPluginManifestSchema.parse(JSON.parse(rawManifest));
-        plugins.set(manifest.id, {
-          manifest,
-          directory: pluginDirectory,
-          entrypointPath: path.join(pluginDirectory, manifest.entrypoint),
-        });
       }
     }
 
     return plugins;
+  }
+
+  private async ensureInitialized() {
+    this.assertRunning();
+    if (!this.initializationPromise) {
+      this.initializationPromise = this.installBundledPlugins();
+    }
+    const initialization = this.initializationPromise;
+    try {
+      await initialization;
+    } catch (error) {
+      if (this.initializationPromise === initialization) {
+        this.initializationPromise = undefined;
+      }
+      throw error;
+    }
+  }
+
+  private async installBundledPlugins() {
+    await reconcileConnectorPluginInstallRoot(this.installedPluginDirectory);
+    for (const archivePath of this.bundledPluginArchives) {
+      try {
+        const archiveBytes = await readFile(archivePath);
+        await installConnectorPluginArchive({
+          archiveBytes,
+          archiveFilename: path.basename(archivePath),
+          installRoot: this.installedPluginDirectory,
+          replaceExisting: false,
+        });
+      } catch (error) {
+        console.error(`Unable to install bundled connector plugin "${archivePath}".`, error);
+      }
+    }
+  }
+
+  private assertRunning() {
+    if (this.shuttingDown) {
+      throw new Error("Connector plugin host is shutting down.");
+    }
+  }
+
+  private async runPackageMutation<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertRunning();
+    if (this.mutatingPluginPackage) {
+      throw new Error("Another connector plugin package change is already in progress.");
+    }
+
+    this.mutatingPluginPackage = true;
+    const mutation = operation();
+    this.packageMutationPromise = mutation;
+    try {
+      return await mutation;
+    } finally {
+      if (this.packageMutationPromise === mutation) {
+        this.packageMutationPromise = undefined;
+      }
+      this.mutatingPluginPackage = false;
+    }
   }
 }
 

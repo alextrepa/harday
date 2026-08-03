@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { validateConnection } from "./plugin.ts";
+import { validateConnection } from "../src/plugin.ts";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -40,5 +40,20 @@ describe("azure_devops plugin validateConnection", () => {
         taskIconDisplayMode: "fallback",
       },
     });
+  });
+
+  it("rejects non-primitive field values before making a request", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      validateConnection({
+        organizationUrl: "https://dev.azure.com/contoso",
+        personalAccessToken: "secret",
+        queryScope: "assigned_to_me",
+        priorityFieldName: ["invalid"],
+      } as never),
+    ).rejects.toThrow("must contain only primitive values");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

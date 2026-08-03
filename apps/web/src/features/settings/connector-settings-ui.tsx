@@ -23,15 +23,26 @@ import type {
 } from "@timetracker/shared";
 import { SAVED_SECRET_MASK } from "./connector-form-state";
 
-function ConnectorPluginIcon({ plugin }: { plugin: ConnectorPluginManifest }) {
+function ConnectorPluginIcon({
+  plugin,
+  className,
+  imageClassName,
+}: {
+  plugin: ConnectorPluginManifest;
+  className?: string;
+  imageClassName?: string;
+}) {
   const iconSource = `data:image/svg+xml,${encodeURIComponent(plugin.iconSvg)}`;
 
   return (
     <span
-      className="inline-flex size-10 items-center justify-center rounded-2xl bg-muted/60 text-foreground [&>img]:size-5"
+      className={cn(
+        "inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/60 text-foreground",
+        className,
+      )}
       aria-hidden="true"
     >
-      <img src={iconSource} alt="" />
+      <img className={cn("size-5", imageClassName)} src={iconSource} alt="" />
     </span>
   );
 }

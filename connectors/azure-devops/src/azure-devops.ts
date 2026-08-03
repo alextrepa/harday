@@ -5,8 +5,8 @@ import type {
   ConnectorSyncFieldUpdate,
   ConnectorSyncWorkItem,
   ConnectorSyncWorkItemUpdate,
-} from "../../../../packages/shared/src/connectors.ts";
-import { resolveEstimateSyncAction } from "./estimate-sync.ts";
+} from "./contract.js";
+import { resolveEstimateSyncAction } from "./estimate-sync.js";
 
 export interface AzureDevOpsConnectionInput {
   id?: string;

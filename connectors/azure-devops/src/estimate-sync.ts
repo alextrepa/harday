@@ -1,3 +1,4 @@
+// This policy is bundled with the connector so the installed plugin has no host-code dependency.
 export interface ResolveEstimateSyncActionInput {
   localValue?: number;
   remoteValue?: number;

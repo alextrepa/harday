@@ -72,13 +72,28 @@ application internals.
 Plugin loading depends on the application build:
 
 - Development builds may point directly to a plugin directory so connector
-  authors can iterate without packaging an archive.
+  authors can iterate without packaging an archive. The active directory can
+  be selected on Settings → Debug or supplied through
+  `TIMETRACKER_DEV_PLUGIN_DIRS`; changing it restarts only the parent-owned
+  internal plugin host. Production builds never expose or honor this setting.
 - Production builds must not load loose plugin directories. They install one
-  packaged archive selected from the local filesystem, validate it, and copy it
-  into an application-managed plugin directory.
+  packaged `.harday-connector` archive selected from the local filesystem,
+  validate it, and copy it into an application-managed plugin directory.
+- Archive installation is a desktop capability exposed through the restricted
+  Electron preload/IPC bridge. The parent process owns the native single-file
+  chooser and reads the selected archive; the renderer does not submit paths or
+  archive bytes. The loopback HTTP API must not expose a plugin installation
+  route because installed plugins execute with the user's local permissions.
 - Both modes use the same manifest and versioned host protocol. Development
   plugins must not receive capabilities that packaged production plugins do not
   have.
+- Production connector archives are distributed separately from the app and
+  are not silently installed from bundled repository packages. Uninstall is a
+  desktop capability on the same restricted IPC boundary as installation. It
+  stops active workers for that plugin, removes the managed package and its
+  saved connections, credentials, staged imports, and connector statuses, and
+  preserves already imported application-owned backlog items. Development
+  directory plugins can be deactivated but never deleted by the app.
 
 The host must not import plugin code into the API or Electron main execution
 context. Each plugin operation runs in a new Node worker thread and exchanges
@@ -91,6 +106,12 @@ outlive the parent application or remain as orphan connector processes.
 Worker threads isolate plugin JavaScript state, failures, event loops, and
 dependencies, but they are not a security sandbox. Installed plugin code still
 runs with the current user's filesystem and network permissions.
+
+Plugin activation is local API state. Deactivating an installed connector keeps
+its package, saved connections, staged imports, and already imported backlog
+items intact, but blocks manual sync and excludes its connections from the web
+auto-sync scheduler. Reactivation restores those sync paths without requiring
+the connector to be configured again.
 
 The desktop runtime must acquire Electron's single-instance lock before
 starting the local API or any plugin operation. A second launch should focus

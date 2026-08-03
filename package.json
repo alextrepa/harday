@@ -5,6 +5,9 @@
   "packageManager": "pnpm@10.7.0",
   "scripts": {
     "build": "corepack pnpm -r build",
+    "build:connectors": "corepack pnpm --filter './connectors/*' build",
+    "dev:connectors": "corepack pnpm --filter './connectors/*' --parallel dev",
+    "package:connectors": "corepack pnpm build:connectors && corepack pnpm --filter './connectors/*' package",
     "build:desktop": "corepack pnpm --filter @timetracker/desktop build",
     "package:desktop": "corepack pnpm --filter @timetracker/desktop package",
     "package:desktop:mac": "corepack pnpm --filter @timetracker/desktop exec node scripts/run-forge-command.cjs package darwin",
@@ -29,6 +32,7 @@
     "autoprefixer": "^10.5.0",
     "postcss": "^8.5.12",
     "tailwindcss": "^4.2.4",
+    "tar": "^7.5.13",
     "typescript": "^5.8.2",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"

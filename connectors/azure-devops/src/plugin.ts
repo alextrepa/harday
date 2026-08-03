@@ -1,16 +1,19 @@
-import {
-  connectorFieldValuesSchema,
-  connectorTaskIconDisplayModeSchema,
-  type ConnectorFieldValues,
-} from "../../../../packages/shared/src/connectors.ts";
+import type {
+  ConnectorFieldValues,
+  ConnectorPluginConnection,
+  ConnectorSyncWorkItem,
+} from "./contract.js";
+import { parseConnectorFieldValues } from "./contract.js";
 import {
   syncAzureDevOpsConnection,
   type AzureDevOpsConnectionInput,
   validateAzureDevOpsConnection,
-} from "../../src/connectors/azure-devops.ts";
+} from "./azure-devops.js";
+
+const TASK_ICON_DISPLAY_MODES = new Set(["always", "fallback", "never"]);
 
 function buildAzureConfig(values: ConnectorFieldValues, connection?: { id: string; label: string; tenantLabel: string }): AzureDevOpsConnectionInput {
-  const parsed = connectorFieldValuesSchema.parse(values);
+  const parsed = parseConnectorFieldValues(values);
 
   if (typeof parsed.organizationUrl !== "string" || !parsed.organizationUrl.trim()) {
     throw new Error('Azure DevOps field "organizationUrl" is required.');
@@ -51,8 +54,8 @@ function buildAzureConfig(values: ConnectorFieldValues, connection?: { id: strin
 }
 
 export async function validateConnection(config: ConnectorFieldValues) {
-  const parsed = connectorFieldValuesSchema.parse(config);
-  const azureConfig = buildAzureConfig(config);
+  const parsed = parseConnectorFieldValues(config);
+  const azureConfig = buildAzureConfig(parsed);
   const validation = await validateAzureDevOpsConnection(azureConfig);
 
   const normalizedConfig: ConnectorFieldValues = {
@@ -61,11 +64,11 @@ export async function validateConnection(config: ConnectorFieldValues) {
     queryScope: azureConfig.queryScope,
   };
 
-  const taskIconDisplayMode = connectorTaskIconDisplayModeSchema.safeParse(
-    parsed.taskIconDisplayMode,
-  );
-  if (taskIconDisplayMode.success) {
-    normalizedConfig.taskIconDisplayMode = taskIconDisplayMode.data;
+  if (
+    typeof parsed.taskIconDisplayMode === "string" &&
+    TASK_ICON_DISPLAY_MODES.has(parsed.taskIconDisplayMode)
+  ) {
+    normalizedConfig.taskIconDisplayMode = parsed.taskIconDisplayMode;
   }
 
   if (azureConfig.priorityFieldName) {
@@ -114,12 +117,10 @@ export async function validateConnection(config: ConnectorFieldValues) {
   };
 }
 
-export async function syncConnection(connection: {
-  id: string;
-  label: string;
-  tenantLabel: string;
-  config: ConnectorFieldValues;
-}, workItems = []) {
+export async function syncConnection(
+  connection: ConnectorPluginConnection,
+  workItems: ConnectorSyncWorkItem[] = [],
+) {
   const azureConfig = buildAzureConfig(connection.config, connection);
   return await syncAzureDevOpsConnection(azureConfig, workItems);
 }

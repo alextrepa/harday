@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Local environment and machine state
 .env
@@ -34,6 +35,10 @@ apps/desktop/out/
 apps/desktop/out-embedded/
 apps/desktop/build/internal-app-runtime/
 apps/desktop/build/embedded-agent/
+
+# Connector plugin build outputs
+connectors/*/dist/
+connectors/*/package/
 
 # Native agent build output
 apps/macos-agent/.build/

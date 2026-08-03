@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "dev": "TIMETRACKER_ALLOW_DEVELOPMENT_PLUGINS=1 node --watch --experimental-strip-types src/server.ts",
     "start": "node --experimental-strip-types src/server.ts",
     "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "tar": "^7.5.13",
+    "zod": "^3.24.2"
   }
 }

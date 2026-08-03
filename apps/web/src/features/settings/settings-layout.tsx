@@ -6,7 +6,7 @@ import {
   RiFolderChartLine as FolderKanban,
   RiInboxLine as Inbox,
   RiListCheck3 as ListTodo,
-  RiPlugLine as Plug,
+  RiPuzzle2Line as Puzzle,
   RiSettings3Line as Settings,
 } from "@remixicon/react";
 import {
@@ -23,7 +23,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const settingsTabs = [
   { to: "/settings/general", label: "General", icon: Settings },
-  { to: "/settings/connectors", label: "Connectors", icon: Plug },
+  { to: "/settings/plugins", label: "Plugins", icon: Puzzle },
   { to: "/settings/backlog", label: "Backlog", icon: ListTodo },
   { to: "/settings/projects", label: "Projects", icon: FolderKanban },
   { to: "/settings/export", label: "Time Logs", icon: Download },

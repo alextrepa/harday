@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { existsSync, readdirSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   connectorBacklogStatusListResponseSchema,
   connectorBacklogStatusUpsertRequestSchema,
@@ -8,6 +11,10 @@ import {
   connectorConnectionSaveRequestSchema,
   connectorConnectionSaveResponseSchema,
   connectorFieldValuesSchema,
+  connectorPluginActivationUpdateSchema,
+  connectorPluginIdSchema,
+  connectorPluginInstallResponseSchema,
+  connectorPluginUninstallResponseSchema,
   connectorSyncRequestSchema,
   connectorSyncResultSchema,
   type ConnectorFieldValues,
@@ -31,8 +38,21 @@ interface AppApiServerOptions {
   host?: string;
   port?: number;
   statePath?: string;
-  pluginDirectories?: string[];
+  installedPluginDirectory?: string;
+  developmentPluginDirectories?: string[];
+  bundledPluginArchives?: string[];
+  allowDevelopmentPlugins?: boolean;
+  pluginRequestTimeoutMs?: number;
+  allowedOrigins?: string[];
 }
+
+interface AppApiRuntime {
+  storage: AppApiStorage;
+  pluginManager: ConnectorPluginManager;
+  stopping: boolean;
+}
+
+const appApiRuntimesByServer = new WeakMap<Server, AppApiRuntime>();
 
 const RESERVED_CONNECTION_FIELDS = new Set([
   "label",
@@ -89,7 +109,6 @@ function collectConnectorStatuses(items: ConnectorImportCandidateInput[]) {
 
 function writeJson(response: ServerResponse, statusCode: number, body?: unknown) {
   const headers = {
-    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
   };
@@ -107,6 +126,42 @@ function writeJson(response: ServerResponse, statusCode: number, body?: unknown)
     "Content-Length": Buffer.byteLength(payload),
   });
   response.end(payload);
+}
+
+function isAllowedRequestOrigin(
+  origin: string,
+  allowedOrigins: ReadonlySet<string>,
+  allowDevelopmentOrigins: boolean,
+) {
+  if (allowedOrigins.has(origin)) {
+    return true;
+  }
+  if (!allowDevelopmentOrigins) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedRequestHost(hostHeader: string) {
+  try {
+    const hostname = new URL(`http://${hostHeader}`).hostname;
+    return (
+      hostname === "127.0.0.1" ||
+      hostname === "localhost" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -133,6 +188,10 @@ function errorMessage(error: unknown) {
 
 function matchConnectorRoute(pathname: string) {
   return pathname.match(/^\/api\/connectors\/([^/]+)\/connections(?:\/([^/]+)(?:\/(sync))?)?$/);
+}
+
+function matchConnectorPluginActivationRoute(pathname: string) {
+  return pathname.match(/^\/api\/connectors\/([^/]+)\/activation$/);
 }
 
 function parseBooleanValue(value: unknown, fieldId: string) {
@@ -205,15 +264,89 @@ async function findConnectionSummary(
   };
 }
 
+function defaultInstalledPluginDirectory(statePath?: string) {
+  return statePath
+    ? path.join(path.dirname(statePath), "plugins")
+    : path.join(os.homedir(), ".timetracker", "plugins");
+}
+
+function defaultDevelopmentPluginDirectories() {
+  const configuredDirectories = process.env.TIMETRACKER_DEV_PLUGIN_DIRS
+    ?.split(path.delimiter)
+    .map((directory) => directory.trim())
+    .filter(Boolean);
+  if (configuredDirectories?.length) {
+    return configuredDirectories;
+  }
+
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../..",
+  );
+  const connectorRoot = path.join(repoRoot, "connectors");
+  if (!existsSync(connectorRoot)) {
+    return [];
+  }
+
+  return readdirSync(connectorRoot, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(path.join(connectorRoot, entry.name, "plugin.json")),
+    )
+    .map((entry) => path.join(connectorRoot, entry.name));
+}
+
 export function createAppApiServer(options: AppApiServerOptions = {}) {
   const host = options.host ?? process.env.TIMETRACKER_APP_API_HOST ?? "127.0.0.1";
   const port = options.port ?? Number(process.env.TIMETRACKER_APP_API_PORT ?? 8787);
   const storage = new AppApiStorage(options.statePath);
+  const allowDevelopmentPlugins =
+    options.allowDevelopmentPlugins ??
+    process.env.TIMETRACKER_ALLOW_DEVELOPMENT_PLUGINS === "1";
   const pluginManager = new ConnectorPluginManager({
-    pluginDirectories: options.pluginDirectories,
+    installedPluginDirectory:
+      options.installedPluginDirectory ??
+      defaultInstalledPluginDirectory(options.statePath),
+    developmentPluginDirectories:
+      options.developmentPluginDirectories ??
+      (allowDevelopmentPlugins ? defaultDevelopmentPluginDirectories() : []),
+    bundledPluginArchives: options.bundledPluginArchives,
+    allowDevelopmentPlugins,
+    requestTimeoutMs: options.pluginRequestTimeoutMs,
   });
+  const allowedOrigins = new Set(options.allowedOrigins ?? []);
+  const runtime: AppApiRuntime = { storage, pluginManager, stopping: false };
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
+    if (runtime.stopping) {
+      writeJson(response, 503, { error: "App API is shutting down." });
+      return;
+    }
+    if (
+      request.headers.host &&
+      !isAllowedRequestHost(request.headers.host)
+    ) {
+      writeJson(response, 403, { error: "Request host is not allowed." });
+      return;
+    }
+    const requestOrigin = request.headers.origin;
+    if (
+      requestOrigin &&
+      !isAllowedRequestOrigin(
+        requestOrigin,
+        allowedOrigins,
+        allowDevelopmentPlugins,
+      )
+    ) {
+      writeJson(response, 403, { error: "Request origin is not allowed." });
+      return;
+    }
+    if (requestOrigin) {
+      response.setHeader("Access-Control-Allow-Origin", requestOrigin);
+      response.setHeader("Vary", "Origin");
+    }
+
     if (request.method === "OPTIONS") {
       writeJson(response, 204);
       return;
@@ -234,6 +367,35 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
 
       if (request.method === "GET" && requestUrl.pathname === "/api/connectors/plugins") {
         writeJson(response, 200, await pluginManager.listPlugins());
+        return;
+      }
+
+      const pluginActivationRoute = matchConnectorPluginActivationRoute(
+        requestUrl.pathname,
+      );
+      if (request.method === "POST" && pluginActivationRoute) {
+        const pluginId = connectorPluginIdSchema.parse(
+          decodeURIComponent(pluginActivationRoute[1] ?? ""),
+        );
+        const plugin = (await pluginManager.listPlugins()).find(
+          (candidate) => candidate.id === pluginId,
+        );
+        if (!plugin) {
+          writeJson(response, 404, { error: "Connector plugin not found." });
+          return;
+        }
+
+        const payload = connectorPluginActivationUpdateSchema.parse(
+          await readJsonBody(request),
+        );
+        await storage.setConnectorPluginEnabled(pluginId, payload.enabled);
+        if (!payload.enabled) {
+          await pluginManager.cancelPluginOperations(
+            pluginId,
+            new Error(`Connector plugin "${pluginId}" was deactivated.`),
+          );
+        }
+        writeJson(response, 200, await getOverview(storage, pluginManager));
         return;
       }
 
@@ -261,7 +423,9 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
       const connectorRoute = matchConnectorRoute(requestUrl.pathname);
       if (connectorRoute) {
         const [, rawPluginId, rawConnectionId, action] = connectorRoute;
-        const pluginId = decodeURIComponent(rawPluginId ?? "");
+        const pluginId = connectorPluginIdSchema.parse(
+          decodeURIComponent(rawPluginId ?? ""),
+        );
 
         if (request.method === "POST" && !rawConnectionId && !action) {
           const payload = connectorConnectionSaveRequestSchema.parse(await readJsonBody(request));
@@ -328,6 +492,16 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
         }
 
         if (request.method === "POST" && action === "sync") {
+          const availablePluginIds = new Set(
+            (await pluginManager.listPlugins()).map((plugin) => plugin.id),
+          );
+          if (!(await storage.isConnectorPluginEnabled(pluginId, availablePluginIds))) {
+            writeJson(response, 409, {
+              error: "Activate this connector plugin before syncing.",
+            });
+            return;
+          }
+
           const connection = await storage.getConnection(pluginId, connectionId);
           if (!connection) {
             writeJson(response, 404, { error: "Connector connection not found." });
@@ -351,6 +525,12 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
               lastError: connection.lastError,
               config: connection.config,
             }, payload.workItems);
+            if (!(await storage.isConnectorPluginEnabled(pluginId, availablePluginIds))) {
+              writeJson(response, 409, {
+                error: "Connector plugin was deactivated while syncing.",
+              });
+              return;
+            }
             const discoveredStatuses = collectConnectorStatuses(fetched.items);
             if (discoveredStatuses.length > 0) {
               await storage.upsertConnectorBacklogStatuses(discoveredStatuses);
@@ -473,6 +653,50 @@ export function createAppApiServer(options: AppApiServerOptions = {}) {
       });
     }
   });
+
+  appApiRuntimesByServer.set(server, runtime);
+  server.once("close", () => {
+    void pluginManager.shutdown();
+  });
+  return server;
+}
+
+export async function installConnectorPluginForServer(
+  server: Server,
+  archiveBytes: Uint8Array,
+  archiveFilename: string,
+) {
+  const runtime = appApiRuntimesByServer.get(server);
+  if (!runtime) {
+    throw new Error("Connector plugin installation requires an active app API runtime.");
+  }
+
+  const installedPlugin = await runtime.pluginManager.installPluginArchive(
+    archiveBytes,
+    archiveFilename,
+  );
+  return connectorPluginInstallResponseSchema.parse({
+    plugin: installedPlugin.manifest,
+    replaced: installedPlugin.replaced,
+    overview: await getOverview(runtime.storage, runtime.pluginManager),
+  });
+}
+
+export async function uninstallConnectorPluginForServer(
+  server: Server,
+  pluginId: string,
+) {
+  const runtime = appApiRuntimesByServer.get(server);
+  if (!runtime) {
+    throw new Error("Connector plugin uninstall requires an active app API runtime.");
+  }
+
+  const removedPlugin = await runtime.pluginManager.uninstallPlugin(pluginId);
+  await runtime.storage.removeConnectorPluginData(removedPlugin.id);
+  return connectorPluginUninstallResponseSchema.parse({
+    pluginId: removedPlugin.id,
+    overview: await getOverview(runtime.storage, runtime.pluginManager),
+  });
 }
 
 export async function startAppApiServer(options: AppApiServerOptions = {}): Promise<Server> {
@@ -493,7 +717,11 @@ export async function startAppApiServer(options: AppApiServerOptions = {}): Prom
 }
 
 export async function stopAppApiServer(server: Server): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+  const runtime = appApiRuntimesByServer.get(server);
+  if (runtime) {
+    runtime.stopping = true;
+  }
+  const closePromise = new Promise<void>((resolve, reject) => {
     server.close((error) => {
       if (error) {
         reject(error);
@@ -503,6 +731,10 @@ export async function stopAppApiServer(server: Server): Promise<void> {
       resolve();
     });
   });
+  server.closeIdleConnections();
+  await runtime?.pluginManager.shutdown();
+  server.closeAllConnections();
+  await closePromise;
 }
 
 const executedDirectly =

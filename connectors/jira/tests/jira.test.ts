@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJiraImportCandidates, syncJiraConnection, type JiraConnectionInput, validateJiraConnection } from "./jira.ts";
+import { fetchJiraImportCandidates, syncJiraConnection, type JiraConnectionInput, validateJiraConnection } from "../src/jira.ts";
 
 function buildConnection(overrides: Partial<JiraConnectionInput> = {}): JiraConnectionInput {
   return {

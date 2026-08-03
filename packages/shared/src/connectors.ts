@@ -1,7 +1,15 @@
 import { z } from "zod";
 
+export const CONNECTOR_PLUGIN_API_VERSION = 1;
+export const CONNECTOR_PLUGIN_ARCHIVE_EXTENSION = ".harday-connector";
+
 export const connectorSourceSchema = z.string().trim().min(1).max(120);
 export type ConnectorBacklogSource = z.infer<typeof connectorSourceSchema>;
+
+export const connectorPluginIdSchema = connectorSourceSchema.regex(
+  /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/,
+  "Connector plugin identifiers must use lowercase letters, numbers, dots, underscores, or hyphens.",
+);
 
 export function normalizeConnectorStatusKey(value: string) {
   return value.trim().toLocaleLowerCase();
@@ -86,7 +94,9 @@ export const connectorFieldSchema = z.object({
 export type ConnectorField = z.infer<typeof connectorFieldSchema>;
 
 export const connectorPluginManifestSchema = z.object({
-  id: connectorSourceSchema,
+  id: connectorPluginIdSchema,
+  version: z.string().trim().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  apiVersion: z.number().int().positive(),
   displayName: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).optional(),
   iconSvg: z.string().min(1).max(20000),
@@ -114,6 +124,7 @@ export type ConnectorConnectionSummary = z.infer<typeof connectorConnectionSumma
 
 export const connectorOverviewGroupSchema = z.object({
   plugin: connectorPluginManifestSchema,
+  enabled: z.boolean(),
   connections: z.array(connectorConnectionSummarySchema),
 });
 export type ConnectorOverviewGroup = z.infer<typeof connectorOverviewGroupSchema>;
@@ -125,6 +136,30 @@ export const connectorsOverviewSchema = z.object({
   totalSelectedImportCount: z.number().int().nonnegative(),
 });
 export type ConnectorsOverview = z.infer<typeof connectorsOverviewSchema>;
+
+export const connectorPluginActivationUpdateSchema = z.object({
+  enabled: z.boolean(),
+});
+export type ConnectorPluginActivationUpdate = z.infer<
+  typeof connectorPluginActivationUpdateSchema
+>;
+
+export const connectorPluginInstallResponseSchema = z.object({
+  plugin: connectorPluginManifestSchema,
+  replaced: z.boolean(),
+  overview: connectorsOverviewSchema,
+});
+export type ConnectorPluginInstallResponse = z.infer<
+  typeof connectorPluginInstallResponseSchema
+>;
+
+export const connectorPluginUninstallResponseSchema = z.object({
+  pluginId: connectorPluginIdSchema,
+  overview: connectorsOverviewSchema,
+});
+export type ConnectorPluginUninstallResponse = z.infer<
+  typeof connectorPluginUninstallResponseSchema
+>;
 
 export const connectorBacklogStatusInputSchema = z.object({
   source: connectorSourceSchema,

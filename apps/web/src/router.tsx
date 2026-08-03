@@ -36,9 +36,9 @@ const SettingsGeneralPage = lazy(async () => {
   const module = await import("@/features/settings/settings-general-page");
   return { default: module.SettingsGeneralPage };
 });
-const SettingsConnectorsPage = lazy(async () => {
+const SettingsPluginsPage = lazy(async () => {
   const module = await import("@/features/settings/settings-connectors-page");
-  return { default: module.SettingsConnectorsPage };
+  return { default: module.SettingsPluginsPage };
 });
 const SettingsBacklogPage = lazy(async () => {
   const module = await import("@/features/settings/settings-backlog-page");
@@ -222,14 +222,33 @@ const settingsGeneralRoute = createRoute({
   ),
 });
 
-const settingsConnectorsRoute = createRoute({
+const settingsPluginsRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: "/connectors",
+  path: "/plugins",
   component: () => (
     <RouteSuspense>
-      <SettingsConnectorsPage />
+      <SettingsPluginsPage />
     </RouteSuspense>
   ),
+});
+
+const settingsPluginDetailRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/plugins/$pluginId",
+  component: () => {
+    const { pluginId } = settingsPluginDetailRoute.useParams();
+    return (
+      <RouteSuspense>
+        <SettingsPluginsPage pluginId={pluginId} />
+      </RouteSuspense>
+    );
+  },
+});
+
+const settingsConnectorsRedirectRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/connectors",
+  component: () => <Navigate to="/settings/plugins" replace />,
 });
 
 const settingsBacklogRoute = createRoute({
@@ -311,7 +330,9 @@ const routeTree = rootRoute.addChildren([
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsGeneralRoute,
-      settingsConnectorsRoute,
+      settingsPluginsRoute,
+      settingsPluginDetailRoute,
+      settingsConnectorsRedirectRoute,
       settingsBacklogRoute,
       settingsProjectsRoute,
       settingsProjectDetailRoute,

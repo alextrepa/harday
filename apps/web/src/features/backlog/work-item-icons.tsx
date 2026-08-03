@@ -122,15 +122,44 @@ export function WorkItemIcon({
   className?: string;
 }) {
   if (icon.kind === "connector") {
+    const usesCurrentColor = /\bcurrentColor\b/i.test(icon.svg);
+    const hasFixedPaint = /\b(?:fill|stroke)\s*=\s*["'](?!currentColor\b|none\b)[^"']+/i.test(
+      icon.svg,
+    );
+    const resolvedSvg =
+      usesCurrentColor && hasFixedPaint && typeof document !== "undefined"
+        ? icon.svg.replaceAll(
+            /currentColor/gi,
+            getComputedStyle(document.documentElement).color || "#737373",
+          )
+        : icon.svg;
+    const iconSource = `data:image/svg+xml,${encodeURIComponent(resolvedSvg)}`;
     return (
       <span
         className={cn(
-          "backlog-task-source-icon inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4",
+          "backlog-task-source-icon inline-flex size-4 items-center justify-center [&>img]:size-4",
           className,
         )}
         aria-hidden="true"
-        dangerouslySetInnerHTML={{ __html: icon.svg }}
-      />
+      >
+        {usesCurrentColor && !hasFixedPaint ? (
+          <span
+            className="size-4 bg-current"
+            style={{
+              maskImage: `url("${iconSource}")`,
+              maskPosition: "center",
+              maskRepeat: "no-repeat",
+              maskSize: "contain",
+              WebkitMaskImage: `url("${iconSource}")`,
+              WebkitMaskPosition: "center",
+              WebkitMaskRepeat: "no-repeat",
+              WebkitMaskSize: "contain",
+            }}
+          />
+        ) : (
+          <img src={iconSource} alt="" />
+        )}
+      </span>
     );
   }
 

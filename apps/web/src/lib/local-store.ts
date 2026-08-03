@@ -165,14 +165,6 @@ export type {
   UserPreferences,
 } from "@/domain/local-state";
 
-declare global {
-  interface Window {
-    timetrackerDesktop?: {
-      bootstrapLocalState?: Partial<LocalAppState> | null;
-    };
-  }
-}
-
 const STORAGE_KEY = "timetracker.local-state.v2";
 
 const defaultCapture: CaptureSettings = {

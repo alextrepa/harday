@@ -4,6 +4,9 @@ import {
   connectorBacklogStatusUpsertResponseSchema,
   connectorConnectionSaveResponseSchema,
   connectorConnectionSaveRequestSchema,
+  connectorPluginActivationUpdateSchema,
+  connectorPluginInstallResponseSchema,
+  connectorPluginUninstallResponseSchema,
   connectorSyncRequestSchema,
   connectorSyncResultSchema,
   type ConnectorSyncRequest,
@@ -18,6 +21,7 @@ import {
   type ConnectorConnectionSaveResponse,
   type ConnectorFieldValues,
   type ConnectorImportCandidate,
+  type ConnectorPluginInstallResponse,
   type ConnectorSyncWorkItem,
   type ConnectorsOverview,
   type ConnectorSyncResult,
@@ -32,6 +36,8 @@ export type SyncConnectorConnectionResult = ConnectorSyncResult & {
 const DEFAULT_INTERNAL_APP_API_BASE_URL = "http://127.0.0.1:8787";
 const APP_API_BASE_URL = (import.meta.env.VITE_APP_API_BASE_URL ?? DEFAULT_INTERNAL_APP_API_BASE_URL).replace(/\/+$/, "");
 const APP_API_RETRY_DELAYS_MS = [150, 350] as const;
+let cachedConnectorsOverview: ConnectorsOverview | null = null;
+let connectorsOverviewRevision = 0;
 
 function appApiUnavailableMessage() {
   return "Internal connector API unavailable. Restart the app.";
@@ -122,8 +128,82 @@ export function getAppApiDescription() {
   return isDefaultInternalAppApi() ? "Internal app runtime" : APP_API_BASE_URL;
 }
 
-export function getConnectorsOverview(): Promise<ConnectorsOverview> {
-  return appApiRequest("/api/connectors", undefined, connectorsOverviewSchema);
+export function getCachedConnectorsOverview() {
+  return cachedConnectorsOverview;
+}
+
+export function cacheConnectorsOverview(overview: ConnectorsOverview) {
+  connectorsOverviewRevision += 1;
+  cachedConnectorsOverview = overview;
+  return overview;
+}
+
+export async function getConnectorsOverview(): Promise<ConnectorsOverview> {
+  const requestRevision = connectorsOverviewRevision;
+  const overview = await appApiRequest(
+    "/api/connectors",
+    undefined,
+    connectorsOverviewSchema,
+  );
+  if (
+    requestRevision !== connectorsOverviewRevision &&
+    cachedConnectorsOverview
+  ) {
+    return cachedConnectorsOverview;
+  }
+
+  cachedConnectorsOverview = overview;
+  return overview;
+}
+
+export async function setConnectorPluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<ConnectorsOverview> {
+  const payload = connectorPluginActivationUpdateSchema.parse({ enabled });
+  return cacheConnectorsOverview(
+    await appApiRequest(
+      `/api/connectors/${encodeURIComponent(pluginId)}/activation`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      connectorsOverviewSchema,
+    ),
+  );
+}
+
+export async function installConnectorPlugin(): Promise<ConnectorPluginInstallResponse | null> {
+  const install = window.timetrackerDesktop?.installConnectorPlugin;
+  if (!install) {
+    throw new Error(
+      "Connector plugin installation is only available in the desktop app.",
+    );
+  }
+
+  const result = await install();
+  if (result === null) {
+    return null;
+  }
+
+  const parsed = connectorPluginInstallResponseSchema.parse(result);
+  cacheConnectorsOverview(parsed.overview);
+  return parsed;
+}
+
+export async function uninstallConnectorPlugin(pluginId: string) {
+  const uninstall = window.timetrackerDesktop?.uninstallConnectorPlugin;
+  if (!uninstall) {
+    throw new Error(
+      "Connector plugin uninstall is only available in the production desktop app.",
+    );
+  }
+
+  const result = connectorPluginUninstallResponseSchema.parse(
+    await uninstall(pluginId),
+  );
+  cacheConnectorsOverview(result.overview);
+  return result;
 }
 
 export function getConnectorBacklogStatuses() {
@@ -146,13 +226,13 @@ export function upsertConnectorBacklogStatuses(items: ConnectorBacklogStatusInpu
   );
 }
 
-export function saveConnectorConnection(
+export async function saveConnectorConnection(
   pluginId: string,
   values: ConnectorFieldValues,
   id?: string,
 ): Promise<ConnectorConnectionSaveResponse> {
   const payload = connectorConnectionSaveRequestSchema.parse({ id, values });
-  return appApiRequest(
+  const result = await appApiRequest(
     `/api/connectors/${encodeURIComponent(pluginId)}/connections`,
     {
       method: "POST",
@@ -160,18 +240,22 @@ export function saveConnectorConnection(
     },
     connectorConnectionSaveResponseSchema,
   );
+  cacheConnectorsOverview(result.overview);
+  return result;
 }
 
-export function deleteConnectorConnection(
+export async function deleteConnectorConnection(
   pluginId: string,
   connectionId: string,
 ): Promise<ConnectorsOverview> {
-  return appApiRequest(
-    `/api/connectors/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`,
-    {
-      method: "DELETE",
-    },
-    connectorsOverviewSchema,
+  return cacheConnectorsOverview(
+    await appApiRequest(
+      `/api/connectors/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`,
+      {
+        method: "DELETE",
+      },
+      connectorsOverviewSchema,
+    ),
   );
 }
 

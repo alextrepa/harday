@@ -4,7 +4,7 @@ import {
   syncAzureDevOpsConnection,
   type AzureDevOpsConnectionInput,
   validateAzureDevOpsConnection,
-} from "./azure-devops.ts";
+} from "../src/azure-devops.ts";
 
 function buildConnection(
   overrides: Partial<AzureDevOpsConnectionInput> = {},

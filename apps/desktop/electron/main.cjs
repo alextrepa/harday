@@ -1,9 +1,16 @@
-const { existsSync } = require("node:fs");
+const { existsSync, readdirSync } = require("node:fs");
 const { stat } = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { app, BrowserWindow, ipcMain, nativeImage, net, protocol, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, shell } = require("electron");
+const { selectConnectorPluginArchive } = require("./connector-install.cjs");
+const {
+  clearDevelopmentPluginDirectories,
+  loadDevelopmentPluginDirectories,
+  saveDevelopmentPluginDirectories,
+  selectDevelopmentPluginDirectory,
+} = require("./development-plugin-settings.cjs");
 const { loadDesktopBootstrapLocalState } = require("./local-state-bootstrap.cjs");
 
 const DESKTOP_USER_DATA_DIRNAME = "HarDay";
@@ -12,6 +19,8 @@ const stableUserDataPath =
 if (app.getPath("userData") !== stableUserDataPath) {
   app.setPath("userData", stableUserDataPath);
 }
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -47,6 +56,14 @@ let internalAppApiStartPromise = null;
 let internalAppApiStopPromise = null;
 let internalAppApiModulePromise = null;
 let desktopBootstrapLocalState = null;
+let developmentPluginDirectoriesOverride;
+let mainWindow = null;
+let gracefulQuitStarted = false;
+
+const developmentPluginSettingsPath = path.join(
+  app.getPath("userData"),
+  "development-plugins.json",
+);
 
 ipcMain.on("timetracker:get-bootstrap-local-state", (event) => {
   desktopBootstrapLocalState ??= loadDesktopBootstrapLocalState({
@@ -55,6 +72,99 @@ ipcMain.on("timetracker:get-bootstrap-local-state", (event) => {
   });
   event.returnValue = desktopBootstrapLocalState;
 });
+
+ipcMain.on("timetracker:get-runtime-info", (event) => {
+  event.returnValue = { developmentBuild: !app.isPackaged };
+});
+
+ipcMain.handle("timetracker:install-connector-plugin", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Connector plugins can only be installed by the active TimeTracker window.");
+  }
+  if (!app.isPackaged) {
+    throw new Error("Packaged connector installation is only available in production builds.");
+  }
+
+  const selectedArchive = await selectConnectorPluginArchive(
+    dialog,
+    mainWindow,
+  );
+  if (!selectedArchive) {
+    return null;
+  }
+
+  await ensureInternalAppApiRunning();
+  if (!internalAppApiServer || !internalAppApiModulePromise) {
+    throw new Error("Internal connector API unavailable. Restart the app.");
+  }
+
+  const { installConnectorPluginForServer } = await internalAppApiModulePromise;
+  if (typeof installConnectorPluginForServer !== "function") {
+    throw new Error("Internal connector API does not support plugin installation.");
+  }
+
+  return await installConnectorPluginForServer(
+    internalAppApiServer,
+    selectedArchive.archiveBytes,
+    selectedArchive.archiveFilename,
+  );
+});
+
+ipcMain.handle("timetracker:uninstall-connector-plugin", async (event, pluginId) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Connector plugins can only be uninstalled by the active TimeTracker window.");
+  }
+  if (!app.isPackaged) {
+    throw new Error("Development directory plugins cannot be uninstalled by the app.");
+  }
+
+  await ensureInternalAppApiRunning();
+  if (!internalAppApiServer || !internalAppApiModulePromise) {
+    throw new Error("Internal connector API unavailable. Restart the app.");
+  }
+
+  const { uninstallConnectorPluginForServer } = await internalAppApiModulePromise;
+  if (typeof uninstallConnectorPluginForServer !== "function") {
+    throw new Error("Internal connector API does not support plugin uninstall.");
+  }
+
+  return await uninstallConnectorPluginForServer(internalAppApiServer, pluginId);
+});
+
+ipcMain.handle("timetracker:get-development-plugin-settings", async (event) => {
+  assertActiveDesktopWindow(event, "read development plugin settings");
+  return getDevelopmentPluginSettings();
+});
+
+ipcMain.handle("timetracker:select-development-plugin-directory", async (event) => {
+  assertDevelopmentBuild(event, "configure development plugin directories");
+  const directory = await selectDevelopmentPluginDirectory(dialog, mainWindow);
+  if (!directory) {
+    return null;
+  }
+
+  await applyDevelopmentPluginDirectories([directory]);
+  return getDevelopmentPluginSettings();
+});
+
+ipcMain.handle("timetracker:clear-development-plugin-directories", async (event) => {
+  assertDevelopmentBuild(event, "reset development plugin directories");
+  await applyDevelopmentPluginDirectories(null);
+  return getDevelopmentPluginSettings();
+});
+
+function assertActiveDesktopWindow(event, action) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error(`Only the active TimeTracker window can ${action}.`);
+  }
+}
+
+function assertDevelopmentBuild(event, action) {
+  assertActiveDesktopWindow(event, action);
+  if (app.isPackaged) {
+    throw new Error("Development plugin directories are unavailable in production builds.");
+  }
+}
 
 async function resolveAssetPath(requestPath) {
   const normalizedPath = requestPath === "/" ? "/index.html" : requestPath;
@@ -168,6 +278,15 @@ async function ensureInternalAppApiRunning() {
       port: INTERNAL_APP_API_PORT,
       statePath:
         process.env.TIMETRACKER_APP_API_STATE_PATH ?? path.join(app.getPath("userData"), "app-api-state.json"),
+      installedPluginDirectory: path.join(app.getPath("userData"), "plugins"),
+      developmentPluginDirectories: app.isPackaged
+        ? []
+        : resolveDevelopmentPluginDirectories(),
+      bundledPluginArchives: [],
+      allowDevelopmentPlugins: !app.isPackaged,
+      allowedOrigins: app.isPackaged
+        ? ["app://local"]
+        : ["http://127.0.0.1:5173"],
     });
     internalAppApiServer = apiServer;
 
@@ -216,16 +335,13 @@ async function stopInternalAppApi() {
   }
 
   const apiServer = internalAppApiServer;
-
-  internalAppApiStopPromise = new Promise((resolve) => {
-    apiServer.close(() => {
-      if (internalAppApiServer === apiServer) {
-        internalAppApiServer = null;
-      }
-
-      resolve();
-    });
-  }).finally(() => {
+  internalAppApiStopPromise = (async () => {
+    const { stopAppApiServer } = await internalAppApiModulePromise;
+    await stopAppApiServer(apiServer);
+    if (internalAppApiServer === apiServer) {
+      internalAppApiServer = null;
+    }
+  })().finally(() => {
     internalAppApiStopPromise = null;
   });
 
@@ -238,6 +354,93 @@ async function resolveRendererUrl() {
   }
 
   return "app://local/";
+}
+
+function resolveDevelopmentPluginDirectories() {
+  if (developmentPluginDirectoriesOverride !== undefined) {
+    return developmentPluginDirectoriesOverride ?? resolveAutomaticDevelopmentPluginDirectories();
+  }
+
+  const configuredDirectories = resolveEnvironmentDevelopmentPluginDirectories();
+  if (configuredDirectories.length > 0) {
+    return configuredDirectories;
+  }
+
+  const savedDirectories = loadDevelopmentPluginDirectories(
+    developmentPluginSettingsPath,
+  );
+  if (savedDirectories) {
+    return savedDirectories;
+  }
+
+  return resolveRepositoryDevelopmentPluginDirectories();
+}
+
+function resolveAutomaticDevelopmentPluginDirectories() {
+  const configuredDirectories = resolveEnvironmentDevelopmentPluginDirectories();
+  return configuredDirectories.length > 0
+    ? configuredDirectories
+    : resolveRepositoryDevelopmentPluginDirectories();
+}
+
+function resolveEnvironmentDevelopmentPluginDirectories() {
+  return process.env.TIMETRACKER_DEV_PLUGIN_DIRS
+    ?.split(path.delimiter)
+    .map((directory) => directory.trim())
+    .filter(Boolean) ?? [];
+}
+
+function resolveRepositoryDevelopmentPluginDirectories() {
+  const connectorRoot = path.join(internalAppApiRuntimeRoot, "connectors");
+  if (!existsSync(connectorRoot)) {
+    return [];
+  }
+
+  return readdirSync(connectorRoot, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(path.join(connectorRoot, entry.name, "plugin.json")),
+    )
+    .map((entry) => path.join(connectorRoot, entry.name));
+}
+
+function getDevelopmentPluginSettings() {
+  if (app.isPackaged) {
+    return { available: false, directories: [] };
+  }
+
+  return {
+    available: true,
+    directories: resolveDevelopmentPluginDirectories(),
+  };
+}
+
+async function applyDevelopmentPluginDirectories(directories) {
+  const previousOverride = developmentPluginDirectoriesOverride;
+  developmentPluginDirectoriesOverride = directories;
+
+  try {
+    await stopInternalAppApi();
+    await ensureInternalAppApiRunning();
+    if (directories === null) {
+      clearDevelopmentPluginDirectories(developmentPluginSettingsPath);
+    } else {
+      saveDevelopmentPluginDirectories(
+        developmentPluginSettingsPath,
+        directories,
+      );
+    }
+  } catch (error) {
+    developmentPluginDirectoriesOverride = previousOverride;
+    await stopInternalAppApi();
+    try {
+      await ensureInternalAppApiRunning();
+    } catch {
+      // Preserve the original configuration error for the Debug page.
+    }
+    throw error;
+  }
 }
 
 async function createMainWindow() {
@@ -283,34 +486,64 @@ async function createMainWindow() {
   });
 
   await window.loadURL(rendererUrl);
-}
-
-app.whenReady().then(async () => {
-  if (process.platform === "darwin") {
-    app.dock.setIcon(nativeImage.createFromPath(iconPath));
-  }
-
-  if (!process.env.TIMETRACKER_DESKTOP_RENDERER_URL) {
-    registerStaticProtocol();
-  }
-
-  try {
-    await ensureInternalAppApiRunning();
-  } catch (error) {
-    console.error("Failed to start internal connector API.", error);
-  }
-
-  await createMainWindow();
-
-  app.on("activate", async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      await createMainWindow();
+  mainWindow = window;
+  window.once("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = null;
     }
   });
-});
+}
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) {
+      return;
+    }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+  });
+
+  app.whenReady().then(async () => {
+    if (process.platform === "darwin") {
+      app.dock.setIcon(nativeImage.createFromPath(iconPath));
+    }
+
+    if (!process.env.TIMETRACKER_DESKTOP_RENDERER_URL) {
+      registerStaticProtocol();
+    }
+
+    try {
+      await ensureInternalAppApiRunning();
+    } catch (error) {
+      console.error("Failed to start internal connector API.", error);
+    }
+
+    await createMainWindow();
+
+    app.on("activate", async () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        await createMainWindow();
+      }
+    });
+  });
+
+  app.on("before-quit", (event) => {
+    if (gracefulQuitStarted) {
+      return;
+    }
+
+    gracefulQuitStarted = true;
+    event.preventDefault();
+    void stopInternalAppApi().finally(() => app.quit());
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+}

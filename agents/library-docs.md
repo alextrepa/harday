@@ -27,9 +27,10 @@ Use this file as the local index for important library choices. Check official d
 ## Web UI Usage
 
 - Feature code should import app controls from `apps/web/src/components/ui`, not directly from Base UI, shadcn internals, or other primitive packages.
-- Base UI is wrapped by local files such as `button.tsx`, `checkbox.tsx`, `dialog.tsx`, `dropdown-menu.tsx`, `input.tsx`, `popover.tsx`, `select.tsx`, and `tabs.tsx`.
+- Base UI is wrapped by local files such as `button.tsx`, `checkbox.tsx`, `dialog.tsx`, `dropdown-menu.tsx`, `input.tsx`, `popover.tsx`, `select.tsx`, `switch.tsx`, and `tabs.tsx`.
 - App-specific repeated surfaces live in `apps/web/src/components/app-surface.tsx`.
 - The settings connector form renders plugin fields through `apps/web/src/features/settings/connector-settings-ui.tsx`.
+- Settings exposes installed capabilities through `/settings/plugins`; the catalog owns activation and links to `/settings/plugins/$pluginId`, where connector-specific forms and connection actions live.
 - Use `@remixicon/react` for icons. Keep icon imports in feature modules or local UI modules; do not inline custom SVGs for common actions.
 - Use `Checkbox` from `apps/web/src/components/ui/checkbox.tsx` for app checkboxes, including indeterminate selection states.
 
@@ -71,7 +72,20 @@ The backlog editor module is feature-local because its vocabulary and commands b
 ## API
 
 - Local API lives in `apps/api`
-- Connector plugin host and workers live under `apps/api/src` and `apps/api/plugins`
+- Connector package validation and installation: `apps/api/src/plugin-package.ts`
+- Ephemeral worker-thread orchestration: `apps/api/src/plugin-host.ts`
+- Worker entrypoint bridge: `apps/api/src/plugin-worker.mjs`
+
+## Connector Plugins
+
+- Standalone connector packages live under `connectors/`.
+- Each connector compiles to local JavaScript modules and packages
+  `plugin.json` plus `dist/` into one `.harday-connector` archive.
+- `just connector-package` builds every connector archive.
+- Development builds load configured plugin directories; production builds
+  only install packaged archives into the managed user-data plugin directory.
+- Desktop archive installation crosses the restricted preload/IPC bridge and
+  calls the API runtime directly; it is not an HTTP endpoint.
 
 ## Shared
 

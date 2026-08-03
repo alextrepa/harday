@@ -39,6 +39,9 @@ importers:
       tailwindcss:
         specifier: ^4.2.4
         version: 4.2.4
+      tar:
+        specifier: 7.5.13
+        version: 7.5.13
       typescript:
         specifier: ^5.8.2
         version: 5.9.3
@@ -49,7 +52,14 @@ importers:
         specifier: ^4.1.5
         version: 4.1.5(@types/node@22.19.17)(msw@2.13.6(@types/node@22.19.17)(typescript@5.9.3))(vite@8.0.10(@types/node@22.19.17)(jiti@2.6.1)(terser@5.46.2))
 
-  apps/api: {}
+  apps/api:
+    dependencies:
+      tar:
+        specifier: 7.5.13
+        version: 7.5.13
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
 
   apps/desktop:
     devDependencies:
@@ -150,6 +160,10 @@ importers:
       playwright-bdd:
         specifier: ^9.2.0
         version: 9.2.0(@playwright/test@1.62.0)
+
+  connectors/azure-devops: {}
+
+  connectors/jira: {}
 
   packages/shared:
     dependencies:

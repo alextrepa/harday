@@ -1,0 +1,351 @@
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { extract, list } from "tar";
+import {
+  CONNECTOR_PLUGIN_API_VERSION,
+  CONNECTOR_PLUGIN_ARCHIVE_EXTENSION,
+  connectorPluginManifestSchema,
+  connectorPluginIdSchema,
+  type ConnectorPluginManifest,
+} from "../../../packages/shared/src/connectors.ts";
+
+export const MAX_CONNECTOR_PLUGIN_ARCHIVE_BYTES = 25 * 1024 * 1024;
+const MAX_CONNECTOR_PLUGIN_FILES = 2_000;
+const MAX_CONNECTOR_PLUGIN_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_CONNECTOR_PLUGIN_EXTRACTED_BYTES = 100 * 1024 * 1024;
+const ALLOWED_ARCHIVE_ENTRY_TYPES = new Set(["File", "Directory"]);
+const ALLOWED_ENTRYPOINT_EXTENSIONS = new Set([".cjs", ".js", ".mjs"]);
+
+export interface ResolvedConnectorPlugin {
+  manifest: ConnectorPluginManifest;
+  directory: string;
+  entrypointPath: string;
+  source: "development" | "installed";
+}
+
+export interface InstalledConnectorPlugin {
+  manifest: ConnectorPluginManifest;
+  directory: string;
+  replaced: boolean;
+  installed: boolean;
+}
+
+function isPathInside(parent: string, candidate: string) {
+  const relative = path.relative(parent, candidate);
+  return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function pathExists(candidate: string) {
+  try {
+    await access(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateArchiveEntryPath(entryPath: string) {
+  const normalized = entryPath.replaceAll("\\", "/");
+  if (
+    path.posix.isAbsolute(normalized) ||
+    path.win32.isAbsolute(normalized) ||
+    /^[A-Za-z]:/.test(normalized) ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
+    throw new Error(`Connector archive contains an unsafe path: ${entryPath}`);
+  }
+}
+
+async function validateConnectorPluginArchive(archivePath: string) {
+  let entryCount = 0;
+  let extractedBytes = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const source = createReadStream(archivePath);
+    const parser = list({
+      gzip: true,
+      strict: true,
+      onReadEntry(entry) {
+        try {
+          validateArchiveEntryPath(entry.path);
+          entryCount += 1;
+          if (entryCount > MAX_CONNECTOR_PLUGIN_FILES) {
+            throw new Error(
+              `Connector archive contains more than ${MAX_CONNECTOR_PLUGIN_FILES} entries.`,
+            );
+          }
+          if (!ALLOWED_ARCHIVE_ENTRY_TYPES.has(entry.type)) {
+            throw new Error(
+              `Connector archive entry "${entry.path}" has unsupported type "${entry.type}".`,
+            );
+          }
+          if (entry.type === "File") {
+            if (entry.size > MAX_CONNECTOR_PLUGIN_FILE_BYTES) {
+              throw new Error(`Connector archive entry "${entry.path}" is too large.`);
+            }
+            extractedBytes += entry.size;
+            if (extractedBytes > MAX_CONNECTOR_PLUGIN_EXTRACTED_BYTES) {
+              throw new Error("Connector archive expands beyond the allowed size.");
+            }
+          }
+        } catch (error) {
+          const validationError =
+            error instanceof Error
+              ? error
+              : new Error("Connector archive validation failed.");
+          parser.abort(validationError);
+          source.destroy();
+        }
+      },
+    });
+    source.once("error", reject);
+    parser.once("error", reject);
+    parser.once("end", resolve);
+    source.pipe(parser);
+  });
+}
+
+export function resolveConnectorPluginEntrypoint(
+  directory: string,
+  manifest: ConnectorPluginManifest,
+) {
+  if (path.isAbsolute(manifest.entrypoint)) {
+    throw new Error(`Connector plugin "${manifest.id}" entrypoint must be relative.`);
+  }
+
+  const entrypointPath = path.resolve(directory, manifest.entrypoint);
+  if (!isPathInside(directory, entrypointPath)) {
+    throw new Error(`Connector plugin "${manifest.id}" entrypoint leaves its plugin directory.`);
+  }
+
+  if (!ALLOWED_ENTRYPOINT_EXTENSIONS.has(path.extname(entrypointPath).toLowerCase())) {
+    throw new Error(`Connector plugin "${manifest.id}" entrypoint must be compiled JavaScript.`);
+  }
+
+  return entrypointPath;
+}
+
+export async function readConnectorPlugin(
+  directory: string,
+  source: ResolvedConnectorPlugin["source"],
+): Promise<ResolvedConnectorPlugin> {
+  const manifestPath = path.join(directory, "plugin.json");
+  const rawManifest = await readFile(manifestPath, "utf8");
+  const manifest = connectorPluginManifestSchema.parse(JSON.parse(rawManifest));
+
+  if (manifest.apiVersion !== CONNECTOR_PLUGIN_API_VERSION) {
+    throw new Error(
+      `Connector plugin "${manifest.id}" requires API version ${manifest.apiVersion}; this app supports version ${CONNECTOR_PLUGIN_API_VERSION}.`,
+    );
+  }
+
+  const entrypointPath = resolveConnectorPluginEntrypoint(directory, manifest);
+  const entrypointStat = await lstat(entrypointPath);
+  if (!entrypointStat.isFile() || entrypointStat.isSymbolicLink()) {
+    throw new Error(`Connector plugin "${manifest.id}" entrypoint must be a regular file.`);
+  }
+
+  return {
+    manifest,
+    directory,
+    entrypointPath,
+    source,
+  };
+}
+
+export async function discoverInstalledConnectorPlugins(
+  pluginRoot: string,
+): Promise<ResolvedConnectorPlugin[]> {
+  let entries;
+  try {
+    entries = await readdir(pluginRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const plugins: ResolvedConnectorPlugin[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      continue;
+    }
+
+    try {
+      plugins.push(
+        await readConnectorPlugin(path.join(pluginRoot, entry.name), "installed"),
+      );
+    } catch (error) {
+      console.error(
+        `Skipping invalid connector plugin directory "${entry.name}".`,
+        error,
+      );
+    }
+  }
+
+  return plugins;
+}
+
+export async function reconcileConnectorPluginInstallRoot(pluginRoot: string) {
+  await mkdir(pluginRoot, { recursive: true, mode: 0o700 });
+  const entries = await readdir(pluginRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const entryPath = path.join(pluginRoot, entry.name);
+    if (entry.name.startsWith(".install-") || entry.name.startsWith(".uninstall-")) {
+      await rm(entryPath, { recursive: true, force: true });
+      continue;
+    }
+    if (!entry.name.startsWith(".backup-")) {
+      continue;
+    }
+
+    try {
+      const backupPlugin = await readConnectorPlugin(entryPath, "installed");
+      const targetDirectory = path.join(pluginRoot, backupPlugin.manifest.id);
+      if (await pathExists(targetDirectory)) {
+        await rm(entryPath, { recursive: true, force: true });
+      } else {
+        await rename(entryPath, targetDirectory);
+      }
+    } catch (error) {
+      console.error(`Unable to reconcile connector plugin backup "${entryPath}".`, error);
+    }
+  }
+}
+
+export async function installConnectorPluginArchive(options: {
+  archiveBytes: Uint8Array;
+  archiveFilename: string;
+  installRoot: string;
+  replaceExisting?: boolean;
+}): Promise<InstalledConnectorPlugin> {
+  if (
+    !options.archiveFilename
+      .toLowerCase()
+      .endsWith(CONNECTOR_PLUGIN_ARCHIVE_EXTENSION)
+  ) {
+    throw new Error(
+      `Connector plugin files must use the ${CONNECTOR_PLUGIN_ARCHIVE_EXTENSION} extension.`,
+    );
+  }
+
+  if (
+    options.archiveBytes.byteLength === 0 ||
+    options.archiveBytes.byteLength > MAX_CONNECTOR_PLUGIN_ARCHIVE_BYTES
+  ) {
+    throw new Error(
+      `Connector plugin archives must be between 1 byte and ${MAX_CONNECTOR_PLUGIN_ARCHIVE_BYTES} bytes.`,
+    );
+  }
+
+  await mkdir(options.installRoot, { recursive: true, mode: 0o700 });
+  const stagingRoot = await mkdtemp(path.join(options.installRoot, ".install-"));
+  const archivePath = path.join(stagingRoot, "plugin.harday-connector");
+  const payloadDirectory = path.join(stagingRoot, "payload");
+  await mkdir(payloadDirectory, { mode: 0o700 });
+
+  try {
+    await writeFile(archivePath, options.archiveBytes, { mode: 0o600 });
+    await validateConnectorPluginArchive(archivePath);
+    await extract({
+      cwd: payloadDirectory,
+      file: archivePath,
+      gzip: true,
+      preservePaths: false,
+      strict: true,
+    });
+
+    const stagedPlugin = await readConnectorPlugin(payloadDirectory, "installed");
+    const targetDirectory = path.join(options.installRoot, stagedPlugin.manifest.id);
+    const targetExists = await pathExists(targetDirectory);
+
+    if (targetExists && options.replaceExisting === false) {
+      const existingPlugin = await readConnectorPlugin(targetDirectory, "installed");
+      return {
+        manifest: existingPlugin.manifest,
+        directory: existingPlugin.directory,
+        replaced: false,
+        installed: false,
+      };
+    }
+
+    const backupDirectory = path.join(
+      options.installRoot,
+      `.backup-${stagedPlugin.manifest.id}-${randomUUID()}`,
+    );
+
+    if (targetExists) {
+      await rename(targetDirectory, backupDirectory);
+    }
+
+    try {
+      await rename(payloadDirectory, targetDirectory);
+    } catch (error) {
+      if (targetExists && (await pathExists(backupDirectory))) {
+        await rename(backupDirectory, targetDirectory);
+      }
+      throw error;
+    }
+
+    if (targetExists) {
+      await rm(backupDirectory, { recursive: true, force: true }).catch((error) => {
+        console.error(`Unable to remove connector plugin backup "${backupDirectory}".`, error);
+      });
+    }
+
+    return {
+      manifest: stagedPlugin.manifest,
+      directory: targetDirectory,
+      replaced: targetExists,
+      installed: true,
+    };
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true });
+  }
+}
+
+export async function uninstallConnectorPluginPackage(options: {
+  installRoot: string;
+  pluginId: string;
+}): Promise<ResolvedConnectorPlugin | null> {
+  const pluginId = connectorPluginIdSchema.parse(options.pluginId);
+  const installRoot = path.resolve(options.installRoot);
+  const installedPlugins = await discoverInstalledConnectorPlugins(installRoot);
+  const plugin = installedPlugins.find((candidate) => candidate.manifest.id === pluginId);
+  if (!plugin) {
+    return null;
+  }
+
+  if (path.dirname(plugin.directory) !== installRoot) {
+    throw new Error(`Connector plugin "${pluginId}" is outside the managed plugin directory.`);
+  }
+
+  const removedDirectory = path.join(
+    installRoot,
+    `.uninstall-${pluginId}-${randomUUID()}`,
+  );
+  await rename(plugin.directory, removedDirectory);
+  try {
+    await rm(removedDirectory, { recursive: true, force: true });
+  } catch (error) {
+    if (!(await pathExists(plugin.directory)) && (await pathExists(removedDirectory))) {
+      await rename(removedDirectory, plugin.directory);
+    }
+    throw error;
+  }
+
+  return plugin;
+}

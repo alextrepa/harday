@@ -5,8 +5,8 @@ import type {
   ConnectorSyncWorkItem,
   ConnectorSyncWorkItemUpdate,
   JiraQueryScope,
-} from "../../../../packages/shared/src/connectors.ts";
-import { resolveEstimateSyncAction } from "./estimate-sync.ts";
+} from "./contract.js";
+import { resolveEstimateSyncAction } from "./estimate-sync.js";
 
 const CLOSED_STATUS_CATEGORY = "done";
 const MAX_RESULTS = 200;

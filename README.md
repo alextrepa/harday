@@ -165,6 +165,40 @@ just desktop-make
 
 The optional local API lives in `apps/api` and defaults to `127.0.0.1:8787`. It supports connector configuration, sync, and local import review flows.
 
+### Connector plugins
+
+Connector implementations live as standalone workspace packages under
+`connectors/`. They compile to self-contained JavaScript and do not import API,
+desktop, web, or shared application source at runtime.
+
+Development desktop builds compile and watch these plugin directories. Set
+`TIMETRACKER_DEV_PLUGIN_DIRS` to a platform-delimited list of other development
+plugin directories when needed, or choose a directory from Settings → Debug in
+the development desktop app. A selected directory must contain `plugin.json`
+and its compiled manifest entrypoint. The Debug setting is persisted for future
+development launches and is ignored by production builds. An explicit
+`TIMETRACKER_DEV_PLUGIN_DIRS` value overrides the saved Debug setting for that
+launch.
+
+```sh
+TIMETRACKER_DEV_PLUGIN_DIRS=/absolute/path/to/plugin just desktop-start
+```
+
+Production desktop installs use one local `.harday-connector` archive at a time
+through Settings → Connectors. Archive installation is available only through
+the desktop bridge and its native file chooser, not the loopback HTTP API. Build
+the repository connector archives with:
+
+```sh
+just connector-package
+```
+
+Each archive contains `plugin.json` and the compiled `dist/` tree. The manifest
+declares the connector version, host API version, entrypoint, icon, and
+connection fields. Production builds do not preinstall these repository
+connectors. Uninstalling removes the managed archive contents and connector
+configuration while retaining backlog items that were already imported.
+
 ## Verification
 
 The main verification path is:
@@ -181,6 +215,7 @@ just build
 apps/web/        React + Vite app for the main time-tracking UI
 apps/desktop/    Electron shell and packaging scripts
 apps/api/        local API for connectors and import flows
+connectors/      isolated connector plugin packages
 packages/shared/ shared schemas, rules, and domain logic
 docs/            architecture and logging notes
 ```

@@ -1,4 +1,4 @@
-const { cpSync, existsSync, mkdirSync, rmSync } = require("node:fs");
+const { cpSync, existsSync, mkdirSync, readFileSync, rmSync } = require("node:fs");
 const path = require("node:path");
 
 const desktopRoot = path.resolve(__dirname, "..");
@@ -15,10 +15,6 @@ const copyTargets = [
     from: path.resolve(repoRoot, "packages/shared"),
     to: path.join(outputRoot, "packages/shared"),
     excludePackageNodeModules: true,
-  },
-  {
-    from: path.resolve(repoRoot, "node_modules/zod"),
-    to: path.join(outputRoot, "node_modules/zod"),
   },
 ];
 
@@ -37,4 +33,33 @@ for (const target of copyTargets) {
     dereference: true,
     filter: (source) => !target.excludePackageNodeModules || path.basename(source) !== "node_modules",
   });
+}
+
+const copiedRuntimePackages = new Set();
+copyRuntimePackage("zod", [repoRoot]);
+copyRuntimePackage("tar", [path.resolve(repoRoot, "apps/api")]);
+
+function copyRuntimePackage(packageName, searchPaths) {
+  const packageJsonPath = require.resolve(`${packageName}/package.json`, {
+    paths: searchPaths,
+  });
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  const packageKey = `${packageJson.name}@${packageJson.version}`;
+  if (copiedRuntimePackages.has(packageKey)) {
+    return;
+  }
+  copiedRuntimePackages.add(packageKey);
+
+  const packageRoot = path.dirname(packageJsonPath);
+  const targetRoot = path.join(outputRoot, "node_modules", packageJson.name);
+  mkdirSync(path.dirname(targetRoot), { recursive: true });
+  cpSync(packageRoot, targetRoot, {
+    recursive: true,
+    force: true,
+    dereference: true,
+  });
+
+  for (const dependencyName of Object.keys(packageJson.dependencies ?? {})) {
+    copyRuntimePackage(dependencyName, [packageRoot]);
+  }
 }

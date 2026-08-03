@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveEstimateSyncAction } from "./estimate-sync.ts";
+import { resolveEstimateSyncAction } from "../src/estimate-sync.ts";
 
 describe("resolveEstimateSyncAction", () => {
   it("pushes the local value when only local changed", () => {

@@ -4,10 +4,12 @@ import { mergeConnectionConfigForSave } from "./connection-values.ts";
 
 const plugin: ConnectorPluginManifest = {
   id: "azure_devops",
+  version: "1.0.0",
+  apiVersion: 1,
   displayName: "Azure DevOps",
   description: "Test plugin",
   iconSvg: "<svg />",
-  entrypoint: "plugin.ts",
+  entrypoint: "plugin.js",
   connectionFields: [
     {
       id: "label",

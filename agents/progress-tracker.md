@@ -11,6 +11,7 @@ Use this file as a lightweight running checklist for agent work in this repo. Ke
 - [x] Repeated app surfaces use `AppPanel`, `MessagePanel`, and `SurfaceCallout`.
 - [x] Feature checkboxes use the shared `Checkbox` UI primitive.
 - [x] Connector settings plugin field rendering is extracted to a feature-local UI module.
+- [x] Settings presents connectors as activatable Plugins catalog entries with dedicated configuration detail routes.
 - [x] Web-domain contracts and pure calculations are separated from persistence and feature UI.
 - [x] Local state, duration, task budget/import, project icon, and Outlook contracts have canonical domain modules.
 - [x] `apps/web/src/lib` no longer depends on feature modules.
@@ -27,6 +28,17 @@ Use this file as a lightweight running checklist for agent work in this repo. Ke
 - [x] Desktop inline and mobile modal backlog editing share one canonical field, validation, draft, and patch model.
 - [x] Backlog, timesheet, project-task, and project-navigation reordering share one tested pointer lifecycle and geometry module.
 - [x] Adversarial review regressions cover connector identity and archive provenance, reversible estimate overruns, timer-linked edits, Outlook rescheduling, import validation, one-time desktop recovery, and overlapping drag state.
+- [x] Azure DevOps and Jira connector implementations are isolated as standalone
+  workspace packages with self-contained compiled archives.
+- [x] Development builds load connector directories while production installs
+  only validated `.harday-connector` archives.
+- [x] Development plugin directories are configurable from the Debug page, and
+  managed production plugins can be uninstalled without deleting imported
+  backlog items or being silently reinstalled on restart.
+- [x] Connector operations use parent-owned ephemeral worker threads with
+  timeout and shutdown termination.
+- [x] Desktop startup enforces a single application instance before starting
+  the local API or connector workers.
 
 ## Standard Task Flow
 

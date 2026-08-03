@@ -390,25 +390,27 @@ function ConnectorAutoSyncScheduler() {
         const overview = await getConnectorsOverview();
         const now = Date.now();
         const dueConnections = overview.connectionGroups.flatMap((group) =>
-          group.connections
-            .filter((connection) => {
-              if (!connection.autoSync) {
-                return false;
-              }
+          !group.enabled
+            ? []
+            : group.connections
+                .filter((connection) => {
+                  if (!connection.autoSync) {
+                    return false;
+                  }
 
-              if (!connection.lastSyncAt) {
-                return true;
-              }
+                  if (!connection.lastSyncAt) {
+                    return true;
+                  }
 
-              return (
-                now - connection.lastSyncAt >=
-                connection.autoSyncIntervalMinutes * 60_000
-              );
-            })
-            .map((connection) => ({
-              pluginId: group.plugin.id,
-              connection,
-            })),
+                  return (
+                    now - connection.lastSyncAt >=
+                    connection.autoSyncIntervalMinutes * 60_000
+                  );
+                })
+                .map((connection) => ({
+                  pluginId: group.plugin.id,
+                  connection,
+                })),
         );
 
         for (const dueConnection of dueConnections) {
@@ -416,11 +418,18 @@ function ConnectorAutoSyncScheduler() {
             break;
           }
 
-          await syncConnectorConnection(
-            dueConnection.pluginId,
-            dueConnection.connection.id,
-            { trigger: "auto" },
-          );
+          try {
+            await syncConnectorConnection(
+              dueConnection.pluginId,
+              dueConnection.connection.id,
+              { trigger: "auto" },
+            );
+          } catch (error) {
+            console.error(
+              `Connector auto sync failed for "${dueConnection.pluginId}".`,
+              error,
+            );
+          }
         }
       } catch (error) {
         console.error("Connector auto sync failed.", error);

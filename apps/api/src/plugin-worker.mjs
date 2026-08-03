@@ -1,0 +1,50 @@
+import { parentPort, workerData } from "node:worker_threads";
+import { serialize } from "node:v8";
+
+const MAX_CONNECTOR_PLUGIN_RESULT_BYTES = 8 * 1024 * 1024;
+
+if (!parentPort) {
+  throw new Error("Connector plugin worker requires a parent port.");
+}
+
+async function run() {
+  const pluginModule = await import(workerData.entrypointUrl);
+  const handler = pluginModule[workerData.method];
+  if (typeof handler !== "function") {
+    throw new Error(
+      `Connector plugin does not export ${workerData.method}().`,
+    );
+  }
+
+  if (workerData.method === "validateConnection") {
+    return await handler(workerData.params.config);
+  }
+
+  if (workerData.method === "syncConnection") {
+    return await handler(
+      workerData.params.connection,
+      workerData.params.workItems,
+    );
+  }
+
+  throw new Error(`Unknown connector plugin method: ${workerData.method}`);
+}
+
+try {
+  const result = await run();
+  if (serialize(result).byteLength > MAX_CONNECTOR_PLUGIN_RESULT_BYTES) {
+    throw new Error("Connector plugin result exceeds the allowed size.");
+  }
+  parentPort.postMessage({
+    ok: true,
+    result,
+  });
+} catch (error) {
+  parentPort.postMessage({
+    ok: false,
+    error:
+      error instanceof Error
+        ? error.message
+        : "Unknown connector plugin error.",
+  });
+}

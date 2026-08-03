@@ -1,12 +1,19 @@
+import type {
+  ConnectorFieldValues,
+  ConnectorPluginConnection,
+  ConnectorSyncWorkItem,
+} from "./contract.js";
+import { parseConnectorFieldValues } from "./contract.js";
 import {
-  connectorFieldValuesSchema,
-  connectorTaskIconDisplayModeSchema,
-  type ConnectorFieldValues,
-} from "../../../../packages/shared/src/connectors.ts";
-import { syncJiraConnection, type JiraConnectionInput, validateJiraConnection } from "../../src/connectors/jira.ts";
+  syncJiraConnection,
+  type JiraConnectionInput,
+  validateJiraConnection,
+} from "./jira.js";
+
+const TASK_ICON_DISPLAY_MODES = new Set(["always", "fallback", "never"]);
 
 function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string; label: string; tenantLabel: string }): JiraConnectionInput {
-  const parsed = connectorFieldValuesSchema.parse(values);
+  const parsed = parseConnectorFieldValues(values);
 
   if (typeof parsed.baseUrl !== "string" || !parsed.baseUrl.trim()) {
     throw new Error('Jira field "baseUrl" is required.');
@@ -52,14 +59,13 @@ function buildJiraConfig(values: ConnectorFieldValues, connection?: { id: string
 }
 
 export async function validateConnection(config: ConnectorFieldValues) {
-  const parsed = connectorFieldValuesSchema.parse(config);
-  const jiraConfig = buildJiraConfig(config);
+  const parsed = parseConnectorFieldValues(config);
+  const jiraConfig = buildJiraConfig(parsed);
   const validation = await validateJiraConnection(jiraConfig);
-  const taskIconDisplayMode = connectorTaskIconDisplayModeSchema.safeParse(
-    parsed.taskIconDisplayMode,
-  );
-
-  if (!taskIconDisplayMode.success) {
+  if (
+    typeof parsed.taskIconDisplayMode !== "string" ||
+    !TASK_ICON_DISPLAY_MODES.has(parsed.taskIconDisplayMode)
+  ) {
     return validation;
   }
 
@@ -67,17 +73,15 @@ export async function validateConnection(config: ConnectorFieldValues) {
     ...validation,
     normalizedConfig: {
       ...validation.normalizedConfig,
-      taskIconDisplayMode: taskIconDisplayMode.data,
+      taskIconDisplayMode: parsed.taskIconDisplayMode,
     },
   };
 }
 
-export async function syncConnection(connection: {
-  id: string;
-  label: string;
-  tenantLabel: string;
-  config: ConnectorFieldValues;
-}, workItems = []) {
+export async function syncConnection(
+  connection: ConnectorPluginConnection,
+  workItems: ConnectorSyncWorkItem[] = [],
+) {
   const jiraConfig = buildJiraConfig(connection.config, connection);
   return await syncJiraConnection(jiraConfig, workItems);
 }

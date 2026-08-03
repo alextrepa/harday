@@ -34,6 +34,7 @@
 
 - Import design-system controls from `apps/web/src/components/ui` instead of direct third-party packages in feature code.
 - Do not use raw checkbox inputs for app UI. Use `Checkbox` from `apps/web/src/components/ui/checkbox.tsx` so Base UI behavior, focus styling, checked state, and indeterminate state stay consistent.
+- Use `Switch` from `apps/web/src/components/ui/switch.tsx` for immediate on/off settings such as plugin activation. Give every switch an action-oriented accessible label.
 - Do not use `settings-panel` or `message-panel` classes directly in feature code. Use `AppPanel` and `MessagePanel` from `apps/web/src/components/app-surface.tsx`.
 - Keep direct Base UI imports inside `apps/web/src/components/ui` wrappers unless a new wrapper is being created.
 - Prefer existing app-level wrappers over copying Tailwind/CSS class groups across pages.
@@ -56,6 +57,15 @@
 - Add safe defaults for older local records when adding fields.
 - Preserve user-entered notes and time values exactly unless the user changes them.
 - Connector imports should produce reviewable candidates or explicit conflict states.
+- Connector packages under `connectors/` must compile and run without imports
+  from application source. Keep the host protocol structural and validate every
+  manifest, request, and result at the API boundary.
+- Run connector operations in ephemeral worker threads. Do not add persistent
+  plugin child processes or load plugin modules into the API or Electron main
+  execution context.
+- Keep packaged connector installation behind the Electron preload/IPC bridge.
+  Let the parent process choose and read the file; never accept paths or archive
+  bytes from the renderer or expose installation through the loopback HTTP API.
 - Scope connector work-item identity by source, connection, and source ID. Preserve user archives and notes on refresh; only auto-reactivate items marked as archived because they disappeared from sync.
 - Keep logged-time estimate changes reversible. Persist hidden remaining-estimate overrun state instead of discarding time when the visible remaining estimate reaches zero.
 - A project/task fallback may update estimates only when it resolves to exactly one active work item. Prefer an explicit work-item ID whenever the caller has one.

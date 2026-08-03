@@ -47,6 +47,7 @@ The product is aimed at people who need accurate workday time records without tu
 apps/web/        React + Vite product UI
 apps/desktop/    Electron runtime and packaging
 apps/api/        optional local API and connector plugin host
+connectors/      isolated installable connector implementations
 packages/shared/ shared domain logic and types
 docs/            architecture and strategy docs
 ```

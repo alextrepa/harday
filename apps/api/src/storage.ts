@@ -82,15 +82,16 @@ interface AppApiStateV2 {
   seenImportKeys?: string[];
 }
 
-interface AppApiStateV5 {
-  version: 5;
+interface AppApiStateV6 {
+  version: 6;
   connections: StoredConnection[];
   stagedImports: ConnectorImportCandidate[];
   dismissedImportKeys: string[];
   connectorBacklogStatuses: ConnectorBacklogStatus[];
+  disabledPluginIds: string[];
 }
 
-type AppApiState = AppApiStateV5;
+type AppApiState = AppApiStateV6;
 
 interface StageImportItemsResult {
   queuedCount: number;
@@ -107,11 +108,12 @@ function importKey(item: Pick<ConnectorImportCandidateInput, "source" | "connect
 
 function createDefaultState(): AppApiState {
   return {
-    version: 5,
+    version: 6,
     connections: [],
     stagedImports: [],
     dismissedImportKeys: [],
     connectorBacklogStatuses: [],
+    disabledPluginIds: [],
   };
 }
 
@@ -168,6 +170,8 @@ function compactFieldValues(values: Record<string, string | number | boolean | u
 function createMissingPluginManifest(pluginId: string): ConnectorPluginManifest {
   return {
     id: pluginId,
+    version: "0.0.0",
+    apiVersion: 1,
     displayName: pluginId,
     description: "Plugin unavailable.",
     iconSvg: MISSING_PLUGIN_ICON_SVG,
@@ -302,7 +306,7 @@ function normalizeState(raw: Partial<AppApiState | AppApiStateV1 | AppApiStateV2
     const defaults = createDefaultState();
 
     return {
-      version: 5,
+      version: 6,
       connections: raw.connections
         .filter(
           (connection): connection is StoredConnection =>
@@ -345,6 +349,17 @@ function normalizeState(raw: Partial<AppApiState | AppApiStateV1 | AppApiStateV2
             ),
         )
         .sort(compareBacklogStatuses),
+      disabledPluginIds: Array.from(
+        new Set(
+          (Array.isArray((raw as Partial<AppApiState>).disabledPluginIds)
+            ? (raw as Partial<AppApiState>).disabledPluginIds!
+            : defaults.disabledPluginIds)
+            .filter((pluginId): pluginId is string =>
+              typeof pluginId === "string" && pluginId.trim().length > 0,
+            )
+            .map((pluginId) => pluginId.trim()),
+        ),
+      ).sort(),
     };
   }
 
@@ -380,7 +395,7 @@ function normalizeState(raw: Partial<AppApiState | AppApiStateV1 | AppApiStateV2
       })) ?? defaults.connections);
 
     return {
-      version: 5,
+      version: 6,
       connections: legacyConnections.sort(compareConnections),
       stagedImports: (raw.stagedImports ?? defaults.stagedImports)
         .filter(
@@ -413,6 +428,7 @@ function normalizeState(raw: Partial<AppApiState | AppApiStateV1 | AppApiStateV2
             ),
         )
         .sort(compareBacklogStatuses),
+      disabledPluginIds: defaults.disabledPluginIds,
     };
   }
 
@@ -444,6 +460,9 @@ export class AppApiStorage {
     const allPlugins = Array.from(pluginMap.values()).sort(comparePluginManifests);
     const connectionGroups = allPlugins.map((plugin) => ({
       plugin,
+      enabled:
+        plugin.entrypoint.length > 0 &&
+        !state.disabledPluginIds.includes(plugin.id),
       connections: state.connections
         .filter((connection) => connection.pluginId === plugin.id)
         .map((connection) => buildConnectionSummary(state, connection, plugin)),
@@ -461,6 +480,60 @@ export class AppApiStorage {
         0,
       ),
     };
+  }
+
+  async isConnectorPluginEnabled(
+    pluginId: string,
+    availablePluginIds: ReadonlySet<string>,
+  ): Promise<boolean> {
+    const state = await this.readState();
+    return (
+      availablePluginIds.has(pluginId) &&
+      !state.disabledPluginIds.includes(pluginId)
+    );
+  }
+
+  async setConnectorPluginEnabled(
+    pluginId: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await this.mutate(async (state) => {
+      const disabledPluginIds = enabled
+        ? state.disabledPluginIds.filter((candidate) => candidate !== pluginId)
+        : Array.from(new Set([...state.disabledPluginIds, pluginId])).sort();
+
+      return {
+        nextState: {
+          ...state,
+          disabledPluginIds,
+        },
+        result: undefined,
+      };
+    });
+  }
+
+  async removeConnectorPluginData(pluginId: string): Promise<void> {
+    await this.mutate(async (state) => ({
+      nextState: {
+        ...state,
+        connections: state.connections.filter(
+          (connection) => connection.pluginId !== pluginId,
+        ),
+        stagedImports: state.stagedImports.filter(
+          (item) => item.source !== pluginId,
+        ),
+        dismissedImportKeys: state.dismissedImportKeys.filter(
+          (key) => !key.startsWith(`${pluginId}:`),
+        ),
+        connectorBacklogStatuses: state.connectorBacklogStatuses.filter(
+          (status) => status.source !== pluginId,
+        ),
+        disabledPluginIds: state.disabledPluginIds.filter(
+          (candidate) => candidate !== pluginId,
+        ),
+      },
+      result: undefined,
+    }));
   }
 
   async listConnectorBacklogStatuses() {
